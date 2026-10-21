@@ -138,6 +138,21 @@ describe('App', () => {
     expect(page.getByRole('button', { name: 'Reset' })).toBeDisabled()
   })
 
+  it('sets a filter per page, explains the re-encode, and disables it for PDF pages', async () => {
+    const { user, upload } = setup()
+    await upload('a.jpg', 'scan.pdf')
+    const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+    await user.click(panel.getByRole('radio', { name: 'B&W' }))
+    expect(panel.getByRole('radio', { name: 'B&W' })).toBeChecked()
+    expect(panel.getByText(/re-encoded for the filter/)).toBeInTheDocument()
+    expect(panel.getByRole('button', { name: 'Reset' })).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: 'Page 2: scan.pdf · p1' }))
+    expect(panel.getByRole('radio', { name: 'B&W' })).toBeDisabled()
+    expect(panel.getByRole('radio', { name: 'Original' })).toBeChecked()
+    expect(panel.getByText('PDF pages keep their original vector content.')).toBeInTheDocument()
+  })
+
   it('duplicates a page and selects the copy', async () => {
     const { user, upload } = setup()
     await upload('a.jpg')

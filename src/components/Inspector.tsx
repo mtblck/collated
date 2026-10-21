@@ -1,6 +1,6 @@
 import { useId, useMemo, type ReactNode } from 'react'
 import { layoutPage } from '../core/geometry'
-import type { Asset, FitMode, Page, PageTransform, Settings } from '../core/model'
+import type { Asset, Filter, FitMode, Page, PageTransform, Settings } from '../core/model'
 import { ANGLE_LIMIT, SCALE_MAX, SCALE_MIN, isVector } from '../core/model'
 import { formatBytes, formatLength } from '../core/units'
 import { Button, IconButton, Segmented } from './controls'
@@ -13,11 +13,18 @@ import {
   RotateRightIcon,
   TrashIcon,
 } from './Icons'
+import { useFilteredThumb } from '../hooks/useFilteredThumb'
 import { PagePreview } from './PagePreview'
 import { pageNumber } from './format'
 
 /** Below this a scan starts to look soft on paper. */
 const LOW_DPI = 150
+
+const FILTERS: readonly { value: Filter; label: string }[] = [
+  { value: 'original', label: 'Original' },
+  { value: 'grey', label: 'Greyscale' },
+  { value: 'bw', label: 'B&W' },
+]
 
 const FITS: readonly { value: FitMode; label: string }[] = [
   { value: 'contain', label: 'Fit' },
@@ -61,11 +68,17 @@ export const Inspector = ({
   const id = useId()
   const layout = useMemo(() => layoutPage(settings, asset, page), [settings, asset, page])
   const vector = isVector(asset)
+  const thumbUrl = useFilteredThumb(asset, page.filter)
   const lowRes = !vector && layout.dpi < LOW_DPI
   // Hug landscape pages; give tall pages a 3:4 box so the panel stays short.
   const boxRatio = Math.max(layout.page.width / layout.page.height, 3 / 4)
   const percent = Math.round(page.scale * 100)
-  const changed = page.turns !== 0 || page.angle !== 0 || page.scale !== 1 || page.fit !== 'contain'
+  const changed =
+    page.turns !== 0 ||
+    page.angle !== 0 ||
+    page.scale !== 1 ||
+    page.fit !== 'contain' ||
+    page.filter !== 'original'
 
   return (
     <section aria-labelledby={`${id}-heading`} className="flex flex-col gap-6">
@@ -84,7 +97,7 @@ export const Inspector = ({
       </header>
 
       <div className="w-full rounded-[3px] bg-paper-sunk p-5" style={{ aspectRatio: boxRatio }}>
-        <PagePreview layout={layout} thumbUrl={asset.thumbUrl} boxRatio={boxRatio} showMargins />
+        <PagePreview layout={layout} thumbUrl={thumbUrl} boxRatio={boxRatio} showMargins />
       </div>
 
       <div>
@@ -171,6 +184,26 @@ export const Inspector = ({
             }}
           />
         </div>
+      </div>
+
+      <div>
+        <Segmented
+          legend="Filter"
+          value={vector ? 'original' : page.filter}
+          options={FILTERS}
+          disabled={vector}
+          describedBy={`${id}-filter-note`}
+          onChange={(filter) => {
+            actions.onTransform({ filter })
+          }}
+        />
+        <p id={`${id}-filter-note`} className="mt-2 text-xs leading-relaxed text-ink-muted">
+          {vector
+            ? 'PDF pages keep their original vector content.'
+            : page.filter === 'original'
+              ? 'Greyscale and B&W clean up photographed paper.'
+              : 'This page’s image is re-encoded for the filter (greyscale as JPEG, B&W as lossless PNG).'}
+        </p>
       </div>
 
       <dl className="divide-y divide-rule-soft border-y border-rule">

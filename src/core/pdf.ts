@@ -11,7 +11,7 @@ import {
   type PDFPage,
 } from '@cantoo/pdf-lib'
 import { layoutPage, type Layout } from './geometry'
-import type { Asset, Page, Settings } from './model'
+import type { Asset, Filter, Page, Settings } from './model'
 
 export interface BuildInput {
   settings: Settings
@@ -25,6 +25,15 @@ export interface BuildInput {
 export interface BuildOptions {
   /** Returns stored bytes by `bytesId` (the same bytes imported). */
   getBytes: (bytesId: string) => Uint8Array | Promise<Uint8Array>
+  /**
+   * Decodes, filters and re-encodes an image for a page with a filter. Needs
+   * a canvas, so the worker provides it; the result is upright (stored turns
+   * already applied by the decode).
+   */
+  filterImage?: (
+    bytes: Uint8Array,
+    filter: Exclude<Filter, 'original'>,
+  ) => Promise<{ bytes: Uint8Array; format: 'jpeg' | 'png' }>
   onProgress?: (done: number, total: number) => void
   /** Fixed for reproducible output in tests. */
   now?: Date
@@ -107,11 +116,20 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     }
     return loaded
   }
-  const embed = async (asset: BuildInput['assets'][string]) => {
-    const cached = embedded.get(asset.id)
+  /** What a page embeds: its asset, filtered or not. PDF pages ignore filters. */
+  const embed = async (asset: BuildInput['assets'][string], filter: Filter) => {
+    const filtered = filter !== 'original' && asset.format !== 'pdf'
+    const key = filtered ? `${asset.id}:${filter}` : asset.id
+    const cached = embedded.get(key)
     if (cached) return cached
     let content: Embedded
-    if (asset.format === 'pdf') {
+    if (filtered) {
+      if (!options.filterImage) throw new Error('This build can’t apply image filters.')
+      const out = await options.filterImage(await options.getBytes(asset.bytesId), filter)
+      const image =
+        out.format === 'jpeg' ? await doc.embedJpg(out.bytes) : await doc.embedPng(out.bytes)
+      content = { kind: 'image', image }
+    } else if (asset.format === 'pdf') {
       const src = await source(asset.bytesId)
       const srcPage = src.getPage(asset.pdfPage ?? 0)
       content = { kind: 'page', page: await doc.embedPage(srcPage, visibleBox(srcPage)) }
@@ -120,7 +138,7 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
       const image = asset.format === 'jpeg' ? await doc.embedJpg(bytes) : await doc.embedPng(bytes)
       content = { kind: 'image', image }
     }
-    embedded.set(asset.id, content)
+    embedded.set(key, content)
     return content
   }
 
@@ -129,9 +147,11 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     if (!asset) throw new Error(`Page ${index + 1} refers to missing content.`)
     const layout = layoutPage(settings, asset, page)
     const pdfPage = doc.addPage([layout.page.width, layout.page.height])
-    const content = await embed(asset)
+    const content = await embed(asset, page.filter)
     const box = layout.content
-    const at = placement(layout, asset.storedTurns)
+    // A filtered image was decoded upright, so it has no stored turns left.
+    const filtered = page.filter !== 'original' && asset.format !== 'pdf'
+    const at = placement(layout, filtered ? 0 : asset.storedTurns)
 
     // Clip to the printable area so a scaled-up or filled image never prints
     // into the margins — the preview clips the same way.

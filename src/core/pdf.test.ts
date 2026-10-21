@@ -63,7 +63,13 @@ const build = async (s: Settings, items: { file: string; page?: Partial<Page> }[
   const pages = items.map(({ file, page: p }, i) => page(`p${i}`, file, p))
   const bytes = await buildPdf(
     { settings: s, pages, assets },
-    { getBytes: (id) => bytesById.get(id) ?? new Uint8Array(), now: NOW },
+    {
+      getBytes: (id) => bytesById.get(id) ?? new Uint8Array(),
+      // Stands in for the worker's canvas: returns the upright original, so
+      // placement (not pixels) is what's under test.
+      filterImage: () => Promise.resolve({ bytes: fixture('quad-landscape.png'), format: 'png' }),
+      now: NOW,
+    },
   )
   return { bytes, assets, pages }
 }
@@ -129,6 +135,47 @@ describe('buildPdf', () => {
         .toString('latin1')
         .match(/\/Subtype\s*\/Image/g),
     ).toHaveLength(1)
+  })
+
+  it('runs filtered images through filterImage once per image and filter', async () => {
+    const { meta, bytes } = await fileAsset('quad-landscape.jpg')
+    const calls: string[] = []
+    const out = await buildPdf(
+      {
+        settings: settings(),
+        pages: [
+          page('a', meta.id, { filter: 'grey' }),
+          page('b', meta.id, { filter: 'grey' }),
+          page('c', meta.id, { filter: 'bw' }),
+          page('d', meta.id),
+        ],
+        assets: { [meta.id]: meta },
+      },
+      {
+        getBytes: () => bytes,
+        filterImage: (_bytes, filter) => {
+          calls.push(filter)
+          return Promise.resolve({ bytes: fixture('quad-landscape.png'), format: 'png' })
+        },
+      },
+    )
+    expect(calls).toEqual(['grey', 'bw'])
+    // Original JPEG still passes through for the unfiltered page.
+    expect(Buffer.from(out).includes(Buffer.from(bytes))).toBe(true)
+  })
+
+  it('fails clearly if a page needs a filter and none is available', async () => {
+    const { meta, bytes } = await fileAsset('quad-landscape.jpg')
+    await expect(
+      buildPdf(
+        {
+          settings: settings(),
+          pages: [page('a', meta.id, { filter: 'bw' })],
+          assets: { [meta.id]: meta },
+        },
+        { getBytes: () => bytes },
+      ),
+    ).rejects.toThrow(/filters/)
   })
 
   it('reports progress per page', async () => {
@@ -247,6 +294,8 @@ const close = (a: readonly number[], b: readonly number[]) =>
 
 describe.skipIf(!hasPdftoppm)('rendered output matches the layout', () => {
   const cases: { name: string; file: string; s?: Partial<Settings>; p?: Partial<Page> }[] = [
+    // The filter fake returns an upright PNG; EXIF turns must not apply twice.
+    { name: 'filtered EXIF 6 photo', file: 'quad-exif6.jpg', p: { filter: 'grey', turns: 1 } },
     { name: 'upright JPEG', file: 'quad-landscape.jpg' },
     { name: 'PDF page', file: 'quad-3pages.pdf#1' },
     { name: 'PDF page with /Rotate 90', file: 'quad-rotate90.pdf#0' },

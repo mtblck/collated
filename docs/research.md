@@ -6,7 +6,7 @@ order: 10
 
 Research from October 2026 into what scan-to-PDF tools (Adobe Scan, Microsoft Lens, Apple Notes, NAPS2, Stirling-PDF, iLovePDF, Smallpdf) offer, and what each would cost to do client-side under Collated's constraints: no server, strict CSP (`script-src 'self'`, WASM allowed via `'wasm-unsafe-eval'` if needed), MIT licence. Package sizes are gzipped, measured from the published builds.
 
-Done: merging PDFs (#9). Already in v1: page sizes, orientation (incl. auto per page), margins, fit/fill, rotation, straightening, scale, title metadata, JPEG passthrough, EXIF orientation.
+Done: merging PDFs (#9), greyscale and B&W filters (#10). Already in v1: page sizes, orientation (incl. auto per page), margins, fit/fill, rotation, straightening, scale, title metadata, JPEG passthrough, EXIF orientation.
 
 ## Ranked by value for cost
 

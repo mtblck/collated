@@ -1,5 +1,6 @@
 import type { Asset } from '../core/model'
 import { passthrough, type SniffedType } from '../core/imageInfo'
+import { assetStore } from './assetStore'
 
 /** A user-facing reason a file couldn't be added. */
 export class ImportError extends Error {
@@ -142,7 +143,7 @@ export const importImage = async (
           height: size.height,
           format,
           storedTurns,
-          thumbUrl: URL.createObjectURL(thumb),
+          thumbUrl: assetStore.thumbUrl(thumb),
           byteLength: bytes.byteLength,
         },
       ],

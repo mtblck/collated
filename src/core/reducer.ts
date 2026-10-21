@@ -101,8 +101,11 @@ export const docReducer = (state: DocState, action: Action): DocState => {
     case 'applyToAll': {
       const source = state.pages.find((p) => p.id === action.id)
       if (!source) return state
-      const { turns, angle, scale, fit } = source
-      return { ...state, pages: state.pages.map((p) => ({ ...p, turns, angle, scale, fit })) }
+      const { turns, angle, scale, fit, filter } = source
+      return {
+        ...state,
+        pages: state.pages.map((p) => ({ ...p, turns, angle, scale, fit, filter })),
+      }
     }
 
     case 'setSettings':

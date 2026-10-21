@@ -266,7 +266,7 @@ await inspector.getByRole('button', { name: 'Right' }).click()
 const straighten = inspector.getByLabel('Straighten')
 await straighten.focus()
 for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowRight') // +5°
-const scale = inspector.getByLabel('Scale')
+const scale = inspector.getByLabel('Scale', { exact: true })
 await scale.fill('80')
 await scale.dispatchEvent('change')
 check(
@@ -447,7 +447,113 @@ await context.close()
   await ctx.close()
 }
 
-// 4. Phone-sized, dark. -------------------------------------------------------
+// 4. Filters: greyscale and B&W, preview matching export. ---------------------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles(
+    '[data-testid="file-input"]',
+    ['quad-landscape.jpg', 'quad-exif6.jpg', 'doc-photo.jpg'].map((f) => join(fixtures, f)),
+  )
+  await p.waitForSelector('ol[aria-label="3 pages"]')
+  const panel = p.locator('aside[aria-label="Selected page"]')
+
+  await p.getByRole('button', { name: 'Page 1: quad-landscape.jpg' }).click()
+  await panel.getByRole('radio', { name: 'B&W' }).check({ force: true })
+  await p.getByRole('button', { name: 'Page 2: quad-exif6.jpg' }).click()
+  await panel.getByRole('radio', { name: 'Greyscale' }).check({ force: true })
+  await p.waitForTimeout(500) // filtered thumbnails are made asynchronously
+  const greyPreview = (await panel.locator('.sheet').first().screenshot(sheetShot)).toString(
+    'base64',
+  )
+  await p.getByRole('button', { name: 'Page 1: quad-landscape.jpg' }).click()
+  await p.waitForTimeout(300)
+  const bwPreview = (await panel.locator('.sheet').first().screenshot(sheetShot)).toString('base64')
+  // The case B&W is for: a photographed page with a shadow across it.
+  await p.getByRole('button', { name: 'Page 3: doc-photo.jpg' }).click()
+  await panel.getByRole('radio', { name: 'B&W' }).check({ force: true })
+  await p.waitForTimeout(500)
+  await panel
+    .locator('.sheet')
+    .first()
+    .screenshot({ ...sheetShot, path: join(shots, 'doc-bw.png') })
+  await panel.getByRole('radio', { name: 'Original' }).check({ force: true })
+  await p.waitForTimeout(200)
+  await panel
+    .locator('.sheet')
+    .first()
+    .screenshot({ ...sheetShot, path: join(shots, 'doc-original.png') })
+  await panel.getByRole('radio', { name: 'B&W' }).check({ force: true })
+  await p.screenshot({ path: join(shots, 'filters.png'), fullPage: true })
+
+  const [dl] = await Promise.all([
+    p.waitForEvent('download'),
+    p.getByRole('button', { name: /Export PDF/ }).click(),
+  ])
+  const outPath = join(mkdtempSync(join(tmpdir(), 'collated-verify-filter-')), 'filtered.pdf')
+  await dl.saveAs(outPath)
+  const out = readFileSync(outPath)
+  check(
+    !out.includes(readFileSync(join(fixtures, 'quad-landscape.jpg'))),
+    'filtered pages are re-encoded rather than passed through',
+  )
+  if (hasPoppler) {
+    const prefix = outPath.replace(/\.pdf$/, '')
+    execFileSync('pdftoppm', ['-png', '-r', '72', outPath, prefix])
+    const [bwRender, greyRender] = ['1', '2'].map((n) =>
+      readFileSync(`${prefix}-${n}.png`).toString('base64'),
+    )
+    const bw = await compareImages(bwRender, bwPreview)
+    const grey = await compareImages(greyRender, greyPreview)
+    check(
+      bw.farShare < 0.03,
+      `B&W page: preview matches the export (${(bw.farShare * 100).toFixed(2)}% differ)`,
+    )
+    check(
+      grey.farShare < 0.03,
+      `greyscale EXIF-rotated page: preview matches the export (${(grey.farShare * 100).toFixed(2)}% differ)`,
+    )
+    const tones = await p.evaluate(
+      async ([bwSrc, greySrc]) => {
+        const read = async (src) => {
+          const img = new Image()
+          img.src = `data:image/png;base64,${src}`
+          await img.decode()
+          const c = document.createElement('canvas')
+          c.width = img.width
+          c.height = img.height
+          const g = c.getContext('2d')
+          g.drawImage(img, 0, 0)
+          return g.getImageData(0, 0, c.width, c.height).data
+        }
+        const [b, gr] = await Promise.all([read(bwSrc), read(greySrc)])
+        let notBinary = 0
+        for (let i = 0; i < b.length; i += 4) {
+          const v = b[i]
+          if (v > 40 && v < 215) notBinary += 1
+        }
+        let coloured = 0
+        for (let i = 0; i < gr.length; i += 4) {
+          if (Math.max(gr[i], gr[i + 1], gr[i + 2]) - Math.min(gr[i], gr[i + 1], gr[i + 2]) > 12)
+            coloured += 1
+        }
+        return { notBinary: notBinary / (b.length / 4), coloured: coloured / (gr.length / 4) }
+      },
+      [bwRender, greyRender],
+    )
+    check(
+      tones.notBinary < 0.01,
+      `B&W page is black and white (${(tones.notBinary * 100).toFixed(2)}% mid-tones)`,
+    )
+    check(
+      tones.coloured < 0.01,
+      `greyscale page has no colour (${(tones.coloured * 100).toFixed(2)}% coloured)`,
+    )
+  }
+  await ctx.close()
+}
+
+// 5. Phone-sized, dark. -------------------------------------------------------
 {
   const { context: phone, page: p } = await open({
     viewport: { width: 390, height: 844 },

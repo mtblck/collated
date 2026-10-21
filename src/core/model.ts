@@ -15,6 +15,13 @@ export type Orientation = 'auto' | 'portrait' | 'landscape'
 /** `contain` shows the whole image; `cover` fills the printable area and crops. */
 export type FitMode = 'contain' | 'cover'
 
+/**
+ * How a page's image is tidied for a document: as shot, greyscale, or black
+ * and white (an adaptive threshold that keeps text crisp under uneven light).
+ * Images only; PDF pages are vector and pass through untouched.
+ */
+export type Filter = 'original' | 'grey' | 'bw'
+
 export type QuarterTurns = 0 | 1 | 2 | 3
 
 export interface Settings {
@@ -79,11 +86,18 @@ export interface Page {
   /** Multiplier on the fitted size: 1 is exactly fitted. */
   scale: number
   fit: FitMode
+  filter: Filter
 }
 
-export type PageTransform = Pick<Page, 'turns' | 'angle' | 'scale' | 'fit'>
+export type PageTransform = Pick<Page, 'turns' | 'angle' | 'scale' | 'fit' | 'filter'>
 
-export const DEFAULT_TRANSFORM: PageTransform = { turns: 0, angle: 0, scale: 1, fit: 'contain' }
+export const DEFAULT_TRANSFORM: PageTransform = {
+  turns: 0,
+  angle: 0,
+  scale: 1,
+  fit: 'contain',
+  filter: 'original',
+}
 
 export const ANGLE_LIMIT = 45
 export const SCALE_MIN = 0.1
