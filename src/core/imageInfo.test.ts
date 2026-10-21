@@ -1,7 +1,14 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import { fixture } from '../../tests/helpers'
-import { orientationTurns, passthrough, readJpegInfo, readPngInfo, sniff } from './imageInfo'
+import {
+  headerSize,
+  orientationTurns,
+  passthrough,
+  readJpegInfo,
+  readPngInfo,
+  sniff,
+} from './imageInfo'
 
 describe('sniff', () => {
   it('identifies files by their bytes, not their names', () => {
@@ -92,5 +99,15 @@ describe('passthrough', () => {
     ]) {
       expect(passthrough(fixture(name)).ok, name).toBe(false)
     }
+  })
+})
+
+describe('headerSize', () => {
+  it('reads the declared size of JPEGs and PNGs without decoding', () => {
+    expect(headerSize(fixture('quad-landscape.jpg'))).toEqual({ width: 240, height: 160 })
+    expect(headerSize(fixture('quad-exif6.jpg'))).toEqual({ width: 160, height: 240 })
+    expect(headerSize(fixture('quad-landscape.png'))).toEqual({ width: 240, height: 160 })
+    expect(headerSize(fixture('quad-landscape.webp'))).toBeNull()
+    expect(headerSize(new Uint8Array())).toBeNull()
   })
 })

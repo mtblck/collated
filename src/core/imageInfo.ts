@@ -180,3 +180,13 @@ export const passthrough = (bytes: Uint8Array): Passthrough => {
   }
   return { ok: false, reason: `${type} needs converting` }
 }
+
+/**
+ * The pixel size a JPEG or PNG header declares (stored orientation), or null
+ * for other types or an unreadable header. Read before decoding, so a file
+ * claiming an absurd size is refused without allocating for it.
+ */
+export const headerSize = (bytes: Uint8Array): { width: number; height: number } | null => {
+  const info = readJpegInfo(bytes) ?? readPngInfo(bytes)
+  return info ? { width: info.width, height: info.height } : null
+}
