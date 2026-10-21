@@ -1,0 +1,284 @@
+@import 'tailwindcss';
+
+/* ---------------------------------------------------------------------------
+   Type: the portfolio's three faces, self-hosted. Relative URLs so Vite hashes
+   them under /tools/collated/assets/. Latin subsets only — this is a UI, not
+   a document renderer. `optional` + metric-matched fallbacks: a slow font keeps
+   the fallback for the page load instead of swapping under the reader.
+   --------------------------------------------------------------------------- */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: optional;
+  src: url('./assets/fonts/instrument-serif-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-weight: 400;
+  font-display: optional;
+  src: url('./assets/fonts/instrument-serif-latin-400-italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Archivo Variable';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: optional;
+  src: url('./assets/fonts/archivo-latin-wght-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono Variable';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: optional;
+  src: url('./assets/fonts/jetbrains-mono-latin-wght-normal.woff2') format('woff2');
+}
+/* Fallback metrics measured for mb-portfolio; see its src/index.css. */
+@font-face {
+  font-family: 'Instrument Serif Fallback';
+  src: local('Georgia'), local('Times New Roman'), local('Times');
+  size-adjust: 81.78%;
+  ascent-override: 121.06%;
+  descent-override: 37.91%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'Archivo Fallback';
+  src: local('Helvetica Neue'), local('Arial'), local('Roboto');
+  size-adjust: 99.14%;
+  ascent-override: 88.76%;
+  descent-override: 21.18%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'JetBrains Mono Fallback';
+  src: local('SF Mono'), local('Menlo'), local('Consolas'), local('DejaVu Sans Mono');
+  size-adjust: 99.66%;
+  ascent-override: 102.35%;
+  descent-override: 30.1%;
+  line-gap-override: 0%;
+}
+
+/* ---------------------------------------------------------------------------
+   Palette, from mb-portfolio: warm paper, warm ink, one vermillion accent used
+   only for signal (focus, selection, the drop target, warnings) — never as a
+   fill behind text. `faint` is set to clear WCAG AA at small sizes.
+
+   Pages themselves stay white in both themes, because that's what the PDF
+   will be; in dark mode they're dimmed slightly so they don't glare.
+   --------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+  --c-paper: oklch(0.986 0.005 85);
+  --c-paper-sunk: oklch(0.962 0.007 82);
+  --c-ink: oklch(0.215 0.014 55);
+  --c-ink-muted: oklch(0.445 0.013 55);
+  --c-ink-faint: oklch(0.54 0.012 60);
+  --c-rule: oklch(0.892 0.009 72);
+  --c-rule-soft: oklch(0.935 0.007 76);
+  --c-accent: oklch(0.552 0.171 38);
+  --c-accent-dim: oklch(0.552 0.171 38 / 0.12);
+  --c-selection: oklch(0.552 0.171 38 / 0.18);
+  --c-sheet: #fff;
+  --c-sheet-shadow: 0 1px 2px oklch(0.215 0.014 55 / 0.08), 0 4px 14px oklch(0.215 0.014 55 / 0.07);
+  --sheet-filter: none;
+  --grain-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.42'/%3E%3C/svg%3E");
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --c-paper: oklch(0.172 0.008 65);
+  --c-paper-sunk: oklch(0.145 0.007 65);
+  --c-ink: oklch(0.932 0.008 82);
+  --c-ink-muted: oklch(0.775 0.011 75);
+  --c-ink-faint: oklch(0.65 0.011 70);
+  --c-rule: oklch(0.305 0.011 70);
+  --c-rule-soft: oklch(0.248 0.01 68);
+  --c-accent: oklch(0.702 0.153 42);
+  --c-accent-dim: oklch(0.702 0.153 42 / 0.16);
+  --c-selection: oklch(0.702 0.153 42 / 0.22);
+  --c-sheet: #f4f1ec;
+  --c-sheet-shadow: 0 1px 2px oklch(0 0 0 / 0.4), 0 6px 18px oklch(0 0 0 / 0.35);
+  --sheet-filter: brightness(0.92);
+}
+
+@theme inline {
+  --color-paper: var(--c-paper);
+  --color-paper-sunk: var(--c-paper-sunk);
+  --color-ink: var(--c-ink);
+  --color-ink-muted: var(--c-ink-muted);
+  --color-ink-faint: var(--c-ink-faint);
+  --color-rule: var(--c-rule);
+  --color-rule-soft: var(--c-rule-soft);
+  --color-accent: var(--c-accent);
+  --color-accent-dim: var(--c-accent-dim);
+  --color-sheet: var(--c-sheet);
+
+  --font-display: 'Instrument Serif', 'Instrument Serif Fallback', Georgia, serif;
+  --font-sans: 'Archivo Variable', 'Archivo Fallback', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono Fallback', ui-monospace, monospace;
+
+  --text-display: clamp(2.75rem, 7vw, 5.75rem);
+  --text-display--line-height: 0.95;
+  --text-display--letter-spacing: -0.022em;
+  --text-label: 0.6875rem;
+  --text-label--line-height: 1;
+  --text-label--letter-spacing: 0.13em;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background-color: var(--c-paper);
+    color: var(--c-ink);
+    font-family: var(--font-sans);
+    font-synthesis-weight: none;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: var(--c-selection);
+  }
+  :focus-visible {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 3px;
+    border-radius: 1px;
+  }
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  select:not(:disabled),
+  label:has(input[type='radio']:not(:disabled)) {
+    cursor: pointer;
+  }
+  :where(button, a) {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer components {
+  /* Mono small caps: the "spec sheet" register that pairs with the serif. */
+  .label {
+    font-family: var(--font-mono);
+    font-size: var(--text-label);
+    letter-spacing: var(--text-label--letter-spacing);
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+
+  .grain {
+    background-image: var(--grain-url);
+    background-size: 180px 180px;
+    opacity: 0.5;
+    mix-blend-mode: multiply;
+  }
+  :root[data-theme='dark'] .grain {
+    opacity: 0.3;
+    mix-blend-mode: screen;
+  }
+
+  /* A page as it will print. */
+  .sheet {
+    background: var(--c-sheet);
+    box-shadow: var(--c-sheet-shadow);
+    filter: var(--sheet-filter);
+  }
+
+  /* Printer's crop marks at the corners of the drop target. */
+  .crop-marks {
+    --mark: 18px;
+    --gap: -9px;
+    background:
+      linear-gradient(var(--c-ink-faint), var(--c-ink-faint)) top var(--gap) left 0 / 1px
+        var(--mark),
+      linear-gradient(var(--c-ink-faint), var(--c-ink-faint)) top 0 left var(--gap) / var(--mark)
+        1px,
+      linear-gradient(var(--c-ink-faint), var(--c-ink-faint)) top var(--gap) right 0 / 1px
+        var(--mark),
+      linear-gradient(var(--c-ink-faint), var(--c-ink-faint)) top 0 right var(--gap) / var(--mark)
+        1px,
+      linear-gradient(var(--c-ink-faint), var(--c-ink-faint)) bottom var(--gap) left 0 / 1px
+        var(--mark),
+      linear-gradient(var(--c-ink-faint), var(--c-ink-faint)) bottom 0 left var(--gap) / var(--mark)
+        1px,
+      linear-gradient(var(--c-ink-faint), var(--c-ink-faint)) bottom var(--gap) right 0 / 1px
+        var(--mark),
+      linear-gradient(var(--c-ink-faint), var(--c-ink-faint)) bottom 0 right var(--gap) /
+        var(--mark) 1px;
+    background-repeat: no-repeat;
+  }
+
+  /* Native range, restyled: hairline track, ink thumb, accent when focused. */
+  .range {
+    appearance: none;
+    width: 100%;
+    height: 1.5rem;
+    background: transparent;
+  }
+  .range::-webkit-slider-runnable-track {
+    height: 1px;
+    background: var(--c-ink-faint);
+  }
+  .range::-moz-range-track {
+    height: 1px;
+    background: var(--c-ink-faint);
+  }
+  .range::-webkit-slider-thumb {
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -7px;
+    border-radius: 999px;
+    background: var(--c-ink);
+    border: 2px solid var(--c-paper);
+    box-shadow: 0 0 0 1px var(--c-ink);
+  }
+  .range::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--c-ink);
+    border: 2px solid var(--c-paper);
+    box-shadow: 0 0 0 1px var(--c-ink);
+  }
+  .range:focus-visible {
+    outline-offset: 1px;
+  }
+  .range:focus-visible::-webkit-slider-thumb {
+    background: var(--c-accent);
+    box-shadow: 0 0 0 1px var(--c-accent);
+  }
+  .range:focus-visible::-moz-range-thumb {
+    background: var(--c-accent);
+    box-shadow: 0 0 0 1px var(--c-accent);
+  }
+
+  .field {
+    height: 2.25rem;
+    border: 1px solid var(--c-rule);
+    border-radius: 2px;
+    background: var(--c-paper);
+    padding-inline: 0.625rem;
+    font-size: 0.875rem;
+    color: var(--c-ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .field:hover:not(:disabled) {
+    border-color: var(--c-ink-faint);
+  }
+  .field:focus-visible {
+    outline-offset: 0;
+    border-color: var(--c-accent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

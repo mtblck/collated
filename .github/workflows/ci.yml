@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint, types, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      # pdftoppm renders exported PDFs in the placement tests.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build
+
+  e2e:
+    name: Browser verify (Chromium, axe, preview ≡ PDF)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run verify
+        env:
+          SHOTS: shots
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verify-screenshots
+          path: shots
+          if-no-files-found: ignore

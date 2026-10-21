@@ -1,0 +1,85 @@
+/**
+ * The document model. Everything here is plain data so the reducer, the
+ * preview and the PDF export can all be tested without a browser.
+ *
+ * Lengths are PDF points (1/72 in) throughout; units only appear at the UI edge.
+ */
+
+export type Unit = 'mm' | 'in'
+
+export type PageSizeId = 'a3' | 'a4' | 'a5' | 'letter' | 'legal' | 'tabloid' | 'custom'
+
+/** `auto` picks portrait or landscape per page to match the (rotated) image. */
+export type Orientation = 'auto' | 'portrait' | 'landscape'
+
+/** `contain` shows the whole image; `cover` fills the printable area and crops. */
+export type FitMode = 'contain' | 'cover'
+
+export type QuarterTurns = 0 | 1 | 2 | 3
+
+export interface Settings {
+  size: PageSizeId
+  /** Used when size is `custom`; width and height in points. */
+  custom: { width: number; height: number }
+  /** Display unit for custom size and margin. */
+  unit: Unit
+  orientation: Orientation
+  /** Blank border on every side, in points. Images are clipped to it. */
+  margin: number
+  /** PDF title metadata and the download filename. */
+  title: string
+}
+
+/**
+ * Metadata for an imported image. The bytes live outside React state (see
+ * import/assetStore.ts) because they can be tens of megabytes each.
+ */
+export interface Asset {
+  id: string
+  name: string
+  /** Pixel size as displayed, i.e. after EXIF orientation is applied. */
+  width: number
+  height: number
+  /** How the stored bytes are embedded in the PDF. */
+  format: 'jpeg' | 'png'
+  /**
+   * Clockwise rotation, in quarter turns, that the stored bytes need to appear
+   * upright. Non-zero only for JPEGs kept byte-for-byte whose EXIF orientation
+   * says "rotate"; PDF viewers ignore EXIF, so the export applies it instead.
+   */
+  storedTurns: QuarterTurns
+  /** Object URL of a small upright JPEG preview. */
+  thumbUrl: string
+  /** Size of the stored bytes, for display. */
+  byteLength: number
+}
+
+export interface Page {
+  id: string
+  assetId: string
+  /** Clockwise quarter turns applied by the user. */
+  turns: QuarterTurns
+  /** Fine clockwise rotation in degrees, for straightening a skewed scan. */
+  angle: number
+  /** Multiplier on the fitted size: 1 is exactly fitted. */
+  scale: number
+  fit: FitMode
+}
+
+export type PageTransform = Pick<Page, 'turns' | 'angle' | 'scale' | 'fit'>
+
+export const DEFAULT_TRANSFORM: PageTransform = { turns: 0, angle: 0, scale: 1, fit: 'contain' }
+
+export const ANGLE_LIMIT = 45
+export const SCALE_MIN = 0.1
+export const SCALE_MAX = 4
+
+export interface DocState {
+  settings: Settings
+  assets: Record<string, Asset>
+  pages: Page[]
+}
+
+/** Total clockwise rotation of a page, in degrees. */
+export const pageRotation = (page: Pick<Page, 'turns' | 'angle'>): number =>
+  page.turns * 90 + page.angle

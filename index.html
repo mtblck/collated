@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/tools/collated/favicon.svg" type="image/svg+xml" />
+    <title>Collated — scans to one PDF</title>
+    <meta
+      name="description"
+      content="Turn scanned pages and phone photos into a single PDF. Reorder, rotate and scale each page. Runs entirely in your browser: nothing is uploaded."
+    />
+    <link rel="canonical" href="https://mattblack.space/tools/collated/" />
+    <meta name="theme-color" content="#fcfaf6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#242220" media="(prefers-color-scheme: dark)" />
+    <!-- Absolute path: a relative ./theme.js 404s on deep links. -->
+    <script src="/tools/collated/theme.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <noscript>
+      <p style="font-family: system-ui; padding: 2rem; max-width: 40rem">
+        Collated needs JavaScript: it builds your PDF in the browser so your files never leave this
+        device.
+      </p>
+    </noscript>
+  </body>
+</html>

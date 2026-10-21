@@ -1,0 +1,106 @@
+import { describe, expect, it } from 'vitest'
+import { asset, doc } from '../../tests/helpers'
+import { PAGE_MAX, PAGE_MIN, docReducer } from './reducer'
+
+const ids = (state: { pages: { id: string }[] }) => state.pages.map((p) => p.id)
+
+describe('docReducer', () => {
+  it('appends imported pages, or inserts them at an index', () => {
+    const start = doc(2)
+    const appended = docReducer(start, { type: 'addPages', assets: [asset('n')], pageIds: ['pn'] })
+    expect(ids(appended)).toEqual(['p0', 'p1', 'pn'])
+    expect(appended.assets.n).toBeDefined()
+    const inserted = docReducer(start, {
+      type: 'addPages',
+      assets: [asset('n')],
+      pageIds: ['pn'],
+      at: 1,
+    })
+    expect(ids(inserted)).toEqual(['p0', 'pn', 'p1'])
+  })
+
+  it('moves a page forwards and backwards and ignores out-of-range moves', () => {
+    const start = doc(4)
+    expect(ids(docReducer(start, { type: 'movePage', from: 0, to: 2 }))).toEqual([
+      'p1',
+      'p2',
+      'p0',
+      'p3',
+    ])
+    expect(ids(docReducer(start, { type: 'movePage', from: 3, to: 0 }))).toEqual([
+      'p3',
+      'p0',
+      'p1',
+      'p2',
+    ])
+    expect(docReducer(start, { type: 'movePage', from: 0, to: 9 })).toBe(start)
+    expect(docReducer(start, { type: 'movePage', from: 1, to: 1 })).toBe(start)
+  })
+
+  it('removes a page but keeps its image so undo can restore it', () => {
+    const next = docReducer(doc(2), { type: 'removePage', id: 'p0' })
+    expect(ids(next)).toEqual(['p1'])
+    expect(next.assets.a0).toBeDefined()
+  })
+
+  it('duplicates a page right after itself, sharing the image', () => {
+    const next = docReducer(doc(2), { type: 'duplicatePage', id: 'p0', newId: 'copy' })
+    expect(ids(next)).toEqual(['p0', 'copy', 'p1'])
+    expect(next.pages[1]?.assetId).toBe('a0')
+  })
+
+  it('rotates in quarter turns that wrap both ways', () => {
+    let state = doc(1)
+    state = docReducer(state, { type: 'rotatePage', id: 'p0', by: -1 })
+    expect(state.pages[0]?.turns).toBe(3)
+    state = docReducer(state, { type: 'rotatePage', id: 'p0', by: 1 })
+    state = docReducer(state, { type: 'rotatePage', id: 'p0', by: 1 })
+    expect(state.pages[0]?.turns).toBe(1)
+    const all = docReducer(doc(3), { type: 'rotateAll', by: 1 })
+    expect(all.pages.map((p) => p.turns)).toEqual([1, 1, 1])
+  })
+
+  it('clamps fine angle and scale to their limits', () => {
+    const next = docReducer(doc(1), {
+      type: 'transformPage',
+      id: 'p0',
+      patch: { angle: 90, scale: 99 },
+    })
+    expect(next.pages[0]?.angle).toBe(45)
+    expect(next.pages[0]?.scale).toBe(4)
+    const low = docReducer(doc(1), {
+      type: 'transformPage',
+      id: 'p0',
+      patch: { angle: -90, scale: 0 },
+    })
+    expect(low.pages[0]?.angle).toBe(-45)
+    expect(low.pages[0]?.scale).toBe(0.1)
+  })
+
+  it('resets a page and copies one page’s transform to every page', () => {
+    let state = docReducer(doc(3), {
+      type: 'transformPage',
+      id: 'p1',
+      patch: { turns: 2, angle: 3, scale: 0.8, fit: 'cover' },
+    })
+    state = docReducer(state, { type: 'applyToAll', id: 'p1' })
+    expect(state.pages.every((p) => p.turns === 2 && p.angle === 3 && p.fit === 'cover')).toBe(true)
+    state = docReducer(state, { type: 'resetPage', id: 'p0' })
+    expect(state.pages[0]).toMatchObject({ turns: 0, angle: 0, scale: 1, fit: 'contain' })
+  })
+
+  it('clamps settings to sane page sizes and margins', () => {
+    const next = docReducer(doc(0), {
+      type: 'setSettings',
+      patch: { custom: { width: 1, height: 1e9 }, margin: -5 },
+    })
+    expect(next.settings.custom).toEqual({ width: PAGE_MIN, height: PAGE_MAX })
+    expect(next.settings.margin).toBe(0)
+  })
+
+  it('clears every page and image', () => {
+    const next = docReducer(doc(3), { type: 'clear' })
+    expect(next.pages).toEqual([])
+    expect(next.assets).toEqual({})
+  })
+})

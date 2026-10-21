@@ -1,0 +1,8 @@
+node_modules
+dist
+coverage
+shots
+*.log
+.DS_Store
+.vercel
+.claude/worktrees
