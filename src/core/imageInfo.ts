@@ -189,7 +189,46 @@ export const passthrough = (bytes: Uint8Array): Passthrough => {
 export const headerSize = (bytes: Uint8Array): { width: number; height: number } | null => {
   const info = readJpegInfo(bytes) ?? readPngInfo(bytes)
   if (info) return { width: info.width, height: info.height }
-  return readWebpSize(bytes) ?? readGifSize(bytes) ?? readBmpSize(bytes)
+  return readWebpSize(bytes) ?? readGifSize(bytes) ?? readBmpSize(bytes) ?? readHeifSize(bytes)
+}
+
+const u32 = (b: Uint8Array, i: number) =>
+  (((b[i] ?? 0) << 24) | ((b[i + 1] ?? 0) << 16) | ((b[i + 2] ?? 0) << 8) | (b[i + 3] ?? 0)) >>> 0
+
+/**
+ * HEIF / AVIF (ISO base media boxes): the largest image spatial extent
+ * ('ispe') in meta → iprp → ipco. A grid image's own extent is its full
+ * size, larger than any tile's, so the largest is the one that matters.
+ */
+const readHeifSize = (b: Uint8Array) => {
+  if (b.length < 16 || !tagAt(b, 4, 'ftyp')) return null
+  let best: { width: number; height: number } | null = null
+  // Walk boxes in [from, to); containers are entered, 'meta' after its
+  // 4-byte version and flags. Depth-limited against crafted nesting.
+  const walk = (from: number, to: number, depth: number) => {
+    let i = from
+    while (i + 8 <= to && depth < 6) {
+      let size = u32(b, i)
+      const type = String.fromCharCode(b[i + 4] ?? 0, b[i + 5] ?? 0, b[i + 6] ?? 0, b[i + 7] ?? 0)
+      let header = 8
+      if (size === 1) {
+        // 64-bit size; anything past 4 GB is past the file anyway.
+        size = u32(b, i + 12) + u32(b, i + 8) * 2 ** 32
+        header = 16
+      } else if (size === 0) size = to - i
+      if (size < header || i + size > to) return
+      if (type === 'meta') walk(i + header + 4, i + size, depth + 1)
+      else if (type === 'iprp' || type === 'ipco') walk(i + header, i + size, depth + 1)
+      else if (type === 'ispe' && size >= header + 12) {
+        const width = u32(b, i + header + 4)
+        const height = u32(b, i + header + 8)
+        if (!best || width * height > best.width * best.height) best = { width, height }
+      }
+      i += size
+    }
+  }
+  walk(0, b.length, 0)
+  return best
 }
 
 const u16le = (b: Uint8Array, i: number) => (b[i] ?? 0) | ((b[i + 1] ?? 0) << 8)

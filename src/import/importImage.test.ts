@@ -25,6 +25,27 @@ const jpegClaiming = (width: number, height: number) => {
   throw new Error('no SOF0 in fixture')
 }
 
+/** The HEIC fixture with every 'ispe' (image size) box claiming another size. */
+const heicClaiming = (width: number, height: number) => {
+  const bytes = fixture('quad-landscape.heic').slice()
+  const view = new DataView(bytes.buffer)
+  let found = 0
+  for (let i = 4; i + 16 < bytes.length; i++) {
+    if (
+      bytes[i] === 0x69 &&
+      bytes[i + 1] === 0x73 &&
+      bytes[i + 2] === 0x70 &&
+      bytes[i + 3] === 0x65
+    ) {
+      view.setUint32(i + 8, width)
+      view.setUint32(i + 12, height)
+      found++
+    }
+  }
+  if (!found) throw new Error('no ispe in fixture')
+  return bytes
+}
+
 describe('importImage pixel cap', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -33,6 +54,8 @@ describe('importImage pixel cap', () => {
   it.each([
     ['PNG', 'png', pngClaiming(20_000, 20_000)],
     ['JPEG', 'jpeg', jpegClaiming(20_000, 20_000)],
+    // Safari decodes HEIC itself; this is checked before it does (#26).
+    ['HEIC', 'heic', heicClaiming(20_000, 20_000)],
   ] as const)('refuses a %s claiming 400 MP before decoding it', async (_, kind, bytes) => {
     const decode = vi.fn(() => Promise.reject(new Error('should not decode')))
     vi.stubGlobal('createImageBitmap', decode)
