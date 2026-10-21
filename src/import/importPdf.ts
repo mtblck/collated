@@ -1,5 +1,6 @@
 import type { PDFPageProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import type { Asset, QuarterTurns } from '../core/model'
+import { assetStore } from './assetStore'
 import { ImportError, THUMB_EDGE, fit, type Imported } from './importImage'
 
 /**
@@ -91,7 +92,7 @@ export const importPdf = async (
         height: upright.height,
         format: 'pdf',
         storedTurns: toTurns(page.rotate),
-        thumbUrl: URL.createObjectURL(thumb),
+        thumbUrl: assetStore.thumbUrl(thumb),
         byteLength: bytes.byteLength,
       })
       page.cleanup()

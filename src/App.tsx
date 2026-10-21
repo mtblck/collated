@@ -106,7 +106,6 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             setImporting({ file: i + 1, files: files.length, pages: { done, total } })
           })
           for (const { id, bytes } of imported.files) assetStore.putBytes(id, bytes)
-          for (const asset of imported.assets) assetStore.addThumb(asset.thumbUrl)
           added.push(...imported.assets)
         } catch (error) {
           // Expected failures (unsupported file, password) are ImportErrors
@@ -268,7 +267,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       },
       onApplyToAll: () => {
         act({ type: 'applyToAll', id })
-        setStatus(`Applied this page’s rotation and scale to all ${pages.length} pages.`)
+        setStatus(`Applied this page’s rotation, scale and filter to all ${pages.length} pages.`)
       },
       onRemove: () => {
         onRemove(id)
@@ -332,7 +331,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
               </section>
               <aside
                 aria-label="Selected page"
-                className="lg:sticky lg:top-28 lg:w-[22rem] lg:shrink-0 lg:border-l lg:border-rule lg:pl-8"
+                className="lg:sticky lg:top-28 lg:max-h-[calc(100dvh-8rem)] lg:w-[22rem] lg:shrink-0 lg:overflow-y-auto lg:overscroll-contain lg:border-l lg:border-rule lg:px-8 lg:pb-6"
               >
                 {selected && selectedAsset && inspectorActions ? (
                   <Inspector

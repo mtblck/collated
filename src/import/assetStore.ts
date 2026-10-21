@@ -7,14 +7,25 @@
  * cleared.
  */
 const bytes = new Map<string, Uint8Array>()
-const thumbs = new Set<string>()
+/** Thumbnail object URLs and their blobs (filters read the blob back). */
+const thumbs = new Map<string, Blob>()
 
 export const assetStore = {
   putBytes(id: string, data: Uint8Array) {
     bytes.set(id, data)
   },
-  addThumb(url: string) {
-    thumbs.add(url)
+  /**
+   * Makes an object URL for a thumbnail and keeps its blob, so the URL can be
+   * revoked on clear and the pixels read again without fetch() — which the
+   * CSP's connect-src would refuse for blob: URLs.
+   */
+  thumbUrl(blob: Blob): string {
+    const url = URL.createObjectURL(blob)
+    thumbs.set(url, blob)
+    return url
+  },
+  thumbBlob(url: string): Blob | undefined {
+    return thumbs.get(url)
   },
   get(id: string): Uint8Array {
     const data = bytes.get(id)
@@ -25,7 +36,7 @@ export const assetStore = {
     return bytes.has(id)
   },
   clear() {
-    for (const url of thumbs) URL.revokeObjectURL(url)
+    for (const url of thumbs.keys()) URL.revokeObjectURL(url)
     bytes.clear()
     thumbs.clear()
   },

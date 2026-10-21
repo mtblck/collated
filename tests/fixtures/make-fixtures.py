@@ -53,3 +53,30 @@ png[28] = 1
 png[29:33] = zlib.crc32(bytes(png[12:29])).to_bytes(4, "big")
 (HERE / "interlaced-header.png").write_bytes(bytes(png))
 (HERE / "not-an-image.txt").write_text("hello\n")
+
+# A phone photo of a printed page: warm off-white paper, a shadow falling
+# across the lower right, slight noise, and lines of "text". The case the B&W
+# filter is for: a single global threshold turns the shadow black.
+import random
+
+random.seed(7)
+doc = Image.new("RGB", (900, 1200))
+px = doc.load()
+for y in range(1200):
+    for x in range(900):
+        shade = 1.0 - 0.55 * max(0.0, (x / 900 + y / 1200) - 0.9)
+        n = random.randint(-6, 6)
+        px[x, y] = (int(236 * shade) + n, int(228 * shade) + n, int(212 * shade) + n)
+d = ImageDraw.Draw(doc)
+for i, y in enumerate(range(140, 1100, 46)):
+    words = 6 + (i % 4)
+    x = 90
+    for w in range(words):
+        width = 40 + ((i * 7 + w * 13) % 70)
+        if x + width > 820:
+            break
+        top_shade = 1.0 - 0.55 * max(0.0, (x / 900 + y / 1200) - 0.9)
+        ink = int(70 * top_shade)
+        d.rectangle([x, y, x + width, y + 14], fill=(ink, ink, ink + 6))
+        x += width + 18
+doc.save(HERE / "doc-photo.jpg", quality=88)

@@ -72,16 +72,21 @@ export const Segmented = <T extends string>({
   options,
   onChange,
   hideLegend = false,
+  disabled = false,
+  describedBy,
 }: {
   legend: string
   value: T
   options: readonly { value: T; label: ReactNode }[]
   onChange: (value: T) => void
   hideLegend?: boolean
+  /** Disables every option (a disabled fieldset disables its radios natively). */
+  disabled?: boolean
+  describedBy?: string
 }) => {
   const name = useId()
   return (
-    <fieldset className="min-w-0">
+    <fieldset className="min-w-0" disabled={disabled} aria-describedby={describedBy}>
       <legend className={cx('label mb-2 text-ink-faint', hideLegend && 'sr-only')}>{legend}</legend>
       <div className="flex h-9 rounded-[2px] border border-rule">
         {options.map((option) => (
@@ -90,7 +95,13 @@ export const Segmented = <T extends string>({
             className={cx(
               'relative flex flex-1 items-center justify-center px-3 text-sm whitespace-nowrap transition-colors not-first:border-l not-first:border-rule',
               'has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent',
-              value === option.value ? 'bg-ink text-paper' : 'text-ink-muted hover:text-ink',
+              disabled
+                ? value === option.value
+                  ? 'bg-ink/15 text-ink-muted'
+                  : 'text-ink-faint'
+                : value === option.value
+                  ? 'bg-ink text-paper'
+                  : 'text-ink-muted hover:text-ink',
             )}
           >
             <input
