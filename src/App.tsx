@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Asset, Settings } from './core/model'
+import type { Asset, Page, Settings } from './core/model'
 import { pdfFilename } from './core/filename'
 import { compressionFor, estimateBytes } from './core/compression'
 import type { Skew } from './core/deskew'
 import { skewOf } from './lib/skew'
+import { pageWords } from './lib/pageText'
+import type { OcrWord } from './core/textLayer'
 import { layoutPage } from './core/geometry'
 import { formatBytes } from './core/units'
 import { DocumentBar, type ExportState } from './components/DocumentBar'
@@ -26,11 +28,13 @@ export interface AppDeps {
   exportPdf: (
     doc: DocState,
     onProgress: (done: number, total: number, attempt: number) => void,
-    options?: { password?: string },
+    options?: { password?: string; text?: Record<string, OcrWord[]> },
   ) => Promise<Exported>
   download: (blob: Blob, filename: string) => void
   newId: () => string
   estimateSkew: (asset: Asset) => Promise<Skew | null>
+  /** Recognises a page's words (fractions of its content image). */
+  recognizeText: (asset: Asset, page: Page) => Promise<OcrWord[]>
   storage: Pick<Storage, 'getItem' | 'setItem'> | undefined
   locale: string
 }
@@ -49,6 +53,7 @@ const defaultDeps = (): AppDeps => ({
   download: saveFile,
   newId: () => crypto.randomUUID(),
   estimateSkew: skewOf,
+  recognizeText: pageWords,
   storage: safeStorage(),
   locale: navigator.language,
 })
@@ -218,19 +223,36 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     setExporting({ busy: true, done: 0, total: pages.length })
     setStatus('Building PDF…')
     try {
+      // OCR first, page by page, so progress is visible; PDF pages are
+      // skipped (they're vector, and usually carry their own text).
+      let text: Record<string, OcrWord[]> | undefined
+      if (settings.ocr) {
+        text = {}
+        const readable = pages.filter((p) => assets[p.assetId]?.format !== 'pdf')
+        for (const [i, page] of readable.entries()) {
+          const asset = assets[page.assetId]
+          if (!asset) continue
+          setStatus(`Reading text on page ${i + 1} of ${readable.length}…`)
+          setExporting({ busy: true, done: i, total: readable.length, phase: 'ocr' })
+          text[page.id] = await deps.recognizeText(asset, page)
+        }
+      }
+      setStatus('Building PDF…')
       const result = await deps.exportPdf(
         doc,
         (done, total, attempt) => {
           setExporting({ busy: true, done, total, attempt })
         },
-        password ? { password } : {},
+        { ...(password ? { password } : {}), ...(text ? { text } : {}) },
       )
       const filename = pdfFilename(settings.title)
       deps.download(result.blob, filename)
       const size = formatBytes(result.blob.size)
       const used = result.compression ? `${result.compression.dpi} dpi` : 'original images'
       setLastExport({ size, used, fits: result.fits })
-      setStatus(`Saved ${filename} (${size}, ${used}${password ? ', password-protected' : ''}).`)
+      setStatus(
+        `Saved ${filename} (${size}, ${used}${text ? ', searchable' : ''}${password ? ', password-protected' : ''}).`,
+      )
       if (!result.fits && settings.maxBytes !== null) {
         notify(
           `Couldn’t get under ${formatBytes(settings.maxBytes)}: the smallest version is ${size} at ${used}. It was saved anyway.`,
@@ -242,7 +264,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     } finally {
       setExporting({ busy: false, done: 0, total: 0 })
     }
-  }, [deps, doc, notify, pages.length, settings.title, settings.maxBytes, password])
+  }, [deps, doc, notify, pages, assets, settings.title, settings.maxBytes, settings.ocr, password])
 
   const onRotate = useCallback(
     (id: string, by: -1 | 1) => {

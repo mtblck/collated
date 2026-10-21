@@ -37,7 +37,7 @@ export const ExportOptions = ({
   password,
   onPassword,
 }: {
-  settings: Pick<Settings, 'quality' | 'maxBytes' | 'pageNumbers'>
+  settings: Pick<Settings, 'quality' | 'maxBytes' | 'pageNumbers' | 'ocr'>
   /** Estimated bytes for the current pages and quality. */
   estimate: number
   lastExport: { size: string; used: string; fits: boolean } | null
@@ -144,7 +144,26 @@ export const ExportOptions = ({
           </div>
         </div>
 
-        <fieldset className="mt-5 border-t border-rule pt-4">
+        <div className="mt-5 border-t border-rule pt-4">
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 accent-[var(--c-ink)]"
+              checked={settings.ocr}
+              aria-describedby={`${id}-ocr-hint`}
+              onChange={(event) => {
+                onSettings({ ocr: event.target.checked })
+              }}
+            />
+            Make text searchable (OCR)
+          </label>
+          <p id={`${id}-ocr-hint`} className="mt-1 ml-6 text-xs text-ink-muted">
+            English. Recognised on this device — nothing is uploaded. The first time, it downloads
+            about 4 MB; then a few seconds per page.
+          </p>
+        </div>
+
+        <fieldset className="mt-4">
           <legend className="sr-only">Page numbers</legend>
           <label className="flex items-center gap-2 text-sm">
             <input

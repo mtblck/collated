@@ -49,6 +49,7 @@ const types = {
   '.txt': 'text/plain',
   '.map': 'application/json',
   '.wasm': 'application/wasm',
+  '.gz': 'application/gzip',
 }
 const server = createServer((req, res) => {
   const path = decodeURIComponent((req.url ?? '/').split('?')[0])
@@ -911,7 +912,79 @@ await context.close()
   await ctx.close()
 }
 
-// 10. Phone-sized, dark. -------------------------------------------------------
+// 10. OCR: a sideways photo of a page, turned upright, made searchable. -------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'text-page-sideways.jpg')])
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  await p.getByRole('button', { name: 'Rotate page 1 right' }).click({ force: true })
+  await p.getByRole('button', { name: /Export options/ }).click()
+  const dialog = p.getByRole('dialog', { name: 'Export options' })
+  await dialog.getByRole('checkbox', { name: 'Make text searchable (OCR)' }).check()
+  const started = Date.now()
+  const [d] = await Promise.all([
+    p.waitForEvent('download', { timeout: 120_000 }),
+    dialog.getByRole('button', { name: 'Export PDF' }).click(),
+  ])
+  const seconds = ((Date.now() - started) / 1000).toFixed(1)
+  const path = join(mkdtempSync(join(tmpdir(), 'collated-verify-ocr-')), 'ocr.pdf')
+  await d.saveAs(path)
+  const text = (() => {
+    try {
+      return execFileSync('pdftotext', [path, '-']).toString().replace(/\s+/g, ' ')
+    } catch {
+      return null
+    }
+  })()
+  if (text !== null) {
+    const expected = [
+      'quick brown fox jumps over the lazy dog',
+      'Invoice number 4417',
+      'Searchable text',
+    ]
+    const missing = expected.filter((phrase) => !text.includes(phrase))
+    check(
+      missing.length === 0,
+      `OCR makes the turned-upright page searchable (first run with downloads: ${seconds} s)`,
+      `missing: ${missing.join(' | ')} in "${text.slice(0, 200)}"`,
+    )
+    // Selecting a word highlights the printed word: its box is over ink.
+    const bbox = execFileSync('pdftotext', ['-bbox', path, '-']).toString()
+    const fox =
+      /<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">fox<\/word>/.exec(bbox)
+    const pageSize = /<page width="([\d.]+)" height="([\d.]+)"/.exec(bbox)
+    if (fox && pageSize && hasPoppler) {
+      const prefix = path.replace(/\.pdf$/, '')
+      execFileSync('pdftoppm', ['-png', '-r', '72', '-singlefile', path, prefix])
+      const ink = await p.evaluate(
+        async ([src, box]) => {
+          const img = new Image()
+          img.src = `data:image/png;base64,${src}`
+          await img.decode()
+          const c = document.createElement('canvas')
+          c.width = img.width
+          c.height = img.height
+          const g = c.getContext('2d')
+          g.drawImage(img, 0, 0)
+          const [x0, y0, x1, y1] = box.map(Math.round)
+          const { data } = g.getImageData(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0))
+          let dark = 0
+          for (let i = 0; i < data.length; i += 4) if (data[i] < 128) dark += 1
+          return dark / (data.length / 4)
+        },
+        [readFileSync(`${prefix}.png`).toString('base64'), fox.slice(1, 5).map(Number)],
+      )
+      check(
+        ink > 0.08,
+        `the searchable word "fox" sits over the printed word (${(ink * 100).toFixed(0)}% ink in its box)`,
+      )
+    }
+  }
+  await ctx.close()
+}
+
+// 11. Phone-sized, dark. -------------------------------------------------------
 {
   const { context: phone, page: p } = await open({
     viewport: { width: 390, height: 844 },

@@ -59,6 +59,8 @@ export interface Settings {
   /** Pixels per inch for `image`-sized pages. */
   imageDpi: number
   pageNumbers: PageNumbers
+  /** Recognise text (on this device) and add an invisible, searchable layer. */
+  ocr: boolean
 }
 
 /**

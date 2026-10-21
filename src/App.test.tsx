@@ -47,6 +47,9 @@ const setup = (overrides: Partial<AppDeps> = {}) => {
     estimateSkew: vi.fn((a: { name: string }) =>
       Promise.resolve(a.name.includes('blank') ? null : { angle: -2.5, confidence: 2 }),
     ),
+    recognizeText: vi.fn(() =>
+      Promise.resolve([{ text: 'Hello', x0: 0.1, y0: 0.1, x1: 0.3, y1: 0.15, baseline: 0.15 }]),
+    ),
     ...overrides,
   }
   const user = userEvent.setup()
@@ -352,6 +355,25 @@ describe('App', () => {
     await user.clear(screen.getByLabelText('Image dpi'))
     await user.type(screen.getByLabelText('Image dpi'), '100{Enter}')
     expect(panel.getByText('3 in × 2 in')).toBeInTheDocument()
+  })
+
+  it('reads text on image pages (not PDF pages) before exporting when OCR is on', async () => {
+    const exportPdf = vi.fn<AppDeps['exportPdf']>(() =>
+      Promise.resolve({ blob: new Blob(['%PDF']), compression: null, fits: true }),
+    )
+    const { user, deps, upload } = setup({ exportPdf })
+    await upload('scan.jpg', 'form.pdf')
+    await user.click(
+      await screen.findByRole('checkbox', { name: 'Make text searchable (OCR)', hidden: true }),
+    )
+    await user.click(screen.getByRole('button', { name: /Export PDF · 4 pages/ }))
+    await waitFor(() => {
+      expect(exportPdf).toHaveBeenCalled()
+    })
+    expect(deps.recognizeText).toHaveBeenCalledTimes(1)
+    const text = exportPdf.mock.calls[0]?.[2]?.text ?? {}
+    expect(Object.values(text)).toEqual([[expect.objectContaining({ text: 'Hello' })]])
+    expect(status()).toHaveTextContent('searchable')
   })
 
   it('shows an error if the export fails and stays usable', async () => {
