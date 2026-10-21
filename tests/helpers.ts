@@ -18,6 +18,7 @@ export const settings = (patch: Partial<Settings> = {}): Settings => ({
 
 export const asset = (id: string, patch: Partial<Asset> = {}): Asset => ({
   id,
+  bytesId: id,
   name: `${id}.jpg`,
   width: 240,
   height: 160,

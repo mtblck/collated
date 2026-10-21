@@ -2,7 +2,7 @@ import type { BuildInput } from '../core/pdf'
 
 export interface ExportRequest {
   input: BuildInput
-  /** Bytes per asset id. Structured-cloned (copied), not transferred: the page keeps its own. */
+  /** Bytes per `Asset.bytesId`. Structured-cloned (copied), not transferred: the page keeps its own. */
   bytes: Record<string, Uint8Array>
 }
 

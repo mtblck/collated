@@ -7,13 +7,17 @@ import { Inspector, type InspectorActions } from './components/Inspector'
 import { PageGrid } from './components/PageGrid'
 import { download as saveFile, exportPdf } from './export/exportPdf'
 import { assetStore } from './import/assetStore'
-import { ImportError, importImage, type Imported } from './import/importImage'
+import { ImportError, importFile, type Imported } from './import/importFile'
 import { loadSettings, saveSettings } from './state/settingsStorage'
 import { useDocument } from './state/useDocument'
 import type { DocState } from './core/model'
 
 export interface AppDeps {
-  importImage: (file: File, id: string) => Promise<Imported>
+  importFile: (
+    file: File,
+    newId: () => string,
+    onPage?: (done: number, total: number) => void,
+  ) => Promise<Imported>
   exportPdf: (doc: DocState, onProgress: (done: number, total: number) => void) => Promise<Blob>
   download: (blob: Blob, filename: string) => void
   newId: () => string
@@ -30,7 +34,7 @@ const safeStorage = (): AppDeps['storage'] => {
 }
 
 const defaultDeps = (): AppDeps => ({
-  importImage,
+  importFile,
   exportPdf,
   download: saveFile,
   newId: () => crypto.randomUUID(),
@@ -58,7 +62,12 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     loadSettings(deps.storage, deps.locale),
   )
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [importing, setImporting] = useState<{ done: number; total: number } | null>(null)
+  const [importing, setImporting] = useState<{
+    file: number
+    files: number
+    /** Pages read so far of a multi-page PDF. */
+    pages?: { done: number; total: number }
+  } | null>(null)
   const [exporting, setExporting] = useState<ExportState>({ busy: false, done: 0, total: 0 })
   const [status, setStatus] = useState('')
   const [notices, setNotices] = useState<Notice[]>([])
@@ -84,7 +93,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const addFiles = useCallback(
     async (files: File[]) => {
       if (files.length === 0) return
-      setImporting({ done: 0, total: files.length })
+      setImporting({ file: 1, files: files.length })
       setStatus(`Reading ${plural(files.length, 'file')}…`)
       const added: Asset[] = []
       const failed: string[] = []
@@ -92,15 +101,24 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       // exhaust memory on a phone.
       for (const [i, file] of files.entries()) {
         try {
-          const { asset, bytes } = await deps.importImage(file, deps.newId())
-          assetStore.put(asset.id, bytes, asset.thumbUrl)
-          added.push(asset)
+          setImporting({ file: i + 1, files: files.length })
+          const imported = await deps.importFile(file, deps.newId, (done, total) => {
+            setImporting({ file: i + 1, files: files.length, pages: { done, total } })
+          })
+          for (const { id, bytes } of imported.files) assetStore.putBytes(id, bytes)
+          for (const asset of imported.assets) assetStore.addThumb(asset.thumbUrl)
+          added.push(...imported.assets)
         } catch (error) {
+          // Expected failures (unsupported file, password) are ImportErrors
+          // with a message for the person; anything else is a bug, so keep
+          // its details in the console for reports.
+          if (!(error instanceof ImportError)) console.error(error)
           const reason =
-            error instanceof ImportError ? error.message : 'It could not be read as an image.'
+            error instanceof ImportError
+              ? error.message
+              : 'It could not be read as an image or PDF.'
           failed.push(`${file.name || 'A file'}: ${reason}`)
         }
-        setImporting({ done: i + 1, total: files.length })
       }
       setImporting(null)
       if (added.length > 0) {
@@ -295,9 +313,10 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
               <section aria-label="Pages" className="min-w-0 flex-1">
                 {importing && (
                   <p className="label mb-4 text-ink-faint" aria-hidden="true">
-                    Reading{' '}
-                    {importing.done + 1 > importing.total ? importing.total : importing.done + 1} of{' '}
-                    {importing.total}…
+                    Reading file {importing.file} of {importing.files}
+                    {importing.pages &&
+                      ` · page ${importing.pages.done} of ${importing.pages.total}`}
+                    …
                   </p>
                 )}
                 <PageGrid
@@ -338,7 +357,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       <input
         ref={fileInput}
         type="file"
-        accept="image/*,.heic,.heif"
+        accept="image/*,.heic,.heif,application/pdf,.pdf"
         multiple
         hidden
         data-testid="file-input"

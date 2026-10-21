@@ -13,6 +13,7 @@ Images → one PDF, client-only, at https://mattblack.space/tools/collated/ (own
 - **`layoutPage` is the only placement logic.** Preview (CSS) and export (pdf-lib) both draw from it. pdf.test.ts rasterises with pdftoppm to prove it; don't bypass it.
 - **JPEG passthrough + `storedTurns`.** EXIF-rotated JPEGs keep their bytes; the export adds the rotation. Upright dims in `Asset`, stored dims derived.
 - **pdf-lib only in the worker.** Never import `core/pdf.ts` from UI code (that's why `core/filename.ts` exists).
+- **PDF pages are assets sharing a `bytesId`;** `/Rotate` rides `storedTurns`, export embeds `visibleBox` (crop ∩ media). pdf.js = **legacy build** (modern one needs `Map#getOrInsertComputed`), dynamic-imported; its worker is `.mjs`, so any server must send `text/javascript` for it.
 - **Bytes outside React state** (`import/assetStore.ts`); undo history holds metadata only.
 - **Paths:** base `/tools/collated/`, outDir `dist/tools/collated`, theme.js by absolute path. CSP `script-src 'self'`, `worker-src 'self'`; `hosting:check` guards it.
 - **Button sizes are a prop**, not class overrides (two padding utilities resolve by stylesheet order; it once squashed icons to 6px).

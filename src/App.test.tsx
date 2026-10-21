@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { asset } from '../tests/helpers'
 import { App, type AppDeps } from './App'
-import { ImportError } from './import/importImage'
+import { ImportError } from './import/importFile'
 
 const file = (name: string) => new File([new Uint8Array([1, 2, 3])], name, { type: 'image/jpeg' })
 
@@ -19,12 +19,21 @@ const setup = (overrides: Partial<AppDeps> = {}) => {
         store.set(k, v)
       },
     },
-    importImage: vi.fn((f: File, id: string) => {
+    importFile: vi.fn((f: File, newId: () => string) => {
       if (f.name.endsWith('.txt')) return Promise.reject(new ImportError('Not an image.'))
-      return Promise.resolve({
-        asset: asset(id, { name: f.name, width: f.name.includes('tall') ? 100 : 300, height: 200 }),
-        bytes: new Uint8Array([1]),
-      })
+      // A ".pdf" stands in for a three-page PDF sharing one set of bytes.
+      const pages = f.name.endsWith('.pdf') ? 3 : 1
+      const bytesId = newId()
+      const assets = Array.from({ length: pages }, (_, i) =>
+        asset(newId(), {
+          bytesId,
+          name: pages > 1 ? `${f.name} · p${i + 1}` : f.name,
+          width: f.name.includes('tall') ? 100 : 300,
+          height: 200,
+          ...(pages > 1 ? { format: 'pdf' as const, pdfPage: i } : {}),
+        }),
+      )
+      return Promise.resolve({ assets, files: [{ id: bytesId, bytes: new Uint8Array([1]) }] })
     }),
     exportPdf: vi.fn(() => Promise.resolve(new Blob(['%PDF'], { type: 'application/pdf' }))),
     download: vi.fn(),
@@ -50,7 +59,7 @@ describe('App', () => {
   it('starts empty and offers to choose images', () => {
     setup()
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Many pages in.')
-    expect(screen.getByRole('button', { name: 'Choose images' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Choose files' })).toBeEnabled()
   })
 
   it('imports files as pages, reports failures by name, and selects the first page', async () => {
@@ -61,6 +70,22 @@ describe('App', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('notes.txt: Not an image.')
     expect(status()).toHaveTextContent('Added 2 pages. 1 file could not be added.')
     expect(screen.getByRole('heading', { level: 2, name: 'a.jpg' })).toBeInTheDocument()
+  })
+
+  it('turns a PDF into one page per PDF page, shown as vector in the inspector', async () => {
+    const { user, upload } = setup()
+    await upload('lease.pdf', 'a.jpg')
+    expect(await screen.findByRole('list', { name: '4 pages' })).toBeInTheDocument()
+    expect(pageLabels()).toEqual([
+      'Page 1: lease.pdf · p1',
+      'Page 2: lease.pdf · p2',
+      'Page 3: lease.pdf · p3',
+      'Page 4: a.jpg',
+    ])
+    await user.click(screen.getByRole('button', { name: 'Page 2: lease.pdf · p2' }))
+    const panel = within(screen.getByRole('complementary', { name: 'Selected page' }))
+    expect(panel.getByText('Vector, any size')).toBeInTheDocument()
+    expect(panel.getByText(/PDF page 2/)).toBeInTheDocument()
   })
 
   it('removes a page and brings it back with undo', async () => {

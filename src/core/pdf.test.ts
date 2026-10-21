@@ -10,18 +10,42 @@ import { layoutPage } from './geometry'
 import type { Asset, Page, Settings } from './model'
 import { passthrough } from './imageInfo'
 import { pdfFilename } from './filename'
-import { buildPdf, placement } from './pdf'
+import { buildPdf, pageTurns, placement, visibleBox } from './pdf'
 
 const NOW = new Date('2026-10-21T12:00:00Z')
 
-/** An asset backed by a real fixture file, sized from its own header. */
-const fileAsset = (name: string): { meta: Asset; bytes: Uint8Array } => {
+/**
+ * An asset backed by a real fixture file, sized from its own header. A PDF is
+ * named `file.pdf#n` for its n-th page (from 0), sized as pdf.js would show
+ * it: the visible box, turned by /Rotate.
+ */
+const fileAsset = async (key: string): Promise<{ meta: Asset; bytes: Uint8Array }> => {
+  const [name = key, pageIndex] = key.split('#')
   const bytes = fixture(name)
+  if (name.endsWith('.pdf')) {
+    const src = await PDFDocument.load(bytes, { password: '' })
+    const srcPage = src.getPage(Number(pageIndex ?? 0))
+    const box = visibleBox(srcPage)
+    const turns = pageTurns(srcPage)
+    const w = box.right - box.left
+    const h = box.top - box.bottom
+    return {
+      bytes,
+      meta: asset(key, {
+        bytesId: name,
+        pdfPage: Number(pageIndex ?? 0),
+        format: 'pdf',
+        storedTurns: turns,
+        width: turns % 2 ? h : w,
+        height: turns % 2 ? w : h,
+      }),
+    }
+  }
   const info = passthrough(bytes)
   if (!info.ok) throw new Error(`${name} is not passthrough`)
   return {
     bytes,
-    meta: asset(name, {
+    meta: asset(key, {
       width: info.width,
       height: info.height,
       format: info.format,
@@ -31,12 +55,15 @@ const fileAsset = (name: string): { meta: Asset; bytes: Uint8Array } => {
 }
 
 const build = async (s: Settings, items: { file: string; page?: Partial<Page> }[]) => {
-  const files = new Map(items.map(({ file }) => [file, fileAsset(file)]))
+  const files = new Map(
+    await Promise.all(items.map(async ({ file }) => [file, await fileAsset(file)] as const)),
+  )
   const assets = Object.fromEntries([...files].map(([k, v]) => [k, v.meta]))
+  const bytesById = new Map([...files.values()].map((v) => [v.meta.bytesId, v.bytes]))
   const pages = items.map(({ file, page: p }, i) => page(`p${i}`, file, p))
   const bytes = await buildPdf(
     { settings: s, pages, assets },
-    { getBytes: (id) => files.get(id)?.bytes ?? new Uint8Array(), now: NOW },
+    { getBytes: (id) => bytesById.get(id) ?? new Uint8Array(), now: NOW },
   )
   return { bytes, assets, pages }
 }
@@ -88,9 +115,25 @@ describe('buildPdf', () => {
     ).rejects.toThrow(/Page 1/)
   })
 
+  it('embeds PDF pages as vectors, parsing a shared source once', async () => {
+    const { bytes } = await build(settings(), [
+      { file: 'quad-3pages.pdf#0' },
+      { file: 'quad-3pages.pdf#2' },
+      { file: 'quad-landscape.jpg' },
+    ])
+    const pdf = await PDFDocument.load(bytes)
+    expect(pdf.getPageCount()).toBe(3)
+    // No raster image was made from the PDF pages: only the JPEG is an image.
+    expect(
+      Buffer.from(bytes)
+        .toString('latin1')
+        .match(/\/Subtype\s*\/Image/g),
+    ).toHaveLength(1)
+  })
+
   it('reports progress per page', async () => {
     const seen: number[] = []
-    const { meta, bytes } = fileAsset('quad-landscape.jpg')
+    const { meta, bytes } = await fileAsset('quad-landscape.jpg')
     await buildPdf(
       {
         settings: settings(),
@@ -148,11 +191,18 @@ const hasPdftoppm = (() => {
   }
 })()
 
+// Quadrant centres catch rotation; points near each corner catch content that
+// is the wrong size or offset (e.g. a PDF's media box embedded instead of its
+// crop box), which can leave the centres looking right.
 const QUADRANTS = {
   tl: { at: [0.25, 0.25], rgb: [220, 30, 30] },
   tr: { at: [0.75, 0.25], rgb: [30, 170, 60] },
   bl: { at: [0.25, 0.75], rgb: [30, 60, 220] },
   br: { at: [0.75, 0.75], rgb: [240, 200, 20] },
+  'tl corner': { at: [0.06, 0.06], rgb: [220, 30, 30] },
+  'tr corner': { at: [0.94, 0.06], rgb: [30, 170, 60] },
+  'bl corner': { at: [0.06, 0.94], rgb: [30, 60, 220] },
+  'br corner': { at: [0.94, 0.94], rgb: [240, 200, 20] },
 } as const
 
 const DPI = 36 // 0.5 px per point
@@ -198,6 +248,15 @@ const close = (a: readonly number[], b: readonly number[]) =>
 describe.skipIf(!hasPdftoppm)('rendered output matches the layout', () => {
   const cases: { name: string; file: string; s?: Partial<Settings>; p?: Partial<Page> }[] = [
     { name: 'upright JPEG', file: 'quad-landscape.jpg' },
+    { name: 'PDF page', file: 'quad-3pages.pdf#1' },
+    { name: 'PDF page with /Rotate 90', file: 'quad-rotate90.pdf#0' },
+    {
+      name: 'PDF /Rotate 90 + turn + angle',
+      file: 'quad-rotate90.pdf#0',
+      p: { turns: 1, angle: 15 },
+    },
+    { name: 'PDF crop box off the origin', file: 'quad-cropbox.pdf#0', s: { margin: 30 } },
+    { name: 'owner-locked PDF', file: 'quad-owner-locked.pdf#2', p: { turns: 2 } },
     { name: 'quarter turn', file: 'quad-landscape.jpg', p: { turns: 1 } },
     { name: 'half turn + straighten', file: 'quad-landscape.jpg', p: { turns: 2, angle: 12 } },
     { name: 'EXIF 6, no user turn', file: 'quad-exif6.jpg' },

@@ -31,28 +31,43 @@ export interface Settings {
 }
 
 /**
- * Metadata for an imported image. The bytes live outside React state (see
- * import/assetStore.ts) because they can be tens of megabytes each.
+ * Metadata for one imported page source: an image, or one page of a PDF. The
+ * bytes live outside React state (see import/assetStore.ts) because they can
+ * be tens of megabytes each.
  */
 export interface Asset {
   id: string
   name: string
-  /** Pixel size as displayed, i.e. after EXIF orientation is applied. */
+  /**
+   * Upright size: pixels for images (after EXIF orientation), points for PDF
+   * pages (after the page's /Rotate).
+   */
   width: number
   height: number
   /** How the stored bytes are embedded in the PDF. */
-  format: 'jpeg' | 'png'
+  format: 'jpeg' | 'png' | 'pdf'
   /**
-   * Clockwise rotation, in quarter turns, that the stored bytes need to appear
-   * upright. Non-zero only for JPEGs kept byte-for-byte whose EXIF orientation
-   * says "rotate"; PDF viewers ignore EXIF, so the export applies it instead.
+   * Key of the stored bytes. Its own id for images; every page of an imported
+   * PDF shares the PDF's bytes.
+   */
+  bytesId: string
+  /** For `pdf` assets, the zero-based page in the source PDF. */
+  pdfPage?: number
+  /**
+   * Clockwise rotation, in quarter turns, that the stored content needs to
+   * appear upright. JPEGs kept byte-for-byte carry their EXIF orientation here
+   * and PDF pages their /Rotate: the embedded content is unrotated either way,
+   * so the export applies it.
    */
   storedTurns: QuarterTurns
   /** Object URL of a small upright JPEG preview. */
   thumbUrl: string
-  /** Size of the stored bytes, for display. */
+  /** Size of the stored bytes, for display (the whole file for a PDF page). */
   byteLength: number
 }
+
+/** PDF pages are vector: printed resolution doesn't apply. */
+export const isVector = (asset: Pick<Asset, 'format'>) => asset.format === 'pdf'
 
 export interface Page {
   id: string

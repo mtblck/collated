@@ -76,18 +76,25 @@ export const EmptyState = ({ onChoose }: { onChoose: () => void }) => (
 
     <div className="crop-marks p-2">
       <div className="flex flex-col items-center gap-5 bg-paper-sunk px-6 py-16 text-center sm:py-24">
-        <p className="font-display text-3xl text-ink sm:text-4xl">Drop scans or photos here</p>
+        <p className="font-display text-3xl text-ink sm:text-4xl">
+          Drop scans, photos or PDFs here
+        </p>
         <Button variant="primary" size="lg" onClick={onChoose}>
-          Choose images
+          Choose files
         </Button>
         <p className="text-sm text-ink-muted">or paste them from the clipboard</p>
-        <p className="label mt-2 text-ink-faint">JPEG · PNG · WebP · AVIF · GIF · HEIC (Safari)</p>
+        <p className="label mt-2 text-ink-faint">
+          PDF · JPEG · PNG · WebP · AVIF · GIF · HEIC (Safari)
+        </p>
       </div>
     </div>
 
     <ol className="grid gap-8 border-t border-rule pt-8 sm:grid-cols-3">
       {[
-        ['Add', 'Drop in every page at once. Phone photos come in the right way up.'],
+        [
+          'Add',
+          'Drop in every page at once, images or whole PDFs. Phone photos come in the right way up.',
+        ],
         [
           'Arrange',
           'Drag to reorder. Rotate, straighten and scale each page; pick the paper size.',

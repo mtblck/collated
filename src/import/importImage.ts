@@ -1,5 +1,5 @@
 import type { Asset } from '../core/model'
-import { passthrough, sniff } from '../core/imageInfo'
+import { passthrough, type SniffedType } from '../core/imageInfo'
 
 /** A user-facing reason a file couldn't be added. */
 export class ImportError extends Error {
@@ -7,11 +7,12 @@ export class ImportError extends Error {
 }
 
 export interface Imported {
-  asset: Asset
-  bytes: Uint8Array
+  assets: Asset[]
+  /** Bytes to store, keyed by `Asset.bytesId`. */
+  files: { id: string; bytes: Uint8Array }[]
 }
 
-const THUMB_EDGE = 720
+export const THUMB_EDGE = 720
 /**
  * iOS Safari refuses canvases over ~16.7 megapixels. Re-encoded images are
  * scaled down to fit; passthrough JPEGs and PNGs never touch a canvas.
@@ -20,7 +21,7 @@ const MAX_CANVAS_PIXELS = 16_000_000
 
 type AnyCanvas = OffscreenCanvas | HTMLCanvasElement
 
-const makeCanvas = (width: number, height: number): AnyCanvas => {
+export const makeCanvas = (width: number, height: number): AnyCanvas => {
   if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(width, height)
   const canvas = document.createElement('canvas')
   canvas.width = width
@@ -28,7 +29,7 @@ const makeCanvas = (width: number, height: number): AnyCanvas => {
   return canvas
 }
 
-const toBlob = (canvas: AnyCanvas, type: string, quality?: number): Promise<Blob> =>
+export const toBlob = (canvas: AnyCanvas, type: string, quality?: number): Promise<Blob> =>
   'convertToBlob' in canvas
     ? canvas.convertToBlob({ type, ...(quality === undefined ? {} : { quality }) })
     : new Promise((resolve, reject) => {
@@ -61,7 +62,7 @@ const render = async (
   return toBlob(canvas, type, quality)
 }
 
-const fit = (width: number, height: number, maxEdge: number, maxPixels = Infinity) => {
+export const fit = (width: number, height: number, maxEdge: number, maxPixels = Infinity) => {
   const scale = Math.min(
     1,
     maxEdge / Math.max(width, height),
@@ -73,12 +74,11 @@ const fit = (width: number, height: number, maxEdge: number, maxPixels = Infinit
   }
 }
 
-const decode = async (file: Blob, kind: ReturnType<typeof sniff>): Promise<ImageBitmap> => {
+const decode = async (file: Blob, kind: SniffedType): Promise<ImageBitmap> => {
   try {
     // Default imageOrientation ('from-image') applies EXIF, so this is upright.
     return await createImageBitmap(file)
   } catch {
-    if (kind === 'pdf') throw new ImportError('PDFs can’t be added yet — only images.')
     if (kind === 'heic')
       throw new ImportError('This browser can’t open HEIC photos. Safari can, or export as JPEG.')
     throw new ImportError('Not an image this browser can read.')
@@ -94,9 +94,12 @@ const decode = async (file: Blob, kind: ReturnType<typeof sniff>): Promise<Image
  * browser can decode — WebP, AVIF, GIF, BMP, HEIC on Safari, mirrored-EXIF or
  * CMYK JPEGs — is re-encoded once.
  */
-export const importImage = async (file: File, id: string): Promise<Imported> => {
-  const original = new Uint8Array(await file.arrayBuffer())
-  const kind = sniff(original)
+export const importImage = async (
+  file: File,
+  id: string,
+  original: Uint8Array,
+  kind: SniffedType,
+): Promise<Imported> => {
   const bitmap = await decode(file, kind)
   try {
     const { width, height } = bitmap
@@ -129,17 +132,20 @@ export const importImage = async (file: File, id: string): Promise<Imported> => 
     }
 
     return {
-      bytes,
-      asset: {
-        id,
-        name: file.name || 'Pasted image',
-        width: size.width,
-        height: size.height,
-        format,
-        storedTurns,
-        thumbUrl: URL.createObjectURL(thumb),
-        byteLength: bytes.byteLength,
-      },
+      files: [{ id, bytes }],
+      assets: [
+        {
+          id,
+          bytesId: id,
+          name: file.name || 'Pasted image',
+          width: size.width,
+          height: size.height,
+          format,
+          storedTurns,
+          thumbUrl: URL.createObjectURL(thumb),
+          byteLength: bytes.byteLength,
+        },
+      ],
     }
   } finally {
     bitmap.close()
