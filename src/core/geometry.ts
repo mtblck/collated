@@ -181,3 +181,15 @@ export const partLayout = (layout: Layout, part: Part): Layout => {
     },
   }
 }
+
+/**
+ * `part` widened to whole pixels of a `width` × `height` image, so cropping
+ * copies pixels rather than resampling them (a fractional edge blurs the
+ * whole image).
+ */
+export const snapPart = (part: Part, width: number, height: number): Part => ({
+  x0: Math.floor(part.x0 * width + 1e-9) / width,
+  y0: Math.floor(part.y0 * height + 1e-9) / height,
+  x1: Math.ceil(part.x1 * width - 1e-9) / width,
+  y1: Math.ceil(part.y1 * height - 1e-9) / height,
+})

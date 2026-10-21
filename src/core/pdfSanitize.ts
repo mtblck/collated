@@ -42,10 +42,10 @@ export const sanitizedPage = (doc: PDFDocument, page: PDFPage): PDFPage => {
   const rotate = source.Rotate()
   if (rotate) leaf.set(PDFName.of('Rotate'), rotate)
   if (contents) leaf.set(PDFName.of('Contents'), contents)
-  leaf.set(
-    PDFName.of('Resources'),
-    resources ? scrub.prunedCopy(resources, content) : context.obj({}),
-  )
+  const pruned = resources ? scrub.prunedCopy(resources, content) : context.obj({})
+  leaf.set(PDFName.of('Resources'), pruned)
+  scrub.visit(pruned)
+  if (contents) scrub.visit(contents)
   return PDFPage.of(leaf, context.register(leaf), doc)
 }
 
@@ -63,7 +63,7 @@ const RESOURCE_KINDS = [
 export const namesIn = (content: Uint8Array) => {
   const text = latin1(content)
   const names = new Set<string>()
-  for (const match of text.matchAll(/\/([^\s/[\]()<>{}%]*)/g)) {
+  for (const match of text.matchAll(/\/([^\s\0/[\]()<>{}%]*)/g)) {
     names.add(
       (match[1] ?? '').replace(/#([0-9a-fA-F]{2})/g, (_, hex: string) =>
         String.fromCharCode(parseInt(hex, 16)),
@@ -101,8 +101,32 @@ const decodeContents = (context: PDFContext, contents: PDFObject): Uint8Array =>
   return new Uint8Array()
 }
 
+/**
+ * Keys a drawn resource never needs that can point at other content: metadata,
+ * print alternates, links back into the document's page or structure tree
+ * (which would drag every page along), and actions.
+ */
+const DROPPED_KEYS = [
+  'Metadata',
+  'PieceInfo',
+  'Alternates',
+  'OPI',
+  'Parent',
+  'P',
+  'StructParent',
+  'StructParents',
+  'AA',
+  'Thumb',
+] as const
+
+/**
+ * Walks everything a kept page reaches. Wherever a resource dictionary
+ * appears (forms, tiling patterns, Type 3 fonts, soft-mask groups, anything)
+ * it is replaced with a copy holding only what that object's own content
+ * names, so a shared dictionary can't carry the rest of the file along.
+ */
 class Scrubber {
-  private readonly done = new Set<PDFRef>()
+  private readonly seen = new Set<PDFRef>()
 
   constructor(private readonly context: PDFContext) {}
 
@@ -117,75 +141,105 @@ class Scrubber {
     for (const [key, value] of resources.entries()) {
       const kind = key.decodeText()
       if (!(RESOURCE_KINDS as readonly string[]).includes(kind)) {
-        // ProcSet and anything unknown: small, kept as is.
-        out.set(key, value)
+        // ProcSet is a list of names; anything unknown is dropped.
+        if (kind === 'ProcSet') out.set(key, value)
         continue
       }
       const dict = this.context.lookupMaybe(value, PDFDict)
       if (!dict) continue
       const kept = this.context.obj({})
       for (const [name, entry] of dict.entries()) {
-        if (!used.has(name.decodeText())) continue
-        kept.set(name, entry)
-        this.scrub(entry)
+        if (used.has(name.decodeText())) kept.set(name, entry)
       }
       if (kept.keys().length) out.set(key, kept)
     }
     return out
   }
 
-  /** Adds names used by forms (transitively) that fall back on these resources. */
+  /**
+   * Adds names used by forms that have no resources of their own: viewers
+   * look those up in the page's resources, however deeply the form is nested
+   * inside other forms. Over-including is safe; missing one blanks content.
+   */
   private inheritedNames(resources: PDFDict, used: Set<string>) {
-    const xobjects = resources.lookupMaybe(PDFName.of('XObject'), PDFDict)
-    if (!xobjects) return
-    const seen = new Set<string>()
-    let grew = true
-    while (grew) {
-      grew = false
+    const pageXObjects = resources.lookupMaybe(PDFName.of('XObject'), PDFDict)
+    const visited = new Set<PDFObject>()
+    // Forms reached from `xobjects` by the names in `names`.
+    const walk = (xobjects: PDFDict | undefined, names: Set<string>) => {
+      if (!xobjects) return
       for (const [name, ref] of xobjects.entries()) {
-        const key = name.decodeText()
-        if (!used.has(key) || seen.has(key)) continue
-        seen.add(key)
+        if (!names.has(name.decodeText()) || visited.has(ref)) continue
+        visited.add(ref)
         const form = this.context.lookup(ref)
-        if (!(form instanceof PDFStream) || !isForm(form) || form.dict.has(PDFName.of('Resources')))
-          continue
-        for (const n of namesIn(decodeStream(form))) {
-          if (!used.has(n)) {
-            used.add(n)
-            grew = true
-          }
+        if (!(form instanceof PDFStream) || !isForm(form)) continue
+        const inner = namesIn(decodeStream(form))
+        const own = form.dict.lookupMaybe(PDFName.of('Resources'), PDFDict)
+        if (own) {
+          walk(own.lookupMaybe(PDFName.of('XObject'), PDFDict), inner)
+        } else {
+          const before = used.size
+          for (const n of inner) used.add(n)
+          // New page-level names may name more forms.
+          if (used.size > before) walk(pageXObjects, used)
+          walk(pageXObjects, inner)
         }
       }
     }
+    walk(pageXObjects, used)
   }
 
-  /** Removes metadata from a kept resource, and prunes nested resources. */
-  private scrub(entry: PDFObject) {
-    if (!(entry instanceof PDFRef)) return
-    if (this.done.has(entry)) return
-    this.done.add(entry)
-    const object = this.context.lookup(entry)
-    if (!(object instanceof PDFStream)) return
-    const dict = object.dict
-    dict.delete(PDFName.of('Metadata'))
-    dict.delete(PDFName.of('PieceInfo'))
-    if (isImage(dict)) {
-      const mask = dict.get(PDFName.of('SMask'))
-      if (mask) this.scrub(mask)
-      if (object instanceof PDFRawStream && isPlainJpeg(dict)) {
-        const cleaned = stripJpegMetadata(object.contents)
-        if (cleaned !== object.contents) {
-          dict.set(PDFName.of('Length'), PDFNumber.of(cleaned.length))
-          this.context.assign(entry, PDFRawStream.of(dict, cleaned))
-        }
-      }
+  /** Cleans `object` and everything it reaches. */
+  visit(object: PDFObject | undefined): void {
+    if (!object) return
+    let ref: PDFRef | undefined
+    let value: PDFObject | undefined = object
+    if (object instanceof PDFRef) {
+      if (this.seen.has(object)) return
+      this.seen.add(object)
+      ref = object
+      value = this.context.lookup(object)
+    }
+    if (value instanceof PDFArray) {
+      for (const item of value.asArray()) this.visit(item)
       return
     }
-    // Forms and tiling patterns draw with their own resources: prune those to
-    // what their content names. The content is fixed, so this is safe to do
-    // in place even when several pages share the object.
+    const stream = value instanceof PDFStream ? value : undefined
+    const dict = stream ? stream.dict : value instanceof PDFDict ? value : undefined
+    if (!dict) return
+    for (const key of DROPPED_KEYS) dict.delete(PDFName.of(key))
+
+    if (ref && stream instanceof PDFRawStream && isImage(dict) && isPlainJpeg(dict)) {
+      const cleaned = stripJpegMetadata(stream.contents)
+      if (cleaned !== stream.contents) {
+        dict.set(PDFName.of('Length'), PDFNumber.of(cleaned.length))
+        this.context.assign(ref, PDFRawStream.of(dict, cleaned))
+      }
+    }
+
+    // Prune this object's own resources to what its own content names. The
+    // content is fixed, so this is safe in place even when pages share it.
     const own = dict.lookupMaybe(PDFName.of('Resources'), PDFDict)
-    if (own) dict.set(PDFName.of('Resources'), this.prunedCopy(own, decodeStream(object)))
+    if (own) dict.set(PDFName.of('Resources'), this.prunedCopy(own, this.contentOf(dict, stream)))
+
+    for (const [, entry] of dict.entries()) this.visit(entry)
+  }
+
+  /** What draws with a dictionary's resources: its stream, or a Type 3 font's glyphs. */
+  private contentOf(dict: PDFDict, stream: PDFStream | undefined): Uint8Array {
+    if (stream) return decodeStream(stream)
+    const parts: Uint8Array[] = []
+    const procs = dict.lookupMaybe(PDFName.of('CharProcs'), PDFDict)
+    for (const [, proc] of procs?.entries() ?? []) {
+      const glyph = this.context.lookup(proc)
+      if (glyph instanceof PDFStream) parts.push(decodeStream(glyph), new Uint8Array([0x0a]))
+    }
+    const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
+    let offset = 0
+    for (const part of parts) {
+      out.set(part, offset)
+      offset += part.length
+    }
+    return out
   }
 }
 

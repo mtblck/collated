@@ -106,7 +106,24 @@ describe('stripJpegMetadata', () => {
     expect(Buffer.from(stripJpegMetadata(once)).equals(Buffer.from(once))).toBe(true)
     const png = fixture('quad-landscape.png')
     expect(stripJpegMetadata(png)).toBe(png)
-    const truncated = fixture('quad-landscape.jpg').subarray(0, 300)
-    expect(stripJpegMetadata(truncated)).toBe(truncated)
+  })
+
+  it.each([
+    ['with no end marker', (b: Uint8Array) => b.subarray(0, -2)],
+    ['cut off mid-file', (b: Uint8Array) => b.subarray(0, 400)],
+    [
+      'with junk after a segment',
+      (b: Uint8Array) =>
+        join(
+          b.subarray(0, 2),
+          segment(0xe1, 'Exif\0\0GPS-SECRET'),
+          new Uint8Array([0x00, 0x13, 0x37]),
+          b.subarray(2),
+        ),
+    ],
+  ])('still removes metadata from a damaged JPEG (%s)', (_name, damage) => {
+    const out = stripJpegMetadata(damage(tagged(fixture('quad-landscape.jpg'))))
+    expect(text(out)).not.toContain('GPS-SECRET')
+    expect(text(out)).not.toContain('XMP-SECRET')
   })
 })

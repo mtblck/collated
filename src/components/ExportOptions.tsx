@@ -11,7 +11,7 @@ const OPTIONS: readonly { value: Quality; label: string; hint: string }[] = [
   {
     value: 'original',
     label: 'Original',
-    hint: 'Images go in untouched — best quality, largest file',
+    hint: 'Images go in as they are, unless a filter, crop or Fill changes them — best quality, largest file',
   },
   ...(['high', 'balanced', 'small'] as const).map((value) => ({
     value,

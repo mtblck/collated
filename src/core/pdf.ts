@@ -23,7 +23,7 @@ import {
   type PDFImage,
   type PDFPage,
 } from '@cantoo/pdf-lib'
-import { layoutPage, partLayout, visiblePart, type Layout, type Part } from './geometry'
+import { layoutPage, partLayout, snapPart, visiblePart, type Layout, type Part } from './geometry'
 import { compressionFor, targetPixels, type Compression } from './compression'
 import { contentSize, type Asset, type Filter, type Page, type Settings } from './model'
 import { FULL_IMAGE, apply, homography, type Quad } from './perspective'
@@ -119,8 +119,13 @@ export const imageJob = (
     part: corners ? null : part,
     width: Math.max(1, Math.round(full.width * share.x)),
     height: Math.max(1, Math.round(full.height * share.y)),
-    format: filter === 'bw' ? 'png' : 'jpeg',
-    quality: compression?.quality ?? 0.9,
+    // B&W stays lossless; so does a PNG that is only cropped.
+    format:
+      filter === 'bw' || (filter === 'original' && !compression && asset.format === 'png')
+        ? 'png'
+        : 'jpeg',
+    // A crop alone re-encodes at the same quality as other unavoidable re-encodes.
+    quality: compression?.quality ?? (filter === 'original' ? 0.92 : 0.9),
   }
 }
 
@@ -146,8 +151,11 @@ const drawTextLayer = (page: PDFPage, font: PDFFont, layout: Layout, words: OcrW
   )
   const box = layout.content
   for (const word of words) {
+    // Ligatures and other compatibility forms ("ﬁ") become plain letters,
+    // which the font has and searches match.
+    const text = word.text.normalize('NFKC')
     // pdf-lib substitutes "?" for characters the font lacks; skip instead.
-    if (!encodable(word.text, supported)) continue
+    if (!encodable(text, supported)) continue
     const at = placeWord(layout, word)
     // Words the page hides (cropped by Fill or scale, or in the margins)
     // aren't on the page, so they aren't in its text either.
@@ -158,8 +166,8 @@ const drawTextLayer = (page: PDFPage, font: PDFFont, layout: Layout, words: OcrW
     }
     // A trailing space so copied text and screen readers see separate words;
     // the squeeze below spans the word itself.
-    const encoded = font.encodeText(`${word.text} `)
-    const natural = font.widthOfTextAtSize(word.text, at.size)
+    const encoded = font.encodeText(`${text} `)
+    const natural = font.widthOfTextAtSize(text, at.size)
     if (natural <= 0) continue
     page.pushOperators(
       setFontAndSize(key, at.size),
@@ -334,7 +342,10 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     if (!asset) throw new Error(`Page ${index + 1} refers to missing content.`)
     const layout = layoutPage(settings, asset, page)
     const pdfPage = doc.addPage([layout.page.width, layout.page.height])
-    const part = asset.format === 'pdf' ? null : visiblePart(layout)
+    const visible = asset.format === 'pdf' ? null : visiblePart(layout)
+    // Whole source pixels, unless corners resample anyway.
+    const source = contentSize(asset, page)
+    const part = visible && !page.corners ? snapPart(visible, source.width, source.height) : visible
     const content = await embed(asset, imageJob(asset, page, layout.image.width, compression, part))
     const box = layout.content
     const at = placement(content.cropped && part ? partLayout(layout, part) : layout, content.turns)

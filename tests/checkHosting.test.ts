@@ -119,6 +119,25 @@ describe('hosting:check', () => {
       setHeader('Permissions-Policy', 'microphone=(), geolocation=()'),
       'camera',
     ],
+    [
+      'a second block loosens the CSP',
+      (config: Config) => {
+        config.headers.push({
+          source: '/(.*)',
+          headers: [{ key: 'Content-Security-Policy', value: 'default-src *' }],
+        })
+      },
+      'security headers belong only',
+    ],
+    [
+      'the assets block adds CORS',
+      (config: Config) => {
+        config.headers
+          .find((b) => b.source === '/tools/collated/assets/(.*)')
+          ?.headers.push({ key: 'Access-Control-Allow-Origin', value: '*' })
+      },
+      'Access-Control-Allow-Origin',
+    ],
   ])('fails when %s', (_, mutate, mentions) => {
     const { status, output } = run(mutate)
     expect(status).toBe(1)

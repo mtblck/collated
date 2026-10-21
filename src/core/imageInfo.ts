@@ -188,5 +188,39 @@ export const passthrough = (bytes: Uint8Array): Passthrough => {
  */
 export const headerSize = (bytes: Uint8Array): { width: number; height: number } | null => {
   const info = readJpegInfo(bytes) ?? readPngInfo(bytes)
-  return info ? { width: info.width, height: info.height } : null
+  if (info) return { width: info.width, height: info.height }
+  return readWebpSize(bytes) ?? readGifSize(bytes) ?? readBmpSize(bytes)
 }
+
+const u16le = (b: Uint8Array, i: number) => (b[i] ?? 0) | ((b[i + 1] ?? 0) << 8)
+const u24le = (b: Uint8Array, i: number) => u16le(b, i) | ((b[i + 2] ?? 0) << 16)
+const i32le = (b: Uint8Array, i: number) => u24le(b, i) | ((b[i + 3] ?? 0) << 24)
+/** Whether `tag` (ASCII) is at `i`. */
+const tagAt = (b: Uint8Array, i: number, tag: string) => {
+  for (let k = 0; k < tag.length; k++) if (b[i + k] !== tag.charCodeAt(k)) return false
+  return true
+}
+
+/** WebP: lossy (VP8), lossless (VP8L) or extended (VP8X) canvas size. */
+const readWebpSize = (b: Uint8Array) => {
+  if (b.length < 30 || !tagAt(b, 0, 'RIFF') || !tagAt(b, 8, 'WEBP')) return null
+  if (tagAt(b, 12, 'VP8X')) return { width: u24le(b, 24) + 1, height: u24le(b, 27) + 1 }
+  if (tagAt(b, 12, 'VP8L')) {
+    const bits = i32le(b, 21) >>> 0
+    return { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 }
+  }
+  if (tagAt(b, 12, 'VP8 ')) return { width: u16le(b, 26) & 0x3fff, height: u16le(b, 28) & 0x3fff }
+  return null
+}
+
+/** GIF: the logical screen size. */
+const readGifSize = (b: Uint8Array) =>
+  b.length >= 10 && (tagAt(b, 0, 'GIF87a') || tagAt(b, 0, 'GIF89a'))
+    ? { width: u16le(b, 6), height: u16le(b, 8) }
+    : null
+
+/** BMP: the info header's size (height is negative for top-down bitmaps). */
+const readBmpSize = (b: Uint8Array) =>
+  b.length >= 26 && tagAt(b, 0, 'BM')
+    ? { width: Math.abs(i32le(b, 18)), height: Math.abs(i32le(b, 22)) }
+    : null

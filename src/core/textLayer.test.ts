@@ -102,6 +102,26 @@ describe.skipIf(!hasPdftotext)('text layer', () => {
     ).toBe('Middle')
   })
 
+  it('keeps words with ligatures, as plain letters', async () => {
+    const ligature: OcrWord[] = [
+      { text: 'ﬁnal', x0: 0.1, y0: 0.2, x1: 0.4, y1: 0.3, baseline: 0.3 },
+    ]
+    const bytes = await buildPdf(
+      {
+        settings: settings({ size: 'letter' }),
+        pages: [page('p', 'a')],
+        assets: { a: meta },
+        text: { p: ligature },
+      },
+      { getBytes: () => jpeg },
+    )
+    expect(
+      readWords(bytes)
+        .map((w) => w.text)
+        .join(''),
+    ).toBe('final')
+  })
+
   it('separates words with spaces for copying and screen readers', async () => {
     const bytes = await buildPdf(
       {

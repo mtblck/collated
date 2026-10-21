@@ -10,7 +10,7 @@ import { layoutPage } from './geometry'
 import type { Asset, Page, Settings } from './model'
 import { passthrough } from './imageInfo'
 import { pdfFilename } from './filename'
-import { buildPdf, pageTurns, placement, visibleBox, type ImageJob } from './pdf'
+import { buildPdf, imageJob, pageTurns, placement, visibleBox, type ImageJob } from './pdf'
 
 const NOW = new Date('2026-10-21T12:00:00Z')
 
@@ -594,5 +594,58 @@ describe.skipIf(!hasPdftoppm)('a page that hides part of its image', () => {
       }
     }
     expect(checked).toBeGreaterThan(40)
+  })
+})
+
+describe('cropping a page’s hidden part', () => {
+  it('crops on whole pixels, copies them 1:1, and keeps a PNG lossless', async () => {
+    const jobs: ImageJob[] = []
+    const { bytes, meta } = await fileAsset('gradient.png')
+    const docSettings = settings({ size: 'letter' })
+    await buildPdf(
+      {
+        settings: docSettings,
+        pages: [page('p', meta.id, { scale: 1.37, angle: 3 })],
+        assets: { [meta.id]: meta },
+      },
+      {
+        getBytes: () => bytes,
+        processImage: (b, job) => {
+          jobs.push(job)
+          return Promise.resolve(canvasStandIn(b, job))
+        },
+      },
+    )
+    const [job] = jobs
+    if (!job?.part) throw new Error('expected a cropped job')
+    const { x0, y0, x1, y1 } = job.part
+    for (const [edge, size] of [
+      [x0, meta.width],
+      [x1, meta.width],
+      [y0, meta.height],
+      [y1, meta.height],
+    ] as const) {
+      expect(Number.isInteger(Math.round(edge * size * 1e6) / 1e6)).toBe(true)
+    }
+    // Output is exactly the cropped pixels: no resampling at 100%.
+    expect(job.width).toBe(Math.round((x1 - x0) * meta.width))
+    expect(job.height).toBe(Math.round((y1 - y0) * meta.height))
+    expect(job.format).toBe('png')
+  })
+
+  it('re-encodes a cropped JPEG once, at 0.92', () => {
+    const job = imageJob(
+      asset('a', { width: 1000, height: 800 }),
+      { filter: 'original' },
+      500,
+      null,
+      {
+        x0: 0.1,
+        y0: 0,
+        x1: 0.9,
+        y1: 1,
+      },
+    )
+    expect(job).toMatchObject({ format: 'jpeg', quality: 0.92, width: 800, height: 800 })
   })
 })

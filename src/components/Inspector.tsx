@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { layoutPage } from '../core/geometry'
+import { layoutPage, visiblePart } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
 import type { Asset, Filter, FitMode, Page, PageTransform, Settings } from '../core/model'
 import { ANGLE_LIMIT, SCALE_MAX, SCALE_MIN, isVector } from '../core/model'
@@ -95,6 +95,8 @@ export const Inspector = ({
     actions.onMove(by)
   }
   const lowRes = !vector && layout.dpi < LOW_DPI
+  // Fill or a scale past 100% hides part of the image; the export drops it.
+  const cropsHidden = !vector && visiblePart(layout) !== null
   // Hug landscape pages; give tall pages a 3:4 box so the panel stays short.
   const boxRatio = Math.max(layout.page.width / layout.page.height, 3 / 4)
   const percent = Math.round(page.scale * 100)
@@ -308,6 +310,8 @@ export const Inspector = ({
             : page.filter === 'original'
               ? 'Greyscale and B&W clean up photographed paper.'
               : 'This page’s image is re-encoded for the filter (greyscale as JPEG, B&W as lossless PNG).'}
+          {cropsHidden &&
+            ' Part of the image is off the page, so the PDF keeps only the part that shows (re-encoded once, to leave the rest out of the file).'}
         </p>
       </div>
 

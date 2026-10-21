@@ -9,8 +9,11 @@
  * to decode. Orientation lives in EXIF, but PDF viewers ignore it anyway: the
  * export applies it as a rotation (`storedTurns`).
  *
- * Returns the input unchanged if it doesn't parse as a JPEG, so a strange
- * file fails in the embedder with its usual error rather than here.
+ * Returns the input unchanged if it doesn't start like a JPEG, so a strange
+ * file fails in the embedder with its usual error. If it starts like one but
+ * breaks off (no end marker, a bad length), what was read so far is cleaned
+ * and the rest kept as it is: metadata comes first in practice, so a damaged
+ * file still loses it. Stray bytes between segments are skipped, as decoders do.
  */
 export const stripJpegMetadata = (bytes: Uint8Array): Uint8Array => {
   if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return bytes
@@ -19,7 +22,11 @@ export const stripJpegMetadata = (bytes: Uint8Array): Uint8Array => {
   const at = (n: number) => bytes[n] ?? 0
 
   while (i < bytes.length) {
-    if (at(i) !== 0xff) return bytes
+    if (at(i) !== 0xff) {
+      // Stray bytes between segments: decoders skip to the next marker, so do we.
+      while (i < bytes.length && at(i) !== 0xff) i++
+      continue
+    }
     // Fill bytes before a marker are allowed.
     while (at(i + 1) === 0xff) i++
     const marker = at(i + 1)
@@ -35,7 +42,7 @@ export const stripJpegMetadata = (bytes: Uint8Array): Uint8Array => {
     }
     const length = (at(i + 2) << 8) | at(i + 3)
     const end = i + 2 + length
-    if (length < 2 || end > bytes.length) return bytes
+    if (length < 2 || end > bytes.length) return concat([...out, bytes.subarray(i)])
     if (keep(bytes, marker, i + 4, end)) out.push(bytes.subarray(i, end))
     i = end
     if (marker === 0xda) {
@@ -52,8 +59,8 @@ export const stripJpegMetadata = (bytes: Uint8Array): Uint8Array => {
       out.push(bytes.subarray(start, i))
     }
   }
-  // No end-of-image marker: keep what decoded rather than guess.
-  return bytes
+  // No end-of-image marker: everything read is kept, cleaned.
+  return concat(out)
 }
 
 const startsWith = (bytes: Uint8Array, from: number, end: number, text: string) => {

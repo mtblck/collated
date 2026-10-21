@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { execFileSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 import { fixture } from '../../tests/helpers'
 import {
@@ -107,7 +108,45 @@ describe('headerSize', () => {
     expect(headerSize(fixture('quad-landscape.jpg'))).toEqual({ width: 240, height: 160 })
     expect(headerSize(fixture('quad-exif6.jpg'))).toEqual({ width: 160, height: 240 })
     expect(headerSize(fixture('quad-landscape.png'))).toEqual({ width: 240, height: 160 })
-    expect(headerSize(fixture('quad-landscape.webp'))).toBeNull()
     expect(headerSize(new Uint8Array())).toBeNull()
+  })
+
+  // Encoded by Pillow in every variant the browser might decode.
+  const hasPillow = (() => {
+    try {
+      execFileSync('python3', ['-c', 'import PIL'], { stdio: 'ignore' })
+      return true
+    } catch {
+      return false
+    }
+  })()
+  const encode = (format: string, options = '') =>
+    new Uint8Array(
+      execFileSync('python3', [
+        '-c',
+        `import io,sys\nfrom PIL import Image\nb=io.BytesIO()\nImage.new('RGB',(321,123)).save(b,'${format}'${options})\nsys.stdout.buffer.write(b.getvalue())`,
+      ]),
+    )
+
+  it('reads WebP, GIF and BMP sizes too', () => {
+    expect(headerSize(fixture('quad-landscape.webp'))).toEqual({ width: 240, height: 160 })
+  })
+
+  it.skipIf(!hasPillow).each([
+    ['lossy WebP', 'WEBP', ''],
+    ['lossless WebP', 'WEBP', ', lossless=True'],
+    ['GIF', 'GIF', ''],
+    ['BMP', 'BMP', ''],
+  ])('%s', (_name, format, options) => {
+    expect(headerSize(encode(format, options))).toEqual({ width: 321, height: 123 })
+  })
+
+  it('reads a forged huge size, so the import cap can refuse it', () => {
+    // A 30-byte VP8X header claiming 16384 × 16384.
+    const vp8x = new Uint8Array(30)
+    vp8x.set(new TextEncoder().encode('RIFF'), 0)
+    vp8x.set(new TextEncoder().encode('WEBPVP8X'), 8)
+    vp8x.set([0xff, 0x3f, 0x00, 0xff, 0x3f, 0x00], 24)
+    expect(headerSize(vp8x)).toEqual({ width: 16384, height: 16384 })
   })
 })

@@ -53,6 +53,18 @@ for (const key of ['cleanUrls', 'trailingSlash', 'routes']) {
 //    later could only widen what default-src allows). Tightening one means
 //    changing it here too, on purpose.
 const block = (config.headers ?? []).find((b) => b.source === `${BASE}(.*)`)
+// Vercel applies every block whose source matches, so another block could
+// override or add to these. Other blocks may only set caching.
+for (const other of config.headers ?? []) {
+  if (other === block) continue
+  for (const { key } of other.headers) {
+    if (key.toLowerCase() !== 'cache-control') {
+      problems.push(
+        `Header block ${other.source} sets ${key}; security headers belong only in ${BASE}(.*).`,
+      )
+    }
+  }
+}
 const header = (key) => block?.headers.find((h) => h.key.toLowerCase() === key.toLowerCase())?.value
 const POLICY = {
   'default-src': "'self'",

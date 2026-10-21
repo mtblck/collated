@@ -100,7 +100,7 @@ export const EmptyState = ({ onChoose }: { onChoose: () => void }) => (
         ],
         [
           'Export',
-          'One PDF, built in your browser. Scanned JPEGs go in untouched, never recompressed.',
+          'One PDF, built in your browser. Scanned JPEGs go in as they are, not recompressed.',
         ],
       ].map(([title, body], i) => (
         <li key={title}>
