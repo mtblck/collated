@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Asset, Settings } from './core/model'
 import { pdfFilename } from './core/filename'
 import { compressionFor, estimateBytes } from './core/compression'
+import type { Skew } from './core/deskew'
+import { skewOf } from './lib/skew'
 import { layoutPage } from './core/geometry'
 import { formatBytes } from './core/units'
 import { DocumentBar, type ExportState } from './components/DocumentBar'
@@ -28,6 +30,7 @@ export interface AppDeps {
   ) => Promise<Exported>
   download: (blob: Blob, filename: string) => void
   newId: () => string
+  estimateSkew: (asset: Asset) => Promise<Skew | null>
   storage: Pick<Storage, 'getItem' | 'setItem'> | undefined
   locale: string
 }
@@ -45,6 +48,7 @@ const defaultDeps = (): AppDeps => ({
   exportPdf,
   download: saveFile,
   newId: () => crypto.randomUUID(),
+  estimateSkew: skewOf,
   storage: safeStorage(),
   locale: navigator.language,
 })
@@ -268,6 +272,53 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     [act],
   )
 
+  const [straightening, setStraightening] = useState(false)
+  /**
+   * Estimates each page's skew from its thumbnail and sets Straighten to
+   * level it, as one undo step. Pages with no clear lines are left alone and
+   * counted in the status.
+   */
+  const autoStraighten = useCallback(
+    async (ids: string[]) => {
+      setStraightening(true)
+      setStatus('Looking for lines…')
+      try {
+        const patches: { id: string; patch: { angle: number } }[] = []
+        let unclear = 0
+        for (const id of ids) {
+          const page = pages.find((p) => p.id === id)
+          const asset = page ? assets[page.assetId] : undefined
+          if (!asset) continue
+          const skew = await deps.estimateSkew(asset)
+          if (skew) patches.push({ id, patch: { angle: skew.angle } })
+          else unclear += 1
+          // Let the page paint between pages of a long document.
+          await new Promise((resolve) => setTimeout(resolve, 0))
+        }
+        act({ type: 'transformPages', patches })
+        const one = ids.length === 1
+        setStatus(
+          one
+            ? patches[0]
+              ? `Straightened by ${patches[0].patch.angle > 0 ? '+' : ''}${patches[0].patch.angle.toFixed(1)}°.`
+              : 'No clear lines to straighten by; left as it is.'
+            : `Straightened ${patches.length} of ${ids.length} pages.${
+                unclear === 1
+                  ? ' 1 page had no clear lines and was left as it is.'
+                  : unclear > 1
+                    ? ` ${unclear} pages had no clear lines and were left as they are.`
+                    : ''
+              }`,
+        )
+        if (one && !patches[0])
+          notify('No clear lines found on this page, so it was left as it is.')
+      } finally {
+        setStraightening(false)
+      }
+    },
+    [act, assets, deps, notify, pages],
+  )
+
   const inspectorActions = useMemo<InspectorActions | null>(() => {
     if (!selected) return null
     const id = selected.id
@@ -298,8 +349,11 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       onRemove: () => {
         onRemove(id)
       },
+      onAutoStraighten: (scope) => {
+        void autoStraighten(scope === 'all' ? pages.map((p) => p.id) : [id])
+      },
     }
-  }, [act, deps, endGesture, onRemove, pages.length, selected, selectedIndex])
+  }, [act, autoStraighten, deps, endGesture, onRemove, pages, selected, selectedIndex])
 
   const selectedAsset = selected ? assets[selected.assetId] : undefined
 
@@ -385,6 +439,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
                     count={pages.length}
                     settings={settings}
                     actions={inspectorActions}
+                    straightening={straightening}
                   />
                 ) : (
                   <p className="text-sm text-ink-muted">

@@ -41,6 +41,7 @@ export interface InspectorActions {
   onReset: () => void
   onApplyToAll: () => void
   onRemove: () => void
+  onAutoStraighten: (scope: 'page' | 'all') => void
 }
 
 const Stat = ({ term, children }: { term: string; children: ReactNode }) => (
@@ -58,6 +59,7 @@ export const Inspector = ({
   count,
   settings,
   actions,
+  straightening = false,
 }: {
   page: Page
   asset: Asset
@@ -65,6 +67,8 @@ export const Inspector = ({
   count: number
   settings: Settings
   actions: InspectorActions
+  /** An auto-straighten is running. */
+  straightening?: boolean
 }) => {
   const id = useId()
   const layout = useMemo(() => layoutPage(settings, asset, page), [settings, asset, page])
@@ -156,6 +160,28 @@ export const Inspector = ({
           onPointerUp={actions.onGestureEnd}
           onBlur={actions.onGestureEnd}
         />
+        <div className="mt-2 flex gap-2">
+          <Button
+            size="md"
+            className="h-8 flex-1 text-xs"
+            disabled={straightening}
+            onClick={() => {
+              actions.onAutoStraighten('page')
+            }}
+          >
+            {straightening ? 'Looking for lines…' : 'Auto-straighten'}
+          </Button>
+          <Button
+            variant="quiet"
+            className="h-8 text-xs"
+            disabled={straightening || count < 2}
+            onClick={() => {
+              actions.onAutoStraighten('all')
+            }}
+          >
+            All pages
+          </Button>
+        </div>
       </div>
 
       <div>

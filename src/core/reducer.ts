@@ -12,6 +12,8 @@ export type Action =
   | { type: 'rotatePage'; id: string; by: -1 | 1 }
   | { type: 'rotateAll'; by: -1 | 1 }
   | { type: 'transformPage'; id: string; patch: Partial<PageTransform> }
+  /** Several pages at once, as one undo step (e.g. auto-straighten all). */
+  | { type: 'transformPages'; patches: { id: string; patch: Partial<PageTransform> }[] }
   | { type: 'resetPage'; id: string }
   | { type: 'applyToAll'; id: string }
   | { type: 'setSettings'; patch: Partial<Settings> }
@@ -93,6 +95,18 @@ export const docReducer = (state: DocState, action: Action): DocState => {
 
     case 'transformPage':
       return mapPage(state, action.id, (p) => ({ ...p, ...cleanTransform(action.patch) }))
+
+    case 'transformPages': {
+      if (action.patches.length === 0) return state
+      const byId = new Map(action.patches.map(({ id, patch }) => [id, cleanTransform(patch)]))
+      return {
+        ...state,
+        pages: state.pages.map((p) => {
+          const patch = byId.get(p.id)
+          return patch ? { ...p, ...patch } : p
+        }),
+      }
+    }
 
     case 'resetPage':
       return mapPage(state, action.id, (p) => ({ ...p, ...DEFAULT_TRANSFORM }))

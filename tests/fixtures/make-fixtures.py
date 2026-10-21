@@ -89,6 +89,11 @@ grain = Image.effect_noise((2550, 3300), 10).convert("RGB")
 large = Image.blend(large, grain, 0.06)
 large.save(HERE / "scan-letter-300dpi.jpg", quality=92)
 
+# The document photo shot 4 degrees off: rotated clockwise (PIL's angle is
+# counter-clockwise, hence -4) onto a darker table, as a phone snap would be.
+skewed = doc.rotate(-4, resample=Image.Resampling.BICUBIC, expand=True, fillcolor=(70, 62, 55))
+skewed.save(HERE / "doc-skewed-4deg.jpg", quality=88)
+
 # An iPhone-style HEIC of the quadrant image. Needs pillow-heif; skipped (and
 # the committed file kept) when it isn't installed.
 try:
