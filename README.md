@@ -96,4 +96,4 @@ Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Licence
 
-[MIT](LICENSE) © Matt Black. Bundled libraries and their licences — including libheif (LGPL-3.0), loaded as a separate replaceable file — are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+[MIT](LICENSE) © Matt Black. Bundled libraries and their licences — including libheif (LGPL-3.0), loaded as a separate replaceable file — are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); the built site carries it and the licence texts under `licenses/`.
