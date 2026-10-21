@@ -131,3 +131,17 @@ export const LockIcon = (p: P) => (
     <path d="M7 9V6.5a3 3 0 0 1 6 0V9" />
   </Icon>
 )
+
+export const MoreIcon = (p: P) => (
+  <Icon {...p} strokeWidth="0" fill="currentColor">
+    {[5, 10, 15].map((x) => (
+      <circle key={x} cx={x} cy="10" r="1.5" />
+    ))}
+  </Icon>
+)
+
+export const HeartIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M10 16.5s-6-3.6-6-8A3.5 3.5 0 0 1 10 6.3 3.5 3.5 0 0 1 16 8.5c0 4.4-6 8-6 8Z" />
+  </Icon>
+)

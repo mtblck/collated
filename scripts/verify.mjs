@@ -84,6 +84,24 @@ const browser = await chromium.launch(
 )
 const fails = []
 const ok = (message) => console.log(`  ok  ${message}`)
+
+/** Opens the toolbar's Page setup popover, runs `act` on it, and closes it. */
+const pageSetup = async (p, act) => {
+  await p.getByRole('button', { name: /^Page setup/ }).click()
+  const panel = p.getByRole('dialog', { name: 'Page setup' })
+  await panel.waitFor()
+  await act(panel)
+  await p.keyboard.press('Escape')
+  await panel.waitFor({ state: 'hidden' })
+}
+/** Sets the title in the Export options popover. */
+const setTitle = async (p, title) => {
+  await p.getByRole('button', { name: /Export options/ }).click()
+  const panel = p.getByRole('dialog', { name: 'Export options' })
+  await panel.getByLabel('Title & filename').fill(title)
+  await p.keyboard.press('Escape')
+  await panel.waitFor({ state: 'hidden' })
+}
 const check = (condition, message, detail = '') => {
   if (condition) ok(message)
   else fails.push(`${message}${detail ? `\n      ${detail}` : ''}`)
@@ -343,10 +361,12 @@ await page.keyboard.press('Control+Shift+z')
 await page.keyboard.press('Control+Shift+z')
 
 // Document settings: Letter with a half-inch margin and a title.
-await page.getByLabel('Page size').selectOption('letter')
-await page.getByLabel('Margin').fill('0.5')
-await page.getByLabel('Margin').blur()
-await page.getByLabel('Title & filename').fill('Verify run')
+await pageSetup(page, async (panel) => {
+  await panel.getByLabel('Page size').selectOption('letter')
+  await panel.getByLabel(/^Margin/).fill('0.5')
+  await panel.getByLabel(/^Margin/).press('Tab')
+})
+await setTitle(page, 'Verify run')
 await page.screenshot({ path: join(shots, 'inspector.png'), fullPage: true })
 
 // Export and inspect the PDF.
@@ -732,8 +752,10 @@ await context.close()
     join(fixtures, 'quad-landscape.jpg'),
   ])
   await p.waitForSelector('ol[aria-label="2 pages"]')
-  await p.getByLabel('Margin').fill('0.5')
-  await p.getByLabel('Margin').blur()
+  await pageSetup(p, async (panel) => {
+    await panel.getByLabel(/^Margin/).fill('0.5')
+    await panel.getByLabel(/^Margin/).press('Tab')
+  })
   const optionsButton = p.getByRole('button', { name: /Export options/ })
   await optionsButton.click()
   const dialog = p.getByRole('dialog', { name: 'Export options' })
@@ -804,9 +826,11 @@ await context.close()
   }
 
   // Match image: pages take their image's size at the chosen dpi.
-  await p.getByLabel('Page size').selectOption('image')
-  await p.getByLabel('Image dpi').fill('150')
-  await p.getByLabel('Image dpi').blur()
+  await pageSetup(p, async (panel) => {
+    await panel.getByLabel('Page size').selectOption('image')
+    await panel.getByLabel('Image dpi').fill('150')
+    await panel.getByLabel('Image dpi').press('Tab')
+  })
   await optionsButton.click()
   await dialog.getByLabel('Password to open').fill('')
   // Listen first: with the export worker already loaded, the file can be
@@ -1062,7 +1086,9 @@ await context.close()
     join(fixtures, 'quad-portrait.jpg'),
   ])
   await p.waitForSelector('ol[aria-label="2 pages"]')
-  const overflow = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+  // Against the device width, not innerWidth: a mobile browser widens its
+  // layout viewport to fit wide content, which hid an overflowing toolbar.
+  const overflow = await p.evaluate(() => document.documentElement.scrollWidth - 390)
   check(overflow <= 0, 'no horizontal scroll on a phone', `${overflow}px`)
   await p.getByRole('button', { name: 'Page 1: quad-landscape.jpg' }).click()
   await p.screenshot({ path: join(shots, 'phone-dark.png'), fullPage: true })
@@ -1292,6 +1318,88 @@ await context.close()
   } finally {
     renameSync(`${workerFile}.away`, workerFile)
   }
+  await ctx.close()
+}
+
+// 15. App shell: the header stays, the pages and the inspector scroll. --------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1280, height: 720 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles(
+    '[data-testid="file-input"]',
+    Array.from({ length: 4 }, () =>
+      ['quad-landscape.jpg', 'quad-portrait.jpg', 'quad-exif6.jpg'].map((f) => join(fixtures, f)),
+    ).flat(),
+  )
+  await p.waitForSelector('ol[aria-label="12 pages"]')
+  const grid = p.locator('section[aria-label="Pages"]')
+  await grid.hover()
+  await p.mouse.wheel(0, 2000)
+  await p.waitForTimeout(300)
+  const after = await p.evaluate(() => ({
+    window: window.scrollY,
+    grid: document.querySelector('section[aria-label="Pages"]')?.scrollTop ?? 0,
+    header: document.querySelector('header')?.getBoundingClientRect().top ?? -1,
+    page: document.documentElement.scrollHeight - window.innerHeight,
+  }))
+  check(
+    after.window === 0 && after.page <= 0 && after.grid > 0 && after.header === 0,
+    'the page grid scrolls on its own; the window and header stay put',
+    JSON.stringify(after),
+  )
+  // The inspector scrolls separately, and a new selection starts at its top.
+  const rail = p.locator('aside[aria-label="Selected page"]')
+  await rail.hover()
+  await p.mouse.wheel(0, 2000)
+  await p.waitForTimeout(300)
+  const railScrolled = await rail.evaluate((el) => el.scrollTop)
+  await p.getByRole('button', { name: /^Page 12:/ }).click()
+  await p.waitForTimeout(200)
+  check(
+    railScrolled > 0 && (await rail.evaluate((el) => el.scrollTop)) === 0,
+    'the inspector scrolls on its own and starts at the top for a new page',
+    `scrolled ${railScrolled}`,
+  )
+  // Toolbar: one Tab stop, arrow keys along it, Alt+T to reach it.
+  await p.keyboard.press('Alt+t')
+  check(
+    /^Page setup/.test((await p.evaluate(() => document.activeElement?.textContent)) ?? ''),
+    'Alt+T focuses the toolbar',
+  )
+  await p.keyboard.press('End')
+  check(
+    (await p.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === 'More',
+    'End moves to the last toolbar control',
+  )
+  await p.keyboard.press('Enter')
+  const more = p.getByRole('dialog', { name: 'More' })
+  await more.waitFor()
+  await axe(p, 'More menu open')
+  check(
+    (await more.getByRole('link', { name: /Support Collated/ }).getAttribute('href')) ===
+      'https://ko-fi.com/collated',
+    'More links to Support Collated',
+  )
+  await p.keyboard.press('Escape')
+  await p.getByRole('button', { name: /^Page setup/ }).click()
+  const setup = p.getByRole('dialog', { name: 'Page setup' })
+  await setup.waitFor()
+  const [button, panel] = await Promise.all([
+    p.getByRole('button', { name: /^Page setup/ }).boundingBox(),
+    setup.boundingBox(),
+  ])
+  check(
+    Boolean(button && panel && panel.y >= button.y + button.height - 1 && panel.x < button.x + 40),
+    'Page setup opens under its button',
+    JSON.stringify({ button, panel }),
+  )
+  await axe(p, 'Page setup open')
+  await p.screenshot({ path: join(shots, 'page-setup.png') })
+  await p.keyboard.press('Escape')
+  check(
+    (await p.locator('a[href*="mattblack.space"]').count()) === 0,
+    'no link back to the portfolio',
+  )
   await ctx.close()
 }
 

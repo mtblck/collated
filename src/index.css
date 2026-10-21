@@ -298,3 +298,80 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/*
+ * App shell (App.tsx): the panes that scroll keep clear of the notice box,
+ * which sets --notice-room while it's up (WCAG 2.4.11).
+ */
+.scroll-pane {
+  scroll-padding-bottom: var(--notice-room, 0px);
+  padding-bottom: max(1.5rem, var(--notice-room, 0px));
+}
+
+/*
+ * Toolbar popovers. Phones: a sheet along the bottom. Wider: under their
+ * button where the browser can anchor (Chromium 125+, Safari 26), else
+ * pinned under the header at the matching corner. Unlayered, so these win
+ * over the panel's utility classes.
+ */
+.anchor-setup {
+  anchor-name: --setup;
+}
+.anchor-export {
+  anchor-name: --export;
+}
+.anchor-more {
+  anchor-name: --more;
+}
+[popover].popover-start,
+[popover].popover-end {
+  position: fixed;
+  inset: auto 0.5rem 0.5rem 0.5rem;
+  width: auto;
+  max-height: calc(100dvh - 1rem);
+}
+@media (min-width: 640px) {
+  [popover].popover-start,
+  [popover].popover-end {
+    width: revert-layer;
+    max-height: calc(100dvh - 5rem);
+  }
+  [popover].popover-start {
+    inset: 4rem auto auto 1.5rem;
+  }
+  [popover].popover-end {
+    inset: 4rem 1.5rem auto auto;
+  }
+  @supports (position-area: block-end) {
+    [popover].from-setup {
+      position-anchor: --setup;
+    }
+    [popover].from-export {
+      position-anchor: --export;
+    }
+    [popover].from-more {
+      position-anchor: --more;
+    }
+    [popover].popover-start,
+    [popover].popover-end {
+      inset: auto;
+      margin: 0.375rem 0 0;
+      position-try-fallbacks: flip-inline;
+      max-height: calc(100dvh - 5rem);
+    }
+    [popover].popover-start {
+      position-area: block-end span-inline-end;
+    }
+    [popover].popover-end {
+      position-area: block-end span-inline-start;
+    }
+  }
+}
+
+/* In the wide-screen shell the window doesn't scroll, so the room the notice
+   box reserves goes to the panes above (.scroll-pane), not the body. */
+@media (min-width: 1024px) {
+  body {
+    padding-bottom: 0 !important;
+  }
+}

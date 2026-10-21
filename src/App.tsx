@@ -122,6 +122,11 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const [notices, setNotices] = useState<Notice[]>([])
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  // The inspector scrolls on its own; a newly selected page starts at its top.
+  const rail = useRef<HTMLElement>(null)
+  useLayoutEffect(() => {
+    if (rail.current) rail.current.scrollTop = 0
+  }, [selectedId])
   const noticeId = useRef(0)
   /**
    * Where focus goes after a change that may remove the focused control:
@@ -304,11 +309,20 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     setNotices((list) => list.slice(0, -1))
   }, [])
 
-  // Keyboard undo/redo, and Escape for the latest notice.
+  // Keyboard undo/redo, Alt+T to the toolbar, and Escape for the latest notice.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       // The crop editor is modal: nothing behind it may change.
       if (modalOpen()) return
+      // By key position, not character: Option+T on a Mac types "†".
+      if (event.altKey && !event.metaKey && !event.ctrlKey && event.code === 'KeyT') {
+        const stop = document.querySelector<HTMLElement>('[role="toolbar"] [data-toolbar-stop]')
+        if (stop) {
+          event.preventDefault()
+          stop.focus()
+        }
+        return
+      }
       if (event.key === 'Escape') {
         if (!event.defaultPrevented && !popoverOpen() && !isEditable(event.target)) {
           dismissLatest()
@@ -539,8 +553,13 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     [assets, pages, settings],
   )
 
+  const workspace = pages.length > 0 || importing !== null
+
   return (
-    <div className="relative min-h-dvh">
+    // On a wide screen the window never scrolls: the header stays put and the
+    // page grid and the inspector scroll on their own. On narrower screens the
+    // page scrolls as usual and the header scrolls with it.
+    <div className="relative flex min-h-dvh flex-col lg:h-dvh lg:overflow-hidden">
       <div className="grain pointer-events-none fixed inset-0 -z-10" aria-hidden="true" />
       <a
         href="#main"
@@ -548,35 +567,43 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       >
         Skip to content
       </a>
-      <Header />
-      <main id="main">
-        {pages.length === 0 && !importing ? (
-          <EmptyState onChoose={chooseFiles} />
+      <Header>
+        {workspace ? (
+          <DocumentBar
+            settings={settings}
+            pageCount={pages.length}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            exporting={exporting}
+            onSettings={onSettings}
+            onUndo={onUndo}
+            onRedo={onRedo}
+            onRotateAll={(by) => {
+              act({ type: 'rotateAll', by })
+            }}
+            onAdd={chooseFiles}
+            onExport={() => void onExport()}
+            estimate={estimate}
+            lastExport={lastExport}
+            password={password}
+            onPassword={setPassword}
+            passwordError={passwordError}
+          />
+        ) : undefined}
+      </Header>
+      <main id="main" className="flex min-h-0 flex-1 flex-col">
+        {!workspace ? (
+          <div className="scroll-pane lg:overflow-y-auto">
+            <EmptyState onChoose={chooseFiles} />
+          </div>
         ) : (
           <>
             <h1 className="sr-only">Collated: arrange pages and export a PDF</h1>
-            <DocumentBar
-              settings={settings}
-              pageCount={pages.length}
-              canUndo={canUndo}
-              canRedo={canRedo}
-              exporting={exporting}
-              onSettings={onSettings}
-              onUndo={onUndo}
-              onRedo={onRedo}
-              onRotateAll={(by) => {
-                act({ type: 'rotateAll', by })
-              }}
-              onAdd={chooseFiles}
-              onExport={() => void onExport()}
-              estimate={estimate}
-              lastExport={lastExport}
-              password={password}
-              onPassword={setPassword}
-              passwordError={passwordError}
-            />
-            <div className="mx-auto flex max-w-[1600px] flex-col gap-10 px-4 py-6 sm:px-6 lg:flex-row lg:items-start">
-              <section aria-label="Pages" className="min-w-0 flex-1">
+            <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col lg:flex-row">
+              <section
+                aria-label="Pages"
+                className="scroll-pane min-w-0 flex-1 px-4 py-6 sm:px-6 lg:overflow-y-auto lg:overscroll-contain"
+              >
                 {importing && (
                   <p className="label mb-4 text-ink-faint" aria-hidden="true">
                     Reading file {importing.file} of {importing.files}
@@ -597,8 +624,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
                 />
               </section>
               <aside
+                ref={rail}
                 aria-label="Selected page"
-                className="lg:sticky lg:top-28 lg:max-h-[calc(100dvh-8rem)] lg:w-[22rem] lg:shrink-0 lg:overflow-y-auto lg:overscroll-contain lg:border-l lg:border-rule lg:px-8 lg:pb-6"
+                className="scroll-pane border-t border-rule px-4 py-6 sm:px-6 lg:w-[22rem] lg:shrink-0 lg:overflow-y-auto lg:overscroll-contain lg:border-t-0 lg:border-l lg:px-8"
               >
                 {selected && selectedAsset && inspectorActions ? (
                   <Inspector
