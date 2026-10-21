@@ -749,8 +749,14 @@ describe('App', () => {
       const hrefs = within(nav)
         .getAllByRole('link')
         .map((a) => a.getAttribute('href'))
-      expect(hrefs).toEqual(['https://github.com/mtblck/collated', 'https://ko-fi.com/collated'])
-      for (const link of within(nav).getAllByRole('link')) {
+      expect(hrefs).toEqual([
+        '/tools/collated/docs/',
+        'https://github.com/mtblck/collated',
+        'https://ko-fi.com/collated',
+      ])
+      for (const link of within(nav)
+        .getAllByRole('link')
+        .filter((a) => a.getAttribute('href')?.startsWith('https:'))) {
         expect(link).toHaveAttribute('rel', 'noopener noreferrer')
       }
       expect(document.querySelector('a[href*="mattblack.space"]')).toBeNull()

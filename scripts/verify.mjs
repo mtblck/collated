@@ -70,6 +70,8 @@ const server = createServer((req, res) => {
     res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found')
     return
   }
+  // A folder URL serves its index.html, as Vercel does (the docs pages).
+  if (path.endsWith('/') && existsSync(join(file, 'index.html'))) file = join(file, 'index.html')
   if (!path.startsWith(BASE) || !existsSync(file) || !extname(file)) {
     file = join(dist, 'tools', 'collated', 'index.html') // app fallback
   }
@@ -1399,6 +1401,81 @@ await context.close()
   check(
     (await p.locator('a[href*="mattblack.space"]').count()) === 0,
     'no link back to the portfolio',
+  )
+  await ctx.close()
+}
+
+// 16. Docs, privacy and terms: static pages under the same CSP. ---------------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1280, height: 900 } })
+  const pages = [
+    'docs/',
+    'docs/getting-started/',
+    'docs/adding-pages/',
+    'docs/arranging-pages/',
+    'docs/page-setup/',
+    'docs/exporting/',
+    'docs/keyboard/',
+    'docs/privacy-and-security/',
+    'docs/troubleshooting/',
+    'privacy/',
+    'terms/',
+  ]
+  const internal = new Set()
+  for (const path of pages) {
+    const response = await p.goto(`${URL_ROOT}${path}`, { waitUntil: 'networkidle' })
+    check(response?.status() === 200, `${path} is served`)
+    check(
+      (await p.locator('h1').count()) === 1 &&
+        (await p.locator('nav[aria-label="Docs"] [aria-current="page"]').count()) === 1,
+      `${path} has one h1 and marks itself in the nav`,
+    )
+    // Styled by the app's stylesheet: the h1 is in the display face.
+    const font = await p.locator('h1').evaluate((h) => getComputedStyle(h).fontFamily)
+    check(font.includes('Instrument Serif'), `${path} is styled`, font)
+    for (const href of await p
+      .locator('a[href^="/tools/collated/"]')
+      .evaluateAll((as) => as.map((a) => a.getAttribute('href'))))
+      internal.add(href)
+    await axe(p, path)
+  }
+  for (const href of internal) {
+    const response = await p.request.get(`${ORIGIN}${href}`)
+    check(response.status() === 200, `link ${href} resolves`)
+  }
+  // Dark mode follows the stored theme on docs pages too.
+  await p.evaluate(() => localStorage.setItem('mb-theme', 'dark'))
+  await p.goto(`${URL_ROOT}docs/`, { waitUntil: 'networkidle' })
+  check(
+    (await p.evaluate(() => document.documentElement.dataset.theme)) === 'dark',
+    'docs pages use the stored theme',
+  )
+  await p.screenshot({ path: join(shots, 'docs-dark.png'), fullPage: true })
+  await axe(p, 'docs, dark')
+  await p.evaluate(() => localStorage.removeItem('mb-theme'))
+  await p.goto(`${URL_ROOT}docs/exporting/`, { waitUntil: 'networkidle' })
+  await p.screenshot({ path: join(shots, 'docs.png'), fullPage: true })
+
+  // The landing view's footer, and the workspace's way to the docs: a new tab,
+  // so the pages being worked on aren't lost.
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  const footer = p.locator('footer')
+  check(
+    (await footer.getByRole('link', { name: 'Privacy' }).getAttribute('href')) ===
+      '/tools/collated/privacy/' &&
+      (await footer.getByRole('link', { name: /Support Collated/ }).getAttribute('href')) ===
+        'https://ko-fi.com/collated',
+    'the landing footer links to privacy and support',
+  )
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-landscape.jpg')])
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  await p.getByRole('button', { name: 'More' }).click()
+  const docsLink = p
+    .getByRole('dialog', { name: 'More' })
+    .getByRole('link', { name: /Help and docs/ })
+  check(
+    (await docsLink.getAttribute('target')) === '_blank',
+    'docs open in a new tab from the workspace, keeping the pages',
   )
   await ctx.close()
 }

@@ -1,4 +1,6 @@
 @import 'tailwindcss';
+/* The docs pages' markup lives in a build plugin at the repo root. */
+@source '../docs-site.ts';
 
 /* ---------------------------------------------------------------------------
    Type: the portfolio's three faces, self-hosted. Relative URLs so Vite hashes
@@ -374,4 +376,90 @@
   body {
     padding-bottom: 0 !important;
   }
+}
+
+/* Docs pages (docs-site.ts): long-form text in the app's type. */
+.doc {
+  max-width: 44rem;
+  color: var(--c-ink);
+  line-height: 1.65;
+}
+.doc h1 {
+  font-family: var(--font-display);
+  font-size: 2.75rem;
+  line-height: 1.1;
+  margin-bottom: 1.25rem;
+}
+.doc h2 {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  line-height: 1.2;
+  margin: 2.5rem 0 0.75rem;
+}
+.doc p,
+.doc ul,
+.doc ol,
+.doc table {
+  margin: 0 0 1rem;
+}
+.doc ul,
+.doc ol {
+  padding-left: 1.25rem;
+}
+.doc ul {
+  list-style: disc;
+}
+.doc ol {
+  list-style: decimal;
+}
+.doc li {
+  margin-bottom: 0.4rem;
+}
+.doc a {
+  color: var(--c-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+.doc a:hover {
+  color: var(--c-ink);
+}
+.doc code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--c-paper-sunk);
+  padding: 0.1em 0.3em;
+}
+.doc em {
+  color: var(--c-ink-muted);
+}
+.doc table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+.doc th,
+.doc td {
+  border-bottom: 1px solid var(--c-rule);
+  padding: 0.5rem 1rem 0.5rem 0;
+  text-align: left;
+  vertical-align: top;
+}
+.doc th {
+  font-weight: 600;
+}
+.doc-nav-link {
+  display: block;
+  padding: 0.25rem 0.5rem;
+  margin-left: -0.5rem;
+  color: var(--c-ink-muted);
+  font-size: 0.9375rem;
+}
+.doc-nav-link:hover {
+  color: var(--c-ink);
+}
+.doc-nav-link[aria-current='page'] {
+  color: var(--c-ink);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--c-accent);
 }

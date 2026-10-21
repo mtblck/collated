@@ -2,7 +2,7 @@ import { useEffect, useRef, type ReactNode } from 'react'
 import { Button, IconButton } from './controls'
 import { cx } from './cx'
 import { CloseIcon, MoonIcon, SunIcon } from './Icons'
-import { SOURCE_URL, SUPPORT_URL } from './links'
+import { DOCS_URL, FOOTER, SOURCE_URL, SUPPORT_URL } from './links'
 import { useTheme } from './theme'
 
 /** The landing view's theme switch; in the workspace it lives in More. */
@@ -45,6 +45,9 @@ export const Header = ({ children }: { children?: ReactNode }) => (
             Files stay on this device
           </p>
           <nav aria-label="About Collated" className="ml-auto flex items-center gap-1 md:ml-4">
+            <a className={NAV_LINK} href={DOCS_URL}>
+              Docs
+            </a>
             <a className={NAV_LINK} href={SOURCE_URL} rel="noopener noreferrer" target="_blank">
               Source<span className="sr-only"> code (opens in a new tab)</span>
             </a>
@@ -108,6 +111,33 @@ export const EmptyState = ({ onChoose }: { onChoose: () => void }) => (
       licence.
     </p>
   </div>
+)
+
+/** Landing-view footer; the docs pages render the same columns (docs-site.ts). */
+export const Footer = () => (
+  <footer className="border-t border-rule">
+    <div className="mx-auto grid max-w-5xl gap-8 px-4 py-10 sm:grid-cols-3 sm:px-6">
+      {FOOTER.map((column) => (
+        <div key={column.title}>
+          <h2 className="label mb-3 text-ink-faint">{column.title}</h2>
+          <ul className="flex flex-col gap-2">
+            {column.links.map((link) => (
+              <li key={link.href}>
+                <a
+                  className="text-sm text-ink-muted hover:text-ink"
+                  href={link.href}
+                  {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                >
+                  {link.label}
+                  {link.external && <span className="sr-only"> (opens in a new tab)</span>}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  </footer>
 )
 
 export const DropOverlay = ({ active }: { active: boolean }) =>

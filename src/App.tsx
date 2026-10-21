@@ -10,7 +10,7 @@ import { layoutPage } from './core/geometry'
 import { formatBytes } from './core/units'
 import { describeChange } from './core/describeChange'
 import { DocumentBar, type ExportState } from './components/DocumentBar'
-import { DropOverlay, EmptyState, Header, Notices, type Notice } from './components/Chrome'
+import { DropOverlay, EmptyState, Footer, Header, Notices, type Notice } from './components/Chrome'
 import { Inspector, type InspectorActions } from './components/Inspector'
 import { PageGrid } from './components/PageGrid'
 import { download as saveFile, exportPdf, prepareExport, type Exported } from './export/exportPdf'
@@ -595,6 +595,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         {!workspace ? (
           <div className="scroll-pane lg:overflow-y-auto">
             <EmptyState onChoose={chooseFiles} />
+            <Footer />
           </div>
         ) : (
           <>

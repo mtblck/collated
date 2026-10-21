@@ -1,7 +1,7 @@
 import { useId, useRef, type ReactNode } from 'react'
 import { cx } from './cx'
 import { MoonIcon, MoreIcon, RotateLeftIcon, RotateRightIcon, SunIcon } from './Icons'
-import { SOURCE_URL, SUPPORT_URL } from './links'
+import { DOCS_URL, PRIVACY_URL, SOURCE_URL, SUPPORT_URL } from './links'
 import { POPOVER_PANEL, closeOwnPopover, useCloseOnFocusOut } from './popover'
 import { useTheme } from './theme'
 import { TOOLBAR_ITEM } from './toolbarItem'
@@ -94,6 +94,14 @@ export const MoreMenu = ({
             </button>
           </Group>
           <Group label="About Collated">
+            <a className={ITEM} href={DOCS_URL} target="_blank" rel="noopener">
+              Help and docs
+              <span className="sr-only"> (opens in a new tab)</span>
+            </a>
+            <a className={ITEM} href={PRIVACY_URL} target="_blank" rel="noopener">
+              Privacy
+              <span className="sr-only"> (opens in a new tab)</span>
+            </a>
             <a className={ITEM} href={SUPPORT_URL} target="_blank" rel="noopener noreferrer">
               Support Collated
               <span className="sr-only"> (opens in a new tab)</span>
