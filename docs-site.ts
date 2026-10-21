@@ -89,10 +89,13 @@ export const renderPage = (spec: PageSpec, css: string): RenderedPage => {
     markdown
       .split(/\n\s*\n/)
       .map((block) => block.trim())
-      .find((block) => block && !block.startsWith('#') && !/^[*_]Last updated/.test(block))
+      .find(
+        // A sentence: not a heading, the date line, a table or a list.
+        (block) => block && !/^(#|\||[-*] |\d+\. |[*_]Last updated)/.test(block),
+      )
       ?.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
       .replace(/[*_`]/g, '')
-      .slice(0, 200) ?? ''
+      .slice(0, 200) ?? `${spec.label}: Collated documentation.`
 
   const marked = new Marked({
     gfm: true,

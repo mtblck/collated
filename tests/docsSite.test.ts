@@ -48,7 +48,7 @@ describe('docs site', () => {
     for (const { page, html, title } of rendered) {
       expect(html).toContain(`<title>${title} · Collated</title>`)
       expect(html.match(/<h1[\s>]/g), page.source).toHaveLength(1)
-      expect(html).toMatch(/<meta name="description" content="[^"]{20,}"/)
+      expect(html).toMatch(/<meta name="description" content="[^"|]{20,}"/)
       expect(html).toContain('<html lang="en">')
       expect(html).toContain('aria-current="page"')
     }
