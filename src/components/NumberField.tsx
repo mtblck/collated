@@ -10,6 +10,7 @@ export const NumberField = ({
   id,
   value,
   onCommit,
+  onClear,
   min,
   max,
   step = 1,
@@ -18,8 +19,11 @@ export const NumberField = ({
   ...aria
 }: {
   id: string
-  value: number
+  /** null shows an empty field (for optional values). */
+  value: number | null
   onCommit: (value: number) => void
+  /** Called when the field is committed empty; without it, empty restores the value. */
+  onClear?: () => void
   min: number
   max: number
   step?: number
@@ -29,12 +33,16 @@ export const NumberField = ({
   'aria-describedby'?: string
 }) => {
   const [draft, setDraft] = useState<string | null>(null)
-  const shown = draft ?? String(value)
+  const shown = draft ?? (value === null ? '' : String(value))
 
   const commit = () => {
     if (draft === null) return
     const parsed = Number.parseFloat(draft.replace(',', '.'))
     setDraft(null)
+    if (draft.trim() === '' && onClear) {
+      onClear()
+      return
+    }
     if (Number.isFinite(parsed)) onCommit(Math.min(max, Math.max(min, parsed)))
   }
 

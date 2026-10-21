@@ -12,6 +12,7 @@ import {
   RotateRightIcon,
   UndoIcon,
 } from './Icons'
+import { ExportOptions } from './ExportOptions'
 import { NumberField } from './NumberField'
 
 const ORIENTATIONS: readonly { value: Orientation; label: string }[] = [
@@ -29,6 +30,8 @@ export interface ExportState {
   busy: boolean
   done: number
   total: number
+  /** Above 1 when a size limit forced a retry at lower quality. */
+  attempt?: number
 }
 
 /**
@@ -47,6 +50,8 @@ export const DocumentBar = ({
   onRotateAll,
   onAdd,
   onExport,
+  estimate,
+  lastExport,
 }: {
   settings: Settings
   pageCount: number
@@ -59,6 +64,8 @@ export const DocumentBar = ({
   onRotateAll: (by: -1 | 1) => void
   onAdd: () => void
   onExport: () => void
+  estimate: number
+  lastExport: { size: string; used: string; fits: boolean } | null
 }) => {
   const id = useId()
   const { unit } = settings
@@ -209,10 +216,20 @@ export const DocumentBar = ({
             <PlusIcon width={16} height={16} />
             Add pages
           </Button>
+          <ExportOptions
+            settings={settings}
+            estimate={estimate}
+            lastExport={lastExport}
+            onSettings={onSettings}
+            onExport={onExport}
+            canExport={pageCount > 0 && !exporting.busy}
+          />
           <Button variant="primary" disabled={pageCount === 0 || exporting.busy} onClick={onExport}>
             <DownloadIcon width={16} height={16} />
             {exporting.busy
-              ? `Building ${exporting.done}/${exporting.total}…`
+              ? (exporting.attempt ?? 1) > 1
+                ? `Shrinking, try ${exporting.attempt} · ${exporting.done}/${exporting.total}…`
+                : `Building ${exporting.done}/${exporting.total}…`
               : `Export PDF · ${pageCount} ${pageCount === 1 ? 'page' : 'pages'}`}
           </Button>
         </div>

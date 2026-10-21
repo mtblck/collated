@@ -11,10 +11,16 @@ import {
   type PDFPage,
 } from '@cantoo/pdf-lib'
 import { layoutPage, type Layout } from './geometry'
+import { compressionFor, targetPixels, type Compression } from './compression'
 import type { Asset, Filter, Page, Settings } from './model'
 
 export interface BuildInput {
   settings: Settings
+  /**
+   * Overrides the compression implied by `settings.quality`, so a size-limited
+   * export can retry at smaller steps.
+   */
+  compression?: Compression | null
   pages: Page[]
   assets: Record<
     string,
@@ -26,17 +32,46 @@ export interface BuildOptions {
   /** Returns stored bytes by `bytesId` (the same bytes imported). */
   getBytes: (bytesId: string) => Uint8Array | Promise<Uint8Array>
   /**
-   * Decodes, filters and re-encodes an image for a page with a filter. Needs
-   * a canvas, so the worker provides it; the result is upright (stored turns
-   * already applied by the decode).
+   * Decodes an image, filters it, resizes it and re-encodes it. Needs a
+   * canvas, so the worker provides it; the result is upright (the decode
+   * applies EXIF orientation).
    */
-  filterImage?: (
-    bytes: Uint8Array,
-    filter: Exclude<Filter, 'original'>,
-  ) => Promise<{ bytes: Uint8Array; format: 'jpeg' | 'png' }>
+  processImage?: (bytes: Uint8Array, job: ImageJob) => Promise<Uint8Array>
   onProgress?: (done: number, total: number) => void
   /** Fixed for reproducible output in tests. */
   now?: Date
+}
+
+/** What to do to one image: the canvas side lives in lib/filterCanvas.ts. */
+export interface ImageJob {
+  filter: Filter
+  width: number
+  height: number
+  format: 'jpeg' | 'png'
+  /** JPEG quality, 0–1. */
+  quality: number
+}
+
+/**
+ * How an image page is stored. Untouched unless it has a filter or the export
+ * compresses: B&W stays lossless PNG (text edges), everything else becomes
+ * JPEG at the compression's quality (0.9 when only a filter applies).
+ */
+export const imageJob = (
+  asset: Pick<Asset, 'width' | 'height' | 'format'>,
+  filter: Filter,
+  drawnWidthPt: number,
+  compression: Compression | null,
+): ImageJob | null => {
+  if (asset.format === 'pdf' || (filter === 'original' && !compression)) return null
+  const { width, height } = targetPixels(asset, drawnWidthPt, compression)
+  return {
+    filter,
+    width,
+    height,
+    format: filter === 'bw' ? 'png' : 'jpeg',
+    quality: compression?.quality ?? 0.9,
+  }
 }
 
 export const PRODUCER = 'Collated — mattblack.space/tools/collated'
@@ -91,6 +126,8 @@ export const pageTurns = (page: PDFPage): 0 | 1 | 2 | 3 =>
 
 export const buildPdf = async (input: BuildInput, options: BuildOptions): Promise<Uint8Array> => {
   const { settings, pages, assets } = input
+  const compression =
+    input.compression === undefined ? compressionFor(settings.quality) : input.compression
   const now = options.now ?? new Date()
   const doc = await PDFDocument.create()
   doc.setTitle(settings.title.trim() || 'Collated scans', { showInWindowTitleBar: true })
@@ -101,7 +138,9 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
 
   // A duplicated page shares its content: embed each asset once, and parse
   // each source PDF once however many of its pages are used.
-  type Embedded = { kind: 'image'; image: PDFImage } | { kind: 'page'; page: PDFEmbeddedPage }
+  type Embedded = ({ kind: 'image'; image: PDFImage } | { kind: 'page'; page: PDFEmbeddedPage }) & {
+    turns: number
+  }
   const embedded = new Map<string, Embedded>()
   const sources = new Map<string, Promise<PDFDocument>>()
   const source = (bytesId: string) => {
@@ -116,27 +155,42 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     }
     return loaded
   }
-  /** What a page embeds: its asset, filtered or not. PDF pages ignore filters. */
-  const embed = async (asset: BuildInput['assets'][string], filter: Filter) => {
-    const filtered = filter !== 'original' && asset.format !== 'pdf'
-    const key = filtered ? `${asset.id}:${filter}` : asset.id
+  /**
+   * What a page embeds, and the turns its stored content still needs. A
+   * re-encoded image was decoded upright, so it needs none. If compressing
+   * without a filter made an image bigger, the original is kept instead.
+   */
+  const embed = async (asset: BuildInput['assets'][string], job: ImageJob | null) => {
+    const key = job
+      ? `${asset.id}:${job.filter}:${job.width}x${job.height}:${job.format}:${job.quality}`
+      : asset.id
     const cached = embedded.get(key)
     if (cached) return cached
     let content: Embedded
-    if (filtered) {
-      if (!options.filterImage) throw new Error('This build can’t apply image filters.')
-      const out = await options.filterImage(await options.getBytes(asset.bytesId), filter)
-      const image =
-        out.format === 'jpeg' ? await doc.embedJpg(out.bytes) : await doc.embedPng(out.bytes)
-      content = { kind: 'image', image }
-    } else if (asset.format === 'pdf') {
+    if (asset.format === 'pdf') {
       const src = await source(asset.bytesId)
       const srcPage = src.getPage(asset.pdfPage ?? 0)
-      content = { kind: 'page', page: await doc.embedPage(srcPage, visibleBox(srcPage)) }
+      content = {
+        kind: 'page',
+        page: await doc.embedPage(srcPage, visibleBox(srcPage)),
+        turns: asset.storedTurns,
+      }
     } else {
-      const bytes = await options.getBytes(asset.bytesId)
-      const image = asset.format === 'jpeg' ? await doc.embedJpg(bytes) : await doc.embedPng(bytes)
-      content = { kind: 'image', image }
+      const original = await options.getBytes(asset.bytesId)
+      let bytes = original
+      let format: 'jpeg' | 'png' = asset.format
+      let turns = asset.storedTurns
+      if (job) {
+        if (!options.processImage) throw new Error('This build can’t re-encode images.')
+        const out = await options.processImage(original, job)
+        if (job.filter !== 'original' || out.byteLength < original.byteLength) {
+          bytes = out
+          format = job.format
+          turns = 0
+        }
+      }
+      const image = format === 'jpeg' ? await doc.embedJpg(bytes) : await doc.embedPng(bytes)
+      content = { kind: 'image', image, turns }
     }
     embedded.set(key, content)
     return content
@@ -147,11 +201,12 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     if (!asset) throw new Error(`Page ${index + 1} refers to missing content.`)
     const layout = layoutPage(settings, asset, page)
     const pdfPage = doc.addPage([layout.page.width, layout.page.height])
-    const content = await embed(asset, page.filter)
+    const content = await embed(
+      asset,
+      imageJob(asset, page.filter, layout.image.width, compression),
+    )
     const box = layout.content
-    // A filtered image was decoded upright, so it has no stored turns left.
-    const filtered = page.filter !== 'original' && asset.format !== 'pdf'
-    const at = placement(layout, filtered ? 0 : asset.storedTurns)
+    const at = placement(layout, content.turns)
 
     // Clip to the printable area so a scaled-up or filled image never prints
     // into the margins — the preview clips the same way.
