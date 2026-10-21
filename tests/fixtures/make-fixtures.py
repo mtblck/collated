@@ -88,3 +88,13 @@ large = doc.resize((2550, 3300), Image.Resampling.LANCZOS)
 grain = Image.effect_noise((2550, 3300), 10).convert("RGB")
 large = Image.blend(large, grain, 0.06)
 large.save(HERE / "scan-letter-300dpi.jpg", quality=92)
+
+# An iPhone-style HEIC of the quadrant image. Needs pillow-heif; skipped (and
+# the committed file kept) when it isn't installed.
+try:
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+    upright.save(HERE / "quad-landscape.heic", quality=90)
+except ImportError:
+    print("pillow-heif not installed; keeping existing quad-landscape.heic")

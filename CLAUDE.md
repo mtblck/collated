@@ -14,8 +14,9 @@ Images → one PDF, client-only, at https://mattblack.space/tools/collated/ (own
 - **JPEG passthrough + `storedTurns`.** EXIF-rotated JPEGs keep their bytes; the export adds the rotation. Upright dims in `Asset`, stored dims derived.
 - **pdf-lib only in the worker.** Never import `core/pdf.ts` from UI code (that's why `core/filename.ts` exists).
 - **PDF pages are assets sharing a `bytesId`;** `/Rotate` rides `storedTurns`, export embeds `visibleBox` (crop ∩ media). pdf.js = **legacy build** (modern one needs `Map#getOrInsertComputed`), dynamic-imported; its worker is `.mjs`, so any server must send `text/javascript` for it.
+- **HEIC:** native decode first; else `import/heic.worker.ts` runs libheif-js (LGPL, separate chunk — keep THIRD-PARTY-NOTICES accurate).
 - **Bytes outside React state** (`import/assetStore.ts`); undo history holds metadata only.
-- **Paths:** base `/tools/collated/`, outDir `dist/tools/collated`, theme.js by absolute path. CSP `script-src 'self'`, `worker-src 'self'`; `hosting:check` guards it.
+- **Paths:** base `/tools/collated/`, outDir `dist/tools/collated`, theme.js by absolute path. CSP `script-src 'self' 'wasm-unsafe-eval'` (HEIC only), `worker-src 'self'` — never `blob:`; `hosting:check` guards it.
 - **Button sizes are a prop**, not class overrides (two padding utilities resolve by stylesheet order; it once squashed icons to 6px).
 - `@dnd-kit/*` is 0.x and pinned exactly; check announcements and keyboard reorder in verify after upgrading.
 

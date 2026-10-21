@@ -83,9 +83,7 @@ export const EmptyState = ({ onChoose }: { onChoose: () => void }) => (
           Choose files
         </Button>
         <p className="text-sm text-ink-muted">or paste them from the clipboard</p>
-        <p className="label mt-2 text-ink-faint">
-          PDF · JPEG · PNG · WebP · AVIF · GIF · HEIC (Safari)
-        </p>
+        <p className="label mt-2 text-ink-faint">PDF · JPEG · PNG · HEIC · WebP · AVIF · GIF</p>
       </div>
     </div>
 

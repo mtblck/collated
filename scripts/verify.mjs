@@ -48,6 +48,7 @@ const types = {
   '.woff2': 'font/woff2',
   '.txt': 'text/plain',
   '.map': 'application/json',
+  '.wasm': 'application/wasm',
 }
 const server = createServer((req, res) => {
   const path = decodeURIComponent((req.url ?? '/').split('?')[0])
@@ -764,7 +765,38 @@ await context.close()
   await ctx.close()
 }
 
-// 7. Phone-sized, dark. -------------------------------------------------------
+// 7. HEIC in a browser without native support (Chromium), via libheif. --------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [
+    join(fixtures, 'quad-landscape.heic'),
+    join(fixtures, 'quad-landscape.jpg'),
+  ])
+  await p.waitForSelector('ol[aria-label="2 pages"]', { timeout: 20_000 })
+  ok('a HEIC photo imports where the browser has no HEIC decoder')
+  const [d] = await Promise.all([
+    p.waitForEvent('download'),
+    p.getByRole('button', { name: /Export PDF/ }).click(),
+  ])
+  const path = join(mkdtempSync(join(tmpdir(), 'collated-verify-heic-')), 'heic.pdf')
+  await d.saveAs(path)
+  if (hasPoppler) {
+    const prefix = path.replace(/\.pdf$/, '')
+    execFileSync('pdftoppm', ['-png', '-r', '36', path, prefix])
+    const diff = await compareImages(
+      readFileSync(`${prefix}-1.png`).toString('base64'),
+      readFileSync(`${prefix}-2.png`).toString('base64'),
+    )
+    check(
+      diff.farShare < 0.02,
+      `the HEIC page matches the same image as JPEG (${(diff.farShare * 100).toFixed(2)}% of pixels differ)`,
+    )
+  }
+  await ctx.close()
+}
+
+// 8. Phone-sized, dark. -------------------------------------------------------
 {
   const { context: phone, page: p } = await open({
     viewport: { width: 390, height: 844 },

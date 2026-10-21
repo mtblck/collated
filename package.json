@@ -26,6 +26,7 @@
     "@cantoo/pdf-lib": "^2.11.1",
     "@dnd-kit/dom": "0.5.1",
     "@dnd-kit/react": "0.5.1",
+    "libheif-js": "^1.23.5",
     "pdfjs-dist": "^6.4.299",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"

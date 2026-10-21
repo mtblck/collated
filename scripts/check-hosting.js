@@ -56,11 +56,20 @@ const directive = (name) =>
     .find((d) => d.startsWith(`${name} `)) ?? ''
 if (!csp) problems.push(`No Content-Security-Policy header for ${BASE}(.*).`)
 else {
+  // 'self' plus, at most, 'wasm-unsafe-eval' — which permits compiling
+  // WebAssembly (the HEIC decoder) and nothing else. 'unsafe-eval',
+  // 'unsafe-inline', hashes, hosts or blob: would all widen it.
+  const scriptSources = directive('script-src').split(/\s+/).slice(1)
   if (
-    !/\s'self'(\s|$)/.test(directive('script-src')) ||
-    directive('script-src').includes('unsafe-inline')
+    !scriptSources.includes("'self'") ||
+    scriptSources.some((src) => src !== "'self'" && src !== "'wasm-unsafe-eval'")
   ) {
-    problems.push("script-src must be 'self' without 'unsafe-inline'.")
+    problems.push(
+      "script-src must be 'self', optionally with 'wasm-unsafe-eval', and nothing else.",
+    )
+  }
+  if (directive('worker-src').includes('blob:')) {
+    problems.push('worker-src must not allow blob: (code built in the page could run as a worker).')
   }
   if (!directive('worker-src').includes("'self'")) {
     problems.push("worker-src must include 'self' (the PDF export runs in a worker).")
