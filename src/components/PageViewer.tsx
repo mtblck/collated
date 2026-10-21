@@ -13,6 +13,12 @@ import { PagePreview } from './PagePreview'
  * so nothing needs a gesture (WCAG 2.5.1). It shows the thumbnail at once,
  * then the full-resolution image when it's ready.
  */
+/** A tap moves less than this (px) and lasts less than this (ms). */
+const TAP_SLOP = 10
+const TAP_TIME = 250
+/** Two taps closer together than this (ms) are a double-tap. */
+const DOUBLE_TAP_TIME = 300
+
 export const PageViewer = ({
   title,
   layout,
@@ -99,8 +105,28 @@ export const PageViewer = ({
     setAndSay(zoomAt(view, stepFrom(view.scale, direction), { x: 0, y: 0 }, size))
   }
 
+  /**
+   * The touch in progress, to tell a tap from a pan or pinch: only a short,
+   * still, one-finger touch counts towards a double-tap.
+   */
+  const touch = useRef<{ x: number; y: number; at: number; moved: boolean; multi: boolean } | null>(
+    null,
+  )
+  /** The last pointer used, so a mouse double-click and a touch double-tap don't both act. */
+  const pointerType = useRef('mouse')
+
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId)
+    pointerType.current = event.pointerType
+    if (pointers.current.size === 0) {
+      touch.current = {
+        x: event.clientX,
+        y: event.clientY,
+        at: event.timeStamp,
+        moved: false,
+        multi: false,
+      }
+    } else if (touch.current) touch.current.multi = true
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
     startGesture()
   }
@@ -121,6 +147,10 @@ export const PageViewer = ({
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     if (!pointers.current.has(event.pointerId)) return
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    const t = touch.current
+    if (t && !t.moved && Math.hypot(event.clientX - t.x, event.clientY - t.y) > TAP_SLOP) {
+      t.moved = true
+    }
     const start = gesture.current
     if (!start) return
     const [a, b] = [...pointers.current.values()]
@@ -151,17 +181,26 @@ export const PageViewer = ({
     }
   }
   const onPointerUp = (event: PointerEvent<HTMLDivElement>) => {
-    const wasSingle = pointers.current.size === 1
     pointers.current.delete(event.pointerId)
-    // Double-tap toggles between fit and 2× at the tap.
-    if (wasSingle && event.pointerType !== 'mouse') {
-      const now = performance.now()
-      if (now - lastTap.current < 300) {
+    const t = touch.current
+    if (pointers.current.size === 0) {
+      touch.current = null
+      const now = event.timeStamp
+      const tap =
+        event.type === 'pointerup' &&
+        event.pointerType !== 'mouse' &&
+        t !== null &&
+        !t.moved &&
+        !t.multi &&
+        now - t.at < TAP_TIME
+      // Double-tap toggles between fit and 2× at the tap; a pan, a pinch or
+      // a cancelled touch in between starts the count again.
+      if (tap && now - lastTap.current < DOUBLE_TAP_TIME) {
         setAndSay(
           view.scale > 1 ? FIT : zoomAt(view, 2, fromCentre(event.clientX, event.clientY), size),
         )
         lastTap.current = 0
-      } else lastTap.current = now
+      } else lastTap.current = tap ? now : 0
     }
     startGesture()
   }
@@ -186,6 +225,8 @@ export const PageViewer = ({
   }
 
   const onKeyDown = (event: globalThis.KeyboardEvent) => {
+    // Ctrl/⌘ + − 0 are the browser's own zoom: leave them to it.
+    if (event.ctrlKey || event.metaKey || event.altKey) return
     const pan = 60
     const moves: Record<string, [number, number]> = {
       ArrowLeft: [pan, 0],
@@ -235,6 +276,9 @@ export const PageViewer = ({
           )
       },
       onDoubleClick: (event: MouseEvent) => {
+        // Touch double-taps are handled above; browsers fire dblclick for
+        // them too, which would undo the zoom straight away.
+        if (pointerType.current !== 'mouse') return
         setAndSay(
           view.scale > 1 ? FIT : zoomAt(view, 2, fromCentre(event.clientX, event.clientY), size),
         )

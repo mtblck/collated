@@ -73,6 +73,9 @@ export const CropEditor = ({
   const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   /** Where the current press started, the corners then, and whether it's a drag. */
   const press = useRef<{
+    pointerId: number
+    /** Still down: a second finger mustn't take over the drag. */
+    down: boolean
     x: number
     y: number
     moved: boolean
@@ -114,8 +117,13 @@ export const CropEditor = ({
       ? withCorner(from, handle.index, to)
       : moveEdge(from, handle.index, { x: to.x - start.x, y: to.y - start.y }, width, height)
 
+  /** Whether `event` is the pointer pressing now. */
+  const ours = (event: PointerEvent) => press.current?.pointerId === event.pointerId
   const startPress = (event: PointerEvent, onHandle: boolean) => {
+    if (press.current?.down && !ours(event)) return false
     press.current = {
+      pointerId: event.pointerId,
+      down: true,
       x: event.clientX,
       y: event.clientY,
       moved: false,
@@ -123,6 +131,13 @@ export const CropEditor = ({
       from: corners,
       at: pointAt(event),
     }
+    return true
+  }
+  /** A cancelled touch (a system gesture, a palm) lets go without moving anything. */
+  const cancelPress = (event: PointerEvent) => {
+    if (!ours(event)) return
+    press.current = null
+    setDragging(null)
   }
   const pressMoved = (event: PointerEvent) => {
     const p = press.current
@@ -145,6 +160,14 @@ export const CropEditor = ({
     event.preventDefault()
     const start = positionOf(handle, corners)
     const next = moved(handle, corners, start, { x: start.x + delta.x, y: start.y + delta.y })
+    if (next === corners && handle.kind === 'edge') {
+      // That key runs along the edge, which only moves across.
+      const a = corners[handle.index] ?? corners[0]
+      const b = corners[(handle.index + 1) % 4] ?? corners[0]
+      const flat = Math.abs((b.x - a.x) * width) > Math.abs((b.y - a.y) * height)
+      announce(`${nameOf(handle)} moves ${flat ? 'up and down' : 'left and right'} only.`)
+      return
+    }
     setCorners(next)
     announce(`${nameOf(handle)}, ${where(positionOf(handle, next))}.`, 300)
   }
@@ -187,16 +210,19 @@ export const CropEditor = ({
             }}
             onPointerDown={(event) => {
               if (!(event.target instanceof Element && event.target.closest('button'))) {
+                // A second finger on the image doesn't interrupt a drag.
                 startPress(event, false)
               }
             }}
+            onPointerCancel={cancelPress}
             onPointerMove={(event) => {
               const p = press.current
-              if (!pressMoved(event) || dragging === null || !p?.at) return
+              if (!ours(event) || !pressMoved(event) || dragging === null || !p?.at) return
               const at = pointAt(event)
               if (at) setCorners(moved(dragging, p.from, p.at, at))
             }}
             onPointerUp={(event) => {
+              if (!ours(event)) return
               const onImage = press.current !== null && !press.current.onHandle
               const tap = onImage && !pressMoved(event)
               // A press on a handle is left for its click to read.
@@ -290,18 +316,23 @@ export const CropEditor = ({
                     )
                   }}
                   onPointerDown={(event) => {
+                    if (!startPress(event, true)) return
                     event.currentTarget.setPointerCapture(event.pointerId)
-                    startPress(event, true)
                     setDragging(handle)
                   }}
+                  onPointerCancel={cancelPress}
                   onPointerMove={(event) => {
                     const p = press.current
-                    if (!same(dragging, handle) || !pressMoved(event) || !p?.at) return
+                    if (!ours(event) || !same(dragging, handle) || !pressMoved(event) || !p?.at)
+                      return
                     const to = pointAt(event)
                     if (to) setCorners(moved(handle, p.from, p.at, to))
                   }}
                   onPointerUp={(event) => {
+                    if (!ours(event)) return
                     pressMoved(event)
+                    // Kept (not down) for this press's click to read.
+                    if (press.current) press.current.down = false
                     setDragging(null)
                   }}
                 >

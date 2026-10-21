@@ -1628,6 +1628,45 @@ await context.close()
   // Pan by dragging, then Ctrl+wheel (a trackpad pinch) zooms out.
   await p.keyboard.press('0')
   check((await level()) === '100%', '0 fits the page')
+  // A touch double-tap zooms to 2× (the browser's own dblclick for touch
+  // mustn't undo it); two quick pans don't count as taps.
+  // Raw one-finger touches: these make Chromium fire dblclick too, as a
+  // real phone does (its synthetic tap gesture doesn't).
+  for (let n = 0; n < 2; n++) {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ x: cx, y: cy, id: 4 }],
+    })
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await p.waitForTimeout(60)
+  }
+  await p.waitForTimeout(400)
+  check((await level()) === '200%', 'a touch double-tap zooms to 2×', (await level()) ?? '')
+  for (const dx of [80, -80]) {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ x: cx, y: cy, id: 3 }],
+    })
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: cx + dx, y: cy, id: 3 }],
+    })
+    await touch('touchEnd', 0)
+  }
+  check((await level()) === '200%', 'two quick pans keep the zoom', (await level()) ?? '')
+  // The browser's own zoom keys are left to the browser.
+  const prevented = await p.evaluate(() => {
+    const event = new KeyboardEvent('keydown', {
+      key: '=',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    document.querySelector('dialog[open]')?.dispatchEvent(event)
+    return event.defaultPrevented
+  })
+  check(!prevented, 'Ctrl+= is left to the browser')
+  await p.keyboard.press('0')
   await p.mouse.move(cx, cy)
   await p.keyboard.down('Control')
   await p.mouse.wheel(0, -200)
