@@ -22,7 +22,7 @@ Select a page to edit it in the panel on the right. The large preview there is e
 
 ## Crop to the paper
 
-For a photo of a document taken at an angle, **Crop to the page…** opens an editor where you drag each corner onto a corner of the paper. The page is then flattened into a straight rectangle.
+For a photo of a document taken at an angle, **Crop to the page…** opens an editor where you drag each corner onto a corner of the paper. The page is then flattened into a straight rectangle. The editor shows the page turned the way you turned it. To crop with straight sides, drag the handle in the middle of an edge: it moves that whole side in or out.
 
 Without dragging: tap or click a corner to select it, then tap or click where it should go. With the keyboard, select a corner and use the arrow keys (hold Shift for bigger steps).
 

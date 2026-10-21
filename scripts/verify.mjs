@@ -1517,6 +1517,70 @@ await context.close()
   await ctx.close()
 }
 
+// 17. Crop a turned page as shown (#43), with edge handles (#44). ------------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1280, height: 900 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-landscape.jpg')])
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  const panel = p.locator('aside[aria-label="Selected page"]')
+  await panel.getByRole('button', { name: 'Right' }).click()
+  await panel.getByRole('button', { name: 'Crop to the page…' }).click()
+  const dialog = p.getByRole('dialog', { name: 'Crop to the page' })
+  await dialog.waitFor()
+  const img = dialog.getByRole('img')
+  await p.waitForFunction(() => document.querySelector('dialog img')?.complete)
+  const box = await img.evaluate((el) => el.parentElement?.getBoundingClientRect().toJSON())
+  // quad-landscape: red top-left, green top-right, blue bottom-left. Turned
+  // clockwise, blue is at the top left and the view is portrait.
+  const shot = await p.screenshot({ clip: box })
+  const shotPath = join(mkdtempSync(join(tmpdir(), 'collated-crop-')), 'crop.png')
+  writeFileSync(shotPath, shot)
+  let png = { w: 0, h: 0, tl: [0, 0, 0], tr: [0, 0, 0] }
+  try {
+    png = JSON.parse(
+      execFileSync('python3', [
+        '-c',
+        'import json,sys\nfrom PIL import Image\nim=Image.open(sys.argv[1]).convert("RGB")\nw,h=im.size\nat=lambda fx,fy: list(im.getpixel((round(w*fx),round(h*fy))))\nprint(json.dumps({"w":w,"h":h,"tl":at(0.3,0.3),"tr":at(0.7,0.3)}))',
+        shotPath,
+      ]).toString(),
+    )
+  } catch {
+    fails.push('crop check needs python3 with Pillow')
+  }
+  const blueish = ([r, , b]) => b > 150 && r < 120
+  const redish = ([r, g, b]) => r > 150 && g < 120 && b < 120
+  check(
+    png.h > png.w && blueish(png.tl) && redish(png.tr),
+    'the crop editor shows the page turned as it is',
+    JSON.stringify(png),
+  )
+  await p.screenshot({ path: join(shots, 'crop-turned.png') })
+  // Drag the top edge straight down: both top corners move, sides stay put.
+  const edge = dialog.getByRole('button', { name: 'Top edge' })
+  const e = await edge.boundingBox()
+  if (e) {
+    await p.mouse.move(e.x + e.width / 2, e.y + e.height / 2)
+    await p.mouse.down()
+    await p.mouse.move(e.x + e.width / 2 + 40, e.y + e.height / 2 + 60, { steps: 6 })
+    await p.mouse.up()
+  }
+  const left = await dialog.getByRole('button', { name: 'Top-left corner' }).getAttribute('style')
+  const right = await dialog.getByRole('button', { name: 'Top-right corner' }).getAttribute('style')
+  const topOf = (style) => /top: ([\d.]+)%/.exec(style ?? '')?.[1]
+  const leftOf = (style) => /left: ([\d.]+)%/.exec(style ?? '')?.[1]
+  check(
+    topOf(left) === topOf(right) &&
+      Number(topOf(left)) > 3 &&
+      leftOf(left) === '0%'.replace('%', '') &&
+      leftOf(right) === '100',
+    'dragging the top edge moves both top corners straight down',
+    `${left} | ${right}`,
+  )
+  await axe(p, 'crop editor, turned, edge handles')
+  await ctx.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()

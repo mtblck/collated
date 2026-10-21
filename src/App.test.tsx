@@ -225,6 +225,38 @@ describe('App', () => {
     expect(panel.getByRole('button', { name: 'Crop to the page…' })).toBeInTheDocument()
   })
 
+  it('crops a turned page as it is shown, and stores the corners upright (#43)', async () => {
+    const { user, upload, deps } = setup()
+    await upload('photo.jpg')
+    const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+    await user.click(panel.getByRole('button', { name: 'Right' }))
+    await user.click(panel.getByRole('button', { name: 'Crop to the page…' }))
+    const dialog = within(await screen.findByRole('dialog', { name: 'Crop to the page' }))
+    expect(dialog.getByRole('img')).toHaveAccessibleName(/turned as on the page/)
+    // The edge handle moves the whole top side, as seen, straight down 5%.
+    const top = dialog.getByRole('button', { name: 'Top edge' })
+    expect(top).toHaveAccessibleDescription(
+      /top-left and top-right corners together\. 50% across, 0% down/,
+    )
+    top.focus()
+    await user.keyboard('{Shift>}{ArrowDown}{ArrowRight}{/Shift}') // sideways moves nothing
+    expect(top).toHaveAccessibleDescription(/50% across, 5% down$/)
+    expect(dialog.getByRole('button', { name: 'Top-left corner' })).toHaveAccessibleDescription(
+      '0% across, 5% down',
+    )
+    await user.click(dialog.getByRole('button', { name: 'Apply crop' }))
+    await user.click(screen.getByRole('button', { name: /^Export PDF/ }))
+    const exported = deps.exportPdf ? vi.mocked(deps.exportPdf).mock.calls[0]?.[0] : undefined
+    // Turned clockwise once, the top you see is the photo's left side.
+    const corners = exported?.pages[0]?.corners
+    expect(corners?.map((c) => [Math.round(c.x * 100), Math.round(c.y * 100)])).toEqual([
+      [5, 0],
+      [100, 0],
+      [100, 100],
+      [5, 100],
+    ])
+  })
+
   it('refuses crossed corners', async () => {
     const { user, upload } = setup()
     await upload('photo.jpg')

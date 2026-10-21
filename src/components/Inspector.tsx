@@ -172,6 +172,7 @@ export const Inspector = ({
         {cropping && (
           <CropEditor
             asset={asset}
+            turns={page.turns}
             initial={page.corners}
             onApply={(corners) => {
               actions.onTransform({ corners })
