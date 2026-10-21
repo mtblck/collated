@@ -15,6 +15,8 @@ export const settings = (patch: Partial<Settings> = {}): Settings => ({
   title: '',
   quality: 'original',
   maxBytes: null,
+  imageDpi: 300,
+  pageNumbers: { show: false, position: 'bottom-center', start: 1 },
   ...patch,
 })
 

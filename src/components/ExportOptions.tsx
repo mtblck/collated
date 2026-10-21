@@ -1,6 +1,6 @@
 import { useId } from 'react'
 import { QUALITY_PRESETS } from '../core/compression'
-import type { Quality, Settings } from '../core/model'
+import type { NumberPosition, Quality, Settings } from '../core/model'
 import { formatBytes } from '../core/units'
 import { Button } from './controls'
 import { cx } from './cx'
@@ -34,14 +34,19 @@ export const ExportOptions = ({
   onSettings,
   onExport,
   canExport,
+  password,
+  onPassword,
 }: {
-  settings: Pick<Settings, 'quality' | 'maxBytes'>
+  settings: Pick<Settings, 'quality' | 'maxBytes' | 'pageNumbers'>
   /** Estimated bytes for the current pages and quality. */
   estimate: number
   lastExport: { size: string; used: string; fits: boolean } | null
   onSettings: (patch: Partial<Settings>) => void
   onExport: () => void
   canExport: boolean
+  /** Held in memory for this visit only — never saved. */
+  password: string
+  onPassword: (password: string) => void
 }) => {
   const id = useId()
   const panelId = `${id}-export-options`
@@ -68,7 +73,8 @@ export const ExportOptions = ({
         role="dialog"
         aria-labelledby={`${id}-title`}
         className={cx(
-          'm-0 w-[min(22rem,calc(100vw-2rem))] border border-rule bg-paper p-5 text-ink shadow-xl',
+          'm-0 max-h-[calc(100dvh-2rem)] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto border border-rule bg-paper p-5 text-ink shadow-xl',
+          'lg:max-h-[calc(100dvh-7rem)]',
           'fixed inset-auto right-4 bottom-4 lg:top-24 lg:right-6 lg:bottom-auto',
         )}
       >
@@ -138,6 +144,85 @@ export const ExportOptions = ({
           </div>
         </div>
 
+        <fieldset className="mt-5 border-t border-rule pt-4">
+          <legend className="sr-only">Page numbers</legend>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="accent-[var(--c-ink)]"
+              checked={settings.pageNumbers.show}
+              onChange={(event) => {
+                onSettings({ pageNumbers: { ...settings.pageNumbers, show: event.target.checked } })
+              }}
+            />
+            Page numbers
+          </label>
+          {settings.pageNumbers.show && (
+            <div className="mt-3 flex items-end gap-3">
+              <div className="flex-1">
+                <label htmlFor={`${id}-numpos`} className="label mb-2 block text-ink-faint">
+                  Position
+                </label>
+                <select
+                  id={`${id}-numpos`}
+                  className="field w-full"
+                  value={settings.pageNumbers.position}
+                  onChange={(event) => {
+                    onSettings({
+                      pageNumbers: {
+                        ...settings.pageNumbers,
+                        position: event.target.value as NumberPosition,
+                      },
+                    })
+                  }}
+                >
+                  <option value="bottom-center">Bottom centre</option>
+                  <option value="bottom-right">Bottom right</option>
+                  <option value="top-right">Top right</option>
+                </select>
+              </div>
+              <div className="w-24">
+                <label htmlFor={`${id}-numstart`} className="label mb-2 block text-ink-faint">
+                  Start at
+                </label>
+                <NumberField
+                  id={`${id}-numstart`}
+                  value={settings.pageNumbers.start}
+                  min={0}
+                  max={9999}
+                  onCommit={(start) => {
+                    onSettings({
+                      pageNumbers: { ...settings.pageNumbers, start: Math.round(start) },
+                    })
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </fieldset>
+
+        <div className="mt-4">
+          <label htmlFor={`${id}-password`} className="label mb-2 block text-ink-faint">
+            Password to open
+          </label>
+          <input
+            id={`${id}-password`}
+            type="password"
+            className="field w-full"
+            value={password}
+            autoComplete="new-password"
+            placeholder="None"
+            aria-describedby={`${id}-password-hint`}
+            onChange={(event) => {
+              onPassword(event.target.value)
+            }}
+          />
+          <p id={`${id}-password-hint`} className="mt-1.5 text-xs text-ink-muted">
+            Optional. Encrypts the PDF (AES-256). Not saved anywhere — if you lose it, the file
+            can’t be opened.
+          </p>
+        </div>
+
         <dl className="mt-5 border-t border-rule pt-3 text-sm">
           <div className="flex justify-between gap-4 py-1">
             <dt className="text-ink-muted">Estimated size</dt>
@@ -163,7 +248,7 @@ export const ExportOptions = ({
           }}
         >
           <DownloadIcon width={16} height={16} />
-          Export PDF
+          {password ? 'Export locked PDF' : 'Export PDF'}
         </Button>
       </div>
     </>

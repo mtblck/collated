@@ -6,6 +6,9 @@ import {
   popGraphicsState,
   pushGraphicsState,
   rectangle,
+  StandardFonts,
+  grayscale,
+  type PDFFont,
   type PDFEmbeddedPage,
   type PDFImage,
   type PDFPage,
@@ -13,6 +16,7 @@ import {
 import { layoutPage, type Layout } from './geometry'
 import { compressionFor, targetPixels, type Compression } from './compression'
 import type { Asset, Filter, Page, Settings } from './model'
+import { NUMBER_GREY, numberMark } from './pageNumbers'
 
 export interface BuildInput {
   settings: Settings
@@ -22,6 +26,8 @@ export interface BuildInput {
    */
   compression?: Compression | null
   pages: Page[]
+  /** Encrypts the PDF (AES-256) so it opens only with this. Never stored. */
+  password?: string
   assets: Record<
     string,
     Pick<Asset, 'id' | 'width' | 'height' | 'format' | 'storedTurns' | 'bytesId' | 'pdfPage'>
@@ -142,6 +148,7 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     turns: number
   }
   const embedded = new Map<string, Embedded>()
+  let font: PDFFont | undefined
   const sources = new Map<string, Promise<PDFDocument>>()
   const source = (bytesId: string) => {
     let loaded = sources.get(bytesId)
@@ -220,7 +227,40 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     if (content.kind === 'page') pdfPage.drawPage(content.page, draw)
     else pdfPage.drawImage(content.image, draw)
     pdfPage.pushOperators(popGraphicsState())
+
+    const mark = numberMark(settings.pageNumbers, index, layout.page, layout.content.x)
+    if (mark) {
+      font ??= await doc.embedFont(StandardFonts.Helvetica)
+      const width = font.widthOfTextAtSize(mark.text, mark.size)
+      pdfPage.drawText(mark.text, {
+        x: mark.align === 'center' ? mark.x - width / 2 : mark.x - width,
+        y: layout.page.height - mark.baseline,
+        size: mark.size,
+        font,
+        color: grayscale(NUMBER_GREY),
+      })
+    }
     options.onProgress?.(index + 1, pages.length)
+  }
+
+  if (input.password) {
+    // Opening needs the password; once open, nothing is restricted (it's a
+    // lock on the file, not DRM). The owner password is random and discarded.
+    const owner = new Uint8Array(24)
+    crypto.getRandomValues(owner)
+    doc.encrypt({
+      userPassword: input.password,
+      ownerPassword: Array.from(owner, (b) => b.toString(16).padStart(2, '0')).join(''),
+      permissions: {
+        printing: 'highResolution',
+        modifying: true,
+        copying: true,
+        annotating: true,
+        fillingForms: true,
+        contentAccessibility: true,
+        documentAssembly: true,
+      },
+    })
   }
 
   return doc.save({ useObjectStreams: true })

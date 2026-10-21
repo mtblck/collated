@@ -244,6 +244,47 @@ describe('App', () => {
     expect(deps.download).toHaveBeenCalled()
   })
 
+  it('passes the password to the export but never stores it', async () => {
+    const exportPdf = vi.fn<AppDeps['exportPdf']>(() =>
+      Promise.resolve({ blob: new Blob(['%PDF']), compression: null, fits: true }),
+    )
+    const { user, store, upload } = setup({ exportPdf })
+    await upload('a.jpg')
+    await user.type(await screen.findByLabelText('Password to open'), 'hunter2')
+    await user.click(screen.getByRole('button', { name: /Export PDF · 1 page/ }))
+    await waitFor(() => {
+      expect(exportPdf).toHaveBeenCalled()
+    })
+    expect(exportPdf.mock.calls[0]?.[2]).toEqual({ password: 'hunter2' })
+    expect(status()).toHaveTextContent('password-protected')
+    expect(JSON.stringify([...store.values()])).not.toContain('hunter2')
+  })
+
+  it('shows page numbers on the pages when switched on', async () => {
+    const { user, upload } = setup()
+    await upload('a.jpg', 'b.jpg')
+    const pages = await screen.findByRole('list', { name: '2 pages' })
+    expect(within(pages).queryByText('8')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: 'Page numbers', hidden: true }))
+    await user.clear(screen.getByLabelText('Start at'))
+    await user.type(screen.getByLabelText('Start at'), '7{Enter}')
+    expect(within(pages).getByText('7')).toBeInTheDocument()
+    expect(within(pages).getByText('8')).toBeInTheDocument()
+  })
+
+  it('sizes pages to their image when "Match image" is chosen', async () => {
+    const { user, upload } = setup()
+    await upload('a.jpg')
+    await user.selectOptions(await screen.findByLabelText('Page size'), 'image')
+    // 300 x 200 px at the default 300 dpi is 1 x 0.67 in.
+    const panel = within(screen.getByRole('complementary', { name: 'Selected page' }))
+    expect(panel.getByText('1 in × 0.67 in')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Portrait' })).toBeDisabled()
+    await user.clear(screen.getByLabelText('Image dpi'))
+    await user.type(screen.getByLabelText('Image dpi'), '100{Enter}')
+    expect(panel.getByText('3 in × 2 in')).toBeInTheDocument()
+  })
+
   it('shows an error if the export fails and stays usable', async () => {
     const { user, upload } = setup({ exportPdf: () => Promise.reject(new Error('disk full')) })
     await upload('a.jpg')

@@ -52,6 +52,9 @@ export const localeDefaults = (locale: string): { size: PageSizeId; unit: Unit }
 /** The page's base size in points, in its own (unrotated) sense. */
 export const baseSize = (settings: Pick<Settings, 'size' | 'custom'>) => {
   if (settings.size === 'custom') return settings.custom
+  // 'image' pages are sized per page in layoutPage; this is only reached for
+  // a fallback (e.g. a placeholder), so give it Letter.
+  if (settings.size === 'image') return { width: 612, height: 792 }
   const preset = PAGE_SIZES.find((p) => p.id === settings.size)
   if (!preset) throw new Error(`Unknown page size: ${settings.size}`)
   return { width: preset.width, height: preset.height }

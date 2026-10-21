@@ -1,9 +1,8 @@
+import { PAGE_MAX, PAGE_MIN } from './limits'
 import type { Asset, DocState, Page, PageTransform, QuarterTurns, Settings } from './model'
 import { ANGLE_LIMIT, DEFAULT_TRANSFORM, SCALE_MAX, SCALE_MIN } from './model'
 
-/** PDF's page-size ceiling is 14,400 pt (200 in); a page under ½ in is a mistake. */
-export const PAGE_MIN = 36
-export const PAGE_MAX = 14_400
+export { PAGE_MAX, PAGE_MIN }
 
 export type Action =
   | { type: 'addPages'; assets: Asset[]; pageIds: string[]; at?: number }

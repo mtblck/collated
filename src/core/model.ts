@@ -7,7 +7,8 @@
 
 export type Unit = 'mm' | 'in'
 
-export type PageSizeId = 'a3' | 'a4' | 'a5' | 'letter' | 'legal' | 'tabloid' | 'custom'
+/** `image`: each page is sized to its own content (images at `imageDpi`, PDF pages as they are). */
+export type PageSizeId = 'a3' | 'a4' | 'a5' | 'letter' | 'legal' | 'tabloid' | 'custom' | 'image'
 
 /** `auto` picks portrait or landscape per page to match the (rotated) image. */
 export type Orientation = 'auto' | 'portrait' | 'landscape'
@@ -30,6 +31,15 @@ export type QuarterTurns = 0 | 1 | 2 | 3
  */
 export type Quality = 'original' | 'high' | 'balanced' | 'small'
 
+export type NumberPosition = 'bottom-center' | 'bottom-right' | 'top-right'
+
+export interface PageNumbers {
+  show: boolean
+  position: NumberPosition
+  /** The number printed on the first page. */
+  start: number
+}
+
 export interface Settings {
   size: PageSizeId
   /** Used when size is `custom`; width and height in points. */
@@ -44,6 +54,9 @@ export interface Settings {
   quality: Quality
   /** Optional ceiling on the exported file, in bytes; lower quality steps are tried to meet it. */
   maxBytes: number | null
+  /** Pixels per inch for `image`-sized pages. */
+  imageDpi: number
+  pageNumbers: PageNumbers
 }
 
 /**

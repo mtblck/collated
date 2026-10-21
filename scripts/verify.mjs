@@ -660,7 +660,111 @@ await context.close()
   await ctx.close()
 }
 
-// 6. Phone-sized, dark. -------------------------------------------------------
+// 6. Page numbers, password, match-image size. --------------------------------
+{
+  const { context: ctx, page: p } = await open({
+    viewport: { width: 1440, height: 1000 },
+    locale: 'en-US',
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [
+    join(fixtures, 'doc-photo.jpg'),
+    join(fixtures, 'quad-landscape.jpg'),
+  ])
+  await p.waitForSelector('ol[aria-label="2 pages"]')
+  await p.getByLabel('Margin').fill('0.5')
+  await p.getByLabel('Margin').blur()
+  const optionsButton = p.getByRole('button', { name: /Export options/ })
+  await optionsButton.click()
+  const dialog = p.getByRole('dialog', { name: 'Export options' })
+  await dialog.getByRole('checkbox', { name: 'Page numbers' }).check()
+  await dialog.getByLabel('Position').selectOption('bottom-right')
+  await dialog.getByLabel('Password to open').fill('correct horse')
+  await axe(p, 'export options with numbers and password')
+  await dialog.getByRole('button', { name: 'Export locked PDF' }).click()
+  const [locked] = await Promise.all([p.waitForEvent('download')])
+  const lockedPath = join(mkdtempSync(join(tmpdir(), 'collated-verify-lock-')), 'locked.pdf')
+  await locked.saveAs(lockedPath)
+  const lockedBytes = readFileSync(lockedPath)
+  let refused = false
+  try {
+    await PDFDocument.load(lockedBytes)
+  } catch {
+    refused = true
+  }
+  check(refused, 'the locked PDF does not open without its password')
+  const unlocked = await PDFDocument.load(lockedBytes, { password: 'correct horse' })
+  check(unlocked.getPageCount() === 2, 'the locked PDF opens with its password')
+
+  // The number on page 1: where the preview draws it vs where the PDF has it.
+  await p.getByRole('button', { name: 'Page 1: doc-photo.jpg' }).click()
+  const panel = p.locator('aside[aria-label="Selected page"]')
+  const previewBox = await panel
+    .locator('.sheet')
+    .first()
+    .evaluate((sheet) => {
+      const s = sheet.getBoundingClientRect()
+      const n = [...sheet.querySelectorAll('span')].find((e) => e.textContent === '1')
+      const r = n?.getBoundingClientRect()
+      return r ? { x: (r.right - s.left) / s.width, y: (r.bottom - s.top) / s.height } : null
+    })
+  const pdftotext = (() => {
+    try {
+      return execFileSync('pdftotext', [
+        '-upw',
+        'correct horse',
+        '-bbox',
+        '-f',
+        '1',
+        '-l',
+        '1',
+        lockedPath,
+        '-',
+      ]).toString()
+    } catch {
+      return null
+    }
+  })()
+  if (pdftotext && previewBox) {
+    const page = /<page width="([\d.]+)" height="([\d.]+)"/.exec(pdftotext)
+    const word =
+      /<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">1<\/word>/.exec(
+        pdftotext,
+      )
+    if (page && word) {
+      const pdfBox = { x: Number(word[3]) / Number(page[1]), y: Number(word[4]) / Number(page[2]) }
+      const off = Math.max(Math.abs(pdfBox.x - previewBox.x), Math.abs(pdfBox.y - previewBox.y))
+      check(
+        off < 0.01,
+        `page number sits where the PDF puts it (within ${(off * 100).toFixed(2)}% of the page)`,
+      )
+    } else fails.push('page number not found in the PDF text')
+  }
+
+  // Match image: pages take their image's size at the chosen dpi.
+  await p.getByLabel('Page size').selectOption('image')
+  await p.getByLabel('Image dpi').fill('150')
+  await p.getByLabel('Image dpi').blur()
+  await optionsButton.click()
+  await dialog.getByLabel('Password to open').fill('')
+  await dialog.getByRole('button', { name: 'Export PDF' }).click()
+  const [matched] = await Promise.all([p.waitForEvent('download')])
+  const matchedPath = join(mkdtempSync(join(tmpdir(), 'collated-verify-match-')), 'matched.pdf')
+  await matched.saveAs(matchedPath)
+  const sizes = (await PDFDocument.load(readFileSync(matchedPath)))
+    .getPages()
+    .map((pg) => `${Math.round(pg.getWidth())}×${Math.round(pg.getHeight())}`)
+  // 900 x 1200 px and 240 x 160 px at 150 dpi, plus a 0.5 in margin each side.
+  check(
+    sizes.join(', ') === '504×648, 187×149',
+    'match-image pages are the image at 150 dpi plus margins',
+    sizes.join(', '),
+  )
+  await p.screenshot({ path: join(shots, 'match-image.png'), fullPage: true })
+  await ctx.close()
+}
+
+// 7. Phone-sized, dark. -------------------------------------------------------
 {
   const { context: phone, page: p } = await open({
     viewport: { width: 390, height: 844 },
