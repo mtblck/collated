@@ -20,6 +20,7 @@ interface Header {
 }
 interface Config {
   headers: { source: string; headers: Header[] }[]
+  redirects: { source: string; destination: string }[]
   rewrites: { source: string; destination: string }[]
 }
 const original = readFileSync(join(root, 'vercel.json'), 'utf8')
@@ -138,6 +139,13 @@ describe('hosting:check', () => {
         })
       },
       'missing files must 404',
+    ],
+    [
+      'docs URLs lose their slash redirect',
+      (config: Config) => {
+        config.redirects = config.redirects.filter((r) => !r.source.includes(':page('))
+      },
+      'adding the slash',
     ],
     [
       'a second block loosens the CSP',

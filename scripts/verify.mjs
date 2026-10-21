@@ -64,12 +64,19 @@ const server = createServer((req, res) => {
     res.writeHead(308, { Location: BASE }).end()
     return
   }
+  // As vercel.json: docs URLs typed without their slash go to the page.
+  if (/^\/tools\/collated\/(docs|docs\/[^/.]+|privacy|terms)$/.test(path)) {
+    res.writeHead(308, { Location: `${path}/` }).end()
+    return
+  }
   let file = join(dist, path)
   // As vercel.json: a missing file 404s; only extensionless paths get the app.
   if (path.startsWith(BASE) && extname(path) && !existsSync(file)) {
     res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found')
     return
   }
+  // A folder URL serves its index.html, as Vercel does (the docs pages).
+  if (path.endsWith('/') && existsSync(join(file, 'index.html'))) file = join(file, 'index.html')
   if (!path.startsWith(BASE) || !existsSync(file) || !extname(file)) {
     file = join(dist, 'tools', 'collated', 'index.html') // app fallback
   }
@@ -84,6 +91,24 @@ const browser = await chromium.launch(
 )
 const fails = []
 const ok = (message) => console.log(`  ok  ${message}`)
+
+/** Opens the toolbar's Page setup popover, runs `act` on it, and closes it. */
+const pageSetup = async (p, act) => {
+  await p.getByRole('button', { name: /^Page setup/ }).click()
+  const panel = p.getByRole('dialog', { name: 'Page setup' })
+  await panel.waitFor()
+  await act(panel)
+  await p.keyboard.press('Escape')
+  await panel.waitFor({ state: 'hidden' })
+}
+/** Sets the title in the Export options popover. */
+const setTitle = async (p, title) => {
+  await p.getByRole('button', { name: /Export options/ }).click()
+  const panel = p.getByRole('dialog', { name: 'Export options' })
+  await panel.getByLabel('Title & filename').fill(title)
+  await p.keyboard.press('Escape')
+  await panel.waitFor({ state: 'hidden' })
+}
 const check = (condition, message, detail = '') => {
   if (condition) ok(message)
   else fails.push(`${message}${detail ? `\n      ${detail}` : ''}`)
@@ -343,10 +368,12 @@ await page.keyboard.press('Control+Shift+z')
 await page.keyboard.press('Control+Shift+z')
 
 // Document settings: Letter with a half-inch margin and a title.
-await page.getByLabel('Page size').selectOption('letter')
-await page.getByLabel('Margin').fill('0.5')
-await page.getByLabel('Margin').blur()
-await page.getByLabel('Title & filename').fill('Verify run')
+await pageSetup(page, async (panel) => {
+  await panel.getByLabel('Page size').selectOption('letter')
+  await panel.getByLabel(/^Margin/).fill('0.5')
+  await panel.getByLabel(/^Margin/).press('Tab')
+})
+await setTitle(page, 'Verify run')
 await page.screenshot({ path: join(shots, 'inspector.png'), fullPage: true })
 
 // Export and inspect the PDF.
@@ -732,8 +759,10 @@ await context.close()
     join(fixtures, 'quad-landscape.jpg'),
   ])
   await p.waitForSelector('ol[aria-label="2 pages"]')
-  await p.getByLabel('Margin').fill('0.5')
-  await p.getByLabel('Margin').blur()
+  await pageSetup(p, async (panel) => {
+    await panel.getByLabel(/^Margin/).fill('0.5')
+    await panel.getByLabel(/^Margin/).press('Tab')
+  })
   const optionsButton = p.getByRole('button', { name: /Export options/ })
   await optionsButton.click()
   const dialog = p.getByRole('dialog', { name: 'Export options' })
@@ -804,9 +833,11 @@ await context.close()
   }
 
   // Match image: pages take their image's size at the chosen dpi.
-  await p.getByLabel('Page size').selectOption('image')
-  await p.getByLabel('Image dpi').fill('150')
-  await p.getByLabel('Image dpi').blur()
+  await pageSetup(p, async (panel) => {
+    await panel.getByLabel('Page size').selectOption('image')
+    await panel.getByLabel('Image dpi').fill('150')
+    await panel.getByLabel('Image dpi').press('Tab')
+  })
   await optionsButton.click()
   await dialog.getByLabel('Password to open').fill('')
   // Listen first: with the export worker already loaded, the file can be
@@ -1062,7 +1093,9 @@ await context.close()
     join(fixtures, 'quad-portrait.jpg'),
   ])
   await p.waitForSelector('ol[aria-label="2 pages"]')
-  const overflow = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+  // Against the device width, not innerWidth: a mobile browser widens its
+  // layout viewport to fit wide content, which hid an overflowing toolbar.
+  const overflow = await p.evaluate(() => document.documentElement.scrollWidth - 390)
   check(overflow <= 0, 'no horizontal scroll on a phone', `${overflow}px`)
   await p.getByRole('button', { name: 'Page 1: quad-landscape.jpg' }).click()
   await p.screenshot({ path: join(shots, 'phone-dark.png'), fullPage: true })
@@ -1292,6 +1325,195 @@ await context.close()
   } finally {
     renameSync(`${workerFile}.away`, workerFile)
   }
+  await ctx.close()
+}
+
+// 15. App shell: the header stays, the pages and the inspector scroll. --------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1280, height: 720 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles(
+    '[data-testid="file-input"]',
+    Array.from({ length: 4 }, () =>
+      ['quad-landscape.jpg', 'quad-portrait.jpg', 'quad-exif6.jpg'].map((f) => join(fixtures, f)),
+    ).flat(),
+  )
+  await p.waitForSelector('ol[aria-label="12 pages"]')
+  const grid = p.locator('section[aria-label="Pages"]')
+  await grid.hover()
+  await p.mouse.wheel(0, 2000)
+  await p.waitForTimeout(300)
+  const after = await p.evaluate(() => ({
+    window: window.scrollY,
+    grid: document.querySelector('section[aria-label="Pages"]')?.scrollTop ?? 0,
+    header: document.querySelector('header')?.getBoundingClientRect().top ?? -1,
+    page: document.documentElement.scrollHeight - window.innerHeight,
+  }))
+  check(
+    after.window === 0 && after.page <= 0 && after.grid > 0 && after.header === 0,
+    'the page grid scrolls on its own; the window and header stay put',
+    JSON.stringify(after),
+  )
+  // The inspector scrolls separately, and a new selection starts at its top.
+  const rail = p.locator('aside[aria-label="Selected page"]')
+  await rail.hover()
+  await p.mouse.wheel(0, 2000)
+  await p.waitForTimeout(300)
+  const railScrolled = await rail.evaluate((el) => el.scrollTop)
+  await p.getByRole('button', { name: /^Page 12:/ }).click()
+  await p.waitForTimeout(200)
+  check(
+    railScrolled > 0 && (await rail.evaluate((el) => el.scrollTop)) === 0,
+    'the inspector scrolls on its own and starts at the top for a new page',
+    `scrolled ${railScrolled}`,
+  )
+  // Duplicate selects the copy; its button stays in view (no jump to the top).
+  await rail.hover()
+  await p.mouse.wheel(0, 3000)
+  await p.waitForTimeout(200)
+  const duplicate = rail.getByRole('button', { name: 'Duplicate' })
+  await duplicate.focus()
+  await p.keyboard.press('Enter')
+  await p.waitForTimeout(200)
+  const dupBox = await duplicate.boundingBox()
+  check(
+    Boolean(dupBox && dupBox.y >= 0 && dupBox.y + dupBox.height <= 720),
+    'Duplicate keeps its button in view (WCAG 2.4.11)',
+    JSON.stringify(dupBox),
+  )
+  await p.keyboard.press('Control+z')
+  // Toolbar: one Tab stop, arrow keys along it, Alt+T to reach it.
+  await p.keyboard.press('Alt+t')
+  check(
+    /^Page setup/.test((await p.evaluate(() => document.activeElement?.textContent)) ?? ''),
+    'Alt+T focuses the toolbar',
+  )
+  // Arrowing away from an open popover's button closes the popover.
+  await p.keyboard.press('Enter')
+  await p.getByRole('dialog', { name: 'Page setup' }).waitFor()
+  await p.getByRole('button', { name: /^Page setup/ }).focus()
+  await p.keyboard.press('ArrowRight')
+  check(
+    !(await p.getByRole('dialog', { name: 'Page setup' }).isVisible()),
+    'arrowing off Page setup closes its popover',
+  )
+  await p.keyboard.press('Alt+t')
+  await p.keyboard.press('End')
+  check(
+    (await p.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === 'More',
+    'End moves to the last toolbar control',
+  )
+  await p.keyboard.press('Enter')
+  const more = p.getByRole('dialog', { name: 'More' })
+  await more.waitFor()
+  await axe(p, 'More menu open')
+  check(
+    (await more.getByRole('link', { name: /Support Collated/ }).getAttribute('href')) ===
+      'https://ko-fi.com/collated',
+    'More links to Support Collated',
+  )
+  await p.keyboard.press('Escape')
+  await p.getByRole('button', { name: /^Page setup/ }).click()
+  const setup = p.getByRole('dialog', { name: 'Page setup' })
+  await setup.waitFor()
+  const [button, panel] = await Promise.all([
+    p.getByRole('button', { name: /^Page setup/ }).boundingBox(),
+    setup.boundingBox(),
+  ])
+  check(
+    Boolean(button && panel && panel.y >= button.y + button.height - 1 && panel.x < button.x + 40),
+    'Page setup opens under its button',
+    JSON.stringify({ button, panel }),
+  )
+  await axe(p, 'Page setup open')
+  await p.screenshot({ path: join(shots, 'page-setup.png') })
+  await p.keyboard.press('Escape')
+  check(
+    (await p.locator('a[href*="mattblack.space"]').count()) === 0,
+    'no link back to the portfolio',
+  )
+  await ctx.close()
+}
+
+// 16. Docs, privacy and terms: static pages under the same CSP. ---------------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1280, height: 900 } })
+  const pages = [
+    'docs/',
+    'docs/getting-started/',
+    'docs/adding-pages/',
+    'docs/arranging-pages/',
+    'docs/page-setup/',
+    'docs/exporting/',
+    'docs/keyboard/',
+    'docs/privacy-and-security/',
+    'docs/troubleshooting/',
+    'privacy/',
+    'terms/',
+  ]
+  const internal = new Set()
+  for (const path of pages) {
+    const response = await p.goto(`${URL_ROOT}${path}`, { waitUntil: 'networkidle' })
+    check(response?.status() === 200, `${path} is served`)
+    check(
+      (await p.locator('h1').count()) === 1 &&
+        (await p.locator('nav[aria-label="Docs"] [aria-current="page"]').count()) === 1,
+      `${path} has one h1 and marks itself in the nav`,
+    )
+    // Styled by the app's stylesheet: the h1 is in the display face.
+    const font = await p.locator('h1').evaluate((h) => getComputedStyle(h).fontFamily)
+    check(font.includes('Instrument Serif'), `${path} is styled`, font)
+    for (const href of await p
+      .locator('a[href^="/tools/collated/"]')
+      .evaluateAll((as) => as.map((a) => a.getAttribute('href'))))
+      internal.add(href)
+    await axe(p, path)
+  }
+  for (const href of internal) {
+    const response = await p.request.get(`${ORIGIN}${href}`)
+    check(response.status() === 200, `link ${href} resolves`)
+  }
+  // Typed without the slash, a docs URL still reaches the page, not the app.
+  await p.goto(`${URL_ROOT}docs/keyboard`, { waitUntil: 'networkidle' })
+  check(
+    p.url().endsWith('/docs/keyboard/') && (await p.locator('h1').textContent()) === 'Keyboard',
+    'a docs URL without its slash goes to the page',
+    p.url(),
+  )
+  // Dark mode follows the stored theme on docs pages too.
+  await p.evaluate(() => localStorage.setItem('mb-theme', 'dark'))
+  await p.goto(`${URL_ROOT}docs/`, { waitUntil: 'networkidle' })
+  check(
+    (await p.evaluate(() => document.documentElement.dataset.theme)) === 'dark',
+    'docs pages use the stored theme',
+  )
+  await p.screenshot({ path: join(shots, 'docs-dark.png'), fullPage: true })
+  await axe(p, 'docs, dark')
+  await p.evaluate(() => localStorage.removeItem('mb-theme'))
+  await p.goto(`${URL_ROOT}docs/exporting/`, { waitUntil: 'networkidle' })
+  await p.screenshot({ path: join(shots, 'docs.png'), fullPage: true })
+
+  // The landing view's footer, and the workspace's way to the docs: a new tab,
+  // so the pages being worked on aren't lost.
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  const footer = p.locator('footer')
+  check(
+    (await footer.getByRole('link', { name: 'Privacy' }).getAttribute('href')) ===
+      '/tools/collated/privacy/' &&
+      (await footer.getByRole('link', { name: /Support Collated/ }).getAttribute('href')) ===
+        'https://ko-fi.com/collated',
+    'the landing footer links to privacy and support',
+  )
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-landscape.jpg')])
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  await p.getByRole('button', { name: 'More' }).click()
+  const docsLink = p
+    .getByRole('dialog', { name: 'More' })
+    .getByRole('link', { name: /Help and docs/ })
+  check(
+    (await docsLink.getAttribute('target')) === '_blank',
+    'docs open in a new tab from the workspace, keeping the pages',
+  )
   await ctx.close()
 }
 

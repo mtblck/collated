@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { QUALITY_PRESETS } from '../core/compression'
 import type { NumberPosition, Quality, Settings } from '../core/model'
 import { formatBytes } from '../core/units'
@@ -6,6 +6,8 @@ import { Button } from './controls'
 import { cx } from './cx'
 import { DownloadIcon } from './Icons'
 import { NumberField } from './NumberField'
+import { POPOVER_BOX, POPOVER_PANEL, closeOwnPopover, useCloseOnFocusOut } from './popover'
+import { TOOLBAR_ITEM } from './toolbarItem'
 
 const OPTIONS: readonly { value: Quality; label: string; hint: string }[] = [
   {
@@ -23,9 +25,10 @@ const OPTIONS: readonly { value: Quality; label: string; hint: string }[] = [
 const MB = 1024 * 1024
 
 /**
- * Image quality and an optional size ceiling for the export, in a native
- * popover (top layer, light dismiss, Escape to close, focus returned to the
- * trigger — all from the platform, no script).
+ * Everything about the file: its title and name, image quality, an optional
+ * size ceiling, OCR, page numbers and a password. A native popover (top
+ * layer, light dismiss, Escape to close, focus returned to the trigger — all
+ * from the platform, no script).
  */
 export const ExportOptions = ({
   settings,
@@ -39,7 +42,7 @@ export const ExportOptions = ({
   passwordError = null,
   panelId: givenPanelId,
 }: {
-  settings: Pick<Settings, 'quality' | 'maxBytes' | 'pageNumbers' | 'ocr'>
+  settings: Pick<Settings, 'title' | 'quality' | 'maxBytes' | 'pageNumbers' | 'ocr'>
   /** Estimated bytes for the current pages and quality. */
   estimate: number
   lastExport: { size: string; used: string; fits: boolean } | null
@@ -60,26 +63,7 @@ export const ExportOptions = ({
   const [showPassword, setShowPassword] = useState(false)
   const panel = useRef<HTMLDivElement>(null)
 
-  // popover="auto" stays open when Tab leaves it, covering the page behind
-  // (the inspector, on a laptop); close it when focus moves outside.
-  useEffect(() => {
-    const el = panel.current
-    if (!el) return
-    const onFocusOut = (event: FocusEvent) => {
-      const next = event.relatedTarget
-      if (!(next instanceof HTMLElement) || el.contains(next)) return
-      if (next.getAttribute('popovertarget') === panelId) return // its own toggle
-      try {
-        if (el.matches(':popover-open')) el.hidePopover()
-      } catch {
-        /* no popover support (jsdom) */
-      }
-    }
-    el.addEventListener('focusout', onFocusOut)
-    return () => {
-      el.removeEventListener('focusout', onFocusOut)
-    }
-  }, [panelId])
+  useCloseOnFocusOut(panel, panelId)
   const current = OPTIONS.find((o) => o.value === settings.quality)?.label ?? 'Original'
 
   return (
@@ -87,7 +71,8 @@ export const ExportOptions = ({
       <button
         type="button"
         popoverTarget={panelId}
-        className="flex h-9 flex-col items-start justify-center rounded-[2px] border border-rule bg-paper px-3 text-left hover:border-ink-faint"
+        {...TOOLBAR_ITEM}
+        className="anchor-export flex h-9 flex-col items-start justify-center rounded-[2px] border border-control bg-paper px-3 text-left hover:border-ink-faint"
       >
         {/* The accessible name contains the visible text (WCAG 2.5.3), so
             voice control users can say what they see. */}
@@ -103,15 +88,33 @@ export const ExportOptions = ({
         role="dialog"
         aria-labelledby={`${id}-title`}
         ref={panel}
-        className={cx(
-          'm-0 max-h-[calc(100dvh-2rem)] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto border border-rule bg-paper p-5 text-ink shadow-xl',
-          'lg:max-h-[calc(100dvh-7rem)]',
-          'fixed inset-auto right-4 bottom-4 lg:top-24 lg:right-6 lg:bottom-auto',
-        )}
+        className={cx(POPOVER_PANEL, POPOVER_BOX, 'popover-end from-export')}
       >
         <h2 id={`${id}-title`} className="font-display text-2xl">
           Export options
         </h2>
+
+        <div className="mt-4">
+          <label htmlFor={`${id}-doc-title`} className="label mb-2 block text-ink-faint">
+            Title &amp; filename
+          </label>
+          <input
+            id={`${id}-doc-title`}
+            className="field w-full"
+            placeholder="Untitled scans"
+            value={settings.title}
+            maxLength={120}
+            autoComplete="off"
+            spellCheck={false}
+            aria-describedby={`${id}-doc-title-hint`}
+            onChange={(event) => {
+              onSettings({ title: event.target.value })
+            }}
+          />
+          <p id={`${id}-doc-title-hint`} className="mt-1.5 text-xs text-ink-muted">
+            Optional. Shown by PDF readers, and names the file.
+          </p>
+        </div>
 
         <fieldset className="mt-4">
           <legend className="label mb-2 text-ink-faint">Image quality</legend>
@@ -321,7 +324,7 @@ export const ExportOptions = ({
           className="mt-4 w-full"
           disabled={!canExport || Boolean(passwordError)}
           onClick={(event) => {
-            event.currentTarget.closest<HTMLElement>('[popover]')?.hidePopover()
+            closeOwnPopover(event.currentTarget)
             onExport()
           }}
         >

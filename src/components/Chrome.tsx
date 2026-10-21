@@ -1,67 +1,63 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { Button, IconButton } from './controls'
+import { cx } from './cx'
 import { CloseIcon, MoonIcon, SunIcon } from './Icons'
+import { DOCS_URL, FOOTER, SOURCE_URL, SUPPORT_URL } from './links'
+import { useTheme } from './theme'
 
-type Theme = 'light' | 'dark'
-
-const currentTheme = (): Theme =>
-  document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
-
-/** Same storage key as mattblack.space, which shares this origin in production. */
+/** The landing view's theme switch; in the workspace it lives in More. */
 const ThemeToggle = () => {
-  const [theme, setTheme] = useState<Theme>(currentTheme)
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme
-  }, [theme])
-  const next: Theme = theme === 'dark' ? 'light' : 'dark'
+  const { theme, next, toggle } = useTheme()
   return (
-    <IconButton
-      label={`Use ${next} theme`}
-      onClick={() => {
-        setTheme(next)
-        try {
-          localStorage.setItem('mb-theme', next)
-        } catch {
-          /* private mode: the choice lasts for this page only */
-        }
-      }}
-    >
+    <IconButton label={`Use ${next} theme`} onClick={toggle}>
       {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
     </IconButton>
   )
 }
 
-export const Header = () => (
-  <header className="border-b border-rule">
-    <div className="mx-auto flex max-w-[1600px] items-center gap-4 px-4 py-3 sm:px-6">
-      <a href="/tools/collated/" className="flex items-baseline gap-3">
-        <span className="font-display text-[1.75rem] leading-none text-ink">Collated</span>
-        <span className="label hidden text-ink-faint sm:inline">Scans → one PDF</span>
-      </a>
-      <p className="label ml-auto hidden text-ink-faint md:block">
-        <span
-          className="mr-2 inline-block size-1.5 rounded-full bg-accent align-middle"
-          aria-hidden="true"
-        />
-        Files stay on this device
-      </p>
-      <nav aria-label="Elsewhere" className="ml-auto flex items-center gap-1 md:ml-4">
-        <a
-          className="px-2 py-1 text-sm text-ink-muted hover:text-ink"
-          href="https://github.com/mtblck/collated"
-          rel="noopener noreferrer"
-          target="_blank"
-        >
-          Source
-        </a>
-        <a
-          className="px-2 py-1 text-sm text-ink-muted hover:text-ink"
-          href="https://mattblack.space/"
-        >
-          Matt Black
-        </a>
-        <ThemeToggle />
-      </nav>
+const NAV_LINK = 'px-2 py-1 text-sm text-ink-muted hover:text-ink'
+
+/**
+ * One row. The wordmark, then either the workspace toolbar (`children`) or,
+ * on the landing view, the privacy note and links. It never scrolls away:
+ * on a wide screen the panes below scroll instead (see App).
+ */
+export const Header = ({ children }: { children?: ReactNode }) => (
+  <header className="relative z-20 shrink-0 border-b border-rule bg-paper">
+    <div className="mx-auto flex min-h-14 max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 sm:px-6">
+      {/* While working on a phone the toolbar needs the room; the landing
+          view always shows the name. */}
+      <span
+        className={cx(
+          'font-display text-[1.75rem] leading-none text-ink',
+          children !== undefined && 'max-sm:sr-only',
+        )}
+      >
+        Collated
+      </span>
+      {children ?? (
+        <>
+          <p className="label ml-auto hidden text-ink-faint md:block">
+            <span
+              className="mr-2 inline-block size-1.5 rounded-full bg-accent align-middle"
+              aria-hidden="true"
+            />
+            Files stay on this device
+          </p>
+          <nav aria-label="About Collated" className="ml-auto flex items-center gap-1 md:ml-4">
+            <a className={NAV_LINK} href={DOCS_URL}>
+              Docs
+            </a>
+            <a className={NAV_LINK} href={SOURCE_URL} rel="noopener noreferrer" target="_blank">
+              Source<span className="sr-only"> code (opens in a new tab)</span>
+            </a>
+            <a className={NAV_LINK} href={SUPPORT_URL} rel="noopener noreferrer" target="_blank">
+              Support<span className="sr-only"> Collated (opens in a new tab)</span>
+            </a>
+            <ThemeToggle />
+          </nav>
+        </>
+      )}
     </div>
   </header>
 )
@@ -117,6 +113,33 @@ export const EmptyState = ({ onChoose }: { onChoose: () => void }) => (
   </div>
 )
 
+/** Landing-view footer; the docs pages render the same columns (docs-site.ts). */
+export const Footer = () => (
+  <footer className="border-t border-rule">
+    <div className="mx-auto grid max-w-5xl gap-8 px-4 py-10 sm:grid-cols-3 sm:px-6">
+      {FOOTER.map((column) => (
+        <div key={column.title}>
+          <h2 className="label mb-3 text-ink-faint">{column.title}</h2>
+          <ul className="flex flex-col gap-2">
+            {column.links.map((link) => (
+              <li key={link.href}>
+                <a
+                  className="text-sm text-ink-muted hover:text-ink"
+                  href={link.href}
+                  {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                >
+                  {link.label}
+                  {link.external && <span className="sr-only"> (opens in a new tab)</span>}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  </footer>
+)
+
 export const DropOverlay = ({ active }: { active: boolean }) =>
   active ? (
     <div
@@ -163,6 +186,8 @@ export const Notices = ({
       const room = `${Math.ceil(el.getBoundingClientRect().height) + 24}px`
       root.style.scrollPaddingBottom = room
       document.body.style.paddingBottom = room
+      // The scrolling panes (index.css .scroll-pane) keep the same room.
+      root.style.setProperty('--notice-room', room)
     }
     reserve()
     // Remember where focus came from, to give it back on dismissal.
@@ -178,6 +203,7 @@ export const Notices = ({
       el.removeEventListener('focusin', onFocusIn)
       root.style.scrollPaddingBottom = ''
       document.body.style.paddingBottom = ''
+      root.style.removeProperty('--notice-room')
     }
   }, [latest])
 

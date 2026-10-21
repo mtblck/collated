@@ -258,7 +258,7 @@ describe('App', () => {
     await upload('tall.jpg')
     const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
     expect(panel.getByText('8.5 in × 11 in')).toBeInTheDocument()
-    await user.click(screen.getByRole('radio', { name: 'mm' }))
+    await user.click(screen.getByRole('radio', { name: 'mm', hidden: true }))
     expect(panel.getByText('215.9 mm × 279.4 mm')).toBeInTheDocument()
   })
 
@@ -336,7 +336,7 @@ describe('App', () => {
     await upload('a.jpg')
     await user.type(await screen.findByLabelText('Password to open'), 'hunter2')
     // The main button says the PDF will be locked.
-    await user.click(screen.getByRole('button', { name: 'Export locked PDF · 1 page' }))
+    await user.click(screen.getByRole('button', { name: /^Export locked PDF · 1 page/ }))
     await waitFor(() => {
       expect(exportPdf).toHaveBeenCalled()
     })
@@ -364,7 +364,7 @@ describe('App', () => {
     // 300 x 200 px at the default 300 dpi is 1 x 0.67 in.
     const panel = within(screen.getByRole('complementary', { name: 'Selected page' }))
     expect(panel.getByText('1 in × 0.67 in')).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: 'Portrait' })).toBeDisabled()
+    expect(screen.getByRole('radio', { name: 'Portrait', hidden: true })).toBeDisabled()
     await user.clear(screen.getByLabelText('Image dpi'))
     await user.type(screen.getByLabelText('Image dpi'), '100{Enter}')
     expect(panel.getByText('3 in × 2 in')).toBeInTheDocument()
@@ -619,7 +619,7 @@ describe('App', () => {
     it('steps an off-grid value onto the grid, like the browser', async () => {
       const { user, upload } = setup()
       await upload('tall.jpg')
-      await user.click(await screen.findByRole('radio', { name: 'mm' }))
+      await user.click(await screen.findByRole('radio', { name: 'mm', hidden: true }))
       const margin = screen.getByLabelText(/^Margin/)
       expect(margin).toHaveAccessibleName('Margin in millimetres')
       await user.clear(margin)
@@ -627,7 +627,7 @@ describe('App', () => {
       expect(margin).toBeValid()
       await user.keyboard('{ArrowUp}')
       expect(margin).toHaveValue(13)
-      await user.click(screen.getByRole('radio', { name: 'in' }))
+      await user.click(screen.getByRole('radio', { name: 'in', hidden: true }))
       expect(screen.getByLabelText(/^Margin/)).toHaveAccessibleName('Margin in inches')
     })
   })
@@ -740,5 +740,87 @@ describe('App', () => {
     })
     await upload('a.jpg')
     expect(await screen.findByRole('alert')).toHaveTextContent(/updated since this page was opened/)
+  })
+
+  describe('header and toolbar', () => {
+    it('links to support and the source, not to the portfolio', () => {
+      setup()
+      const nav = screen.getByRole('navigation', { name: 'About Collated' })
+      const hrefs = within(nav)
+        .getAllByRole('link')
+        .map((a) => a.getAttribute('href'))
+      expect(hrefs).toEqual([
+        '/tools/collated/docs/',
+        'https://github.com/mtblck/collated',
+        'https://ko-fi.com/collated',
+      ])
+      for (const link of within(nav)
+        .getAllByRole('link')
+        .filter((a) => a.getAttribute('href')?.startsWith('https:'))) {
+        expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+      }
+      expect(document.querySelector('a[href*="mattblack.space"]')).toBeNull()
+      expect(screen.queryByText(/one pdf$/i, { selector: 'header *' })).toBeNull()
+    })
+
+    it('is one toolbar with one Tab stop; arrow keys, Home and End move along it', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg')
+      const bar = await screen.findByRole('toolbar', { name: 'Document' })
+      const tabbable = within(bar)
+        .getAllByRole('button')
+        .filter((b) => b.tabIndex === 0)
+      expect(tabbable).toHaveLength(1)
+      expect(tabbable[0]).toHaveAccessibleName(/^Page setup/)
+      tabbable[0]?.focus()
+      await user.keyboard('{ArrowRight}')
+      expect(document.activeElement).toHaveAccessibleName(/^Undo/)
+      await user.keyboard('{End}')
+      expect(document.activeElement).toHaveAccessibleName('More')
+      await user.keyboard('{ArrowRight}')
+      expect(document.activeElement).toHaveAccessibleName(/^Page setup/)
+      await user.keyboard('{ArrowLeft}{Home}')
+      expect(document.activeElement).toHaveAccessibleName(/^Page setup/)
+      // The last one used stays the Tab stop.
+      await user.keyboard('{End}')
+      expect(screen.getByRole('button', { name: 'More' })).toHaveAttribute('tabindex', '0')
+      expect(screen.getByRole('button', { name: /^Page setup/ })).toHaveAttribute('tabindex', '-1')
+    })
+
+    it('Alt+T jumps to the toolbar', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg')
+      await screen.findByRole('toolbar', { name: 'Document' })
+      await user.click(screen.getByRole('button', { name: 'Page 1: a.jpg' }))
+      await user.keyboard('{Alt>}t{/Alt}')
+      expect(document.activeElement).toHaveAccessibleName(/^Page setup/)
+    })
+
+    it('shows the page setup at a glance on its button', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg')
+      const button = await screen.findByRole('button', { name: /^Page setup/ })
+      expect(button).toHaveTextContent(/US Letter · Auto · 0 in margin|A4 · Auto · 0 mm margin/)
+      await user.selectOptions(screen.getByLabelText('Page size'), 'a5')
+      expect(button).toHaveTextContent(/^Page setup:?A5 · /)
+    })
+
+    it('rotates every page from the More menu', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'b.jpg')
+      await user.click(
+        await screen.findByRole('button', { name: 'Rotate all pages right', hidden: true }),
+      )
+      // Undo is available only once something changed.
+      expect(screen.getByRole('button', { name: /^Undo/ })).not.toHaveAttribute('aria-disabled')
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      expect(document.getElementById('status')).toHaveTextContent(/Undone: .*2 pages/)
+      const trigger = screen.getByRole('button', { name: 'More' })
+      const more = document.getElementById(trigger.getAttribute('popovertarget') ?? '')
+      if (!more) throw new Error('no More panel')
+      expect(
+        within(more).getByRole('link', { name: /Support Collated/, hidden: true }),
+      ).toHaveAttribute('href', 'https://ko-fi.com/collated')
+    })
   })
 })
