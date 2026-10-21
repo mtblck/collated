@@ -173,6 +173,25 @@ const drawTextLayer = (page: PDFPage, font: PDFFont, layout: Layout, words: OcrW
 
 export const PRODUCER = 'Collated'
 
+/** AES-256 PDF passwords are at most 127 bytes of UTF-8 (ISO 32000-2, 7.6.4.3.3). */
+export const PASSWORD_MAX_BYTES = 127
+
+/**
+ * The password as PDF readers will compare it. The spec has readers prepare
+ * passwords with SASLprep, which (for anything a person types) amounts to
+ * NFKC; without it "café" typed on a Mac (e + combining accent) opens nothing
+ * typed elsewhere. pdf-lib truncates silently past 127 bytes, so refuse that.
+ */
+export const pdfPassword = (password: string) => {
+  const prepared = password.normalize('NFKC')
+  if (new TextEncoder().encode(prepared).length > PASSWORD_MAX_BYTES) {
+    throw new Error(
+      'That password is too long for a PDF: use at most 127 bytes (about 60–120 characters).',
+    )
+  }
+  return prepared
+}
+
 /**
  * Where to put the stored content's bottom-left corner, and its size and
  * counter-clockwise rotation, in PDF space (origin bottom-left, y up).
@@ -355,12 +374,13 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
   }
 
   if (input.password) {
+    const password = pdfPassword(input.password)
     // Opening needs the password; once open, nothing is restricted (it's a
     // lock on the file, not DRM). The owner password is random and discarded.
     const owner = new Uint8Array(24)
     crypto.getRandomValues(owner)
     doc.encrypt({
-      userPassword: input.password,
+      userPassword: password,
       ownerPassword: Array.from(owner, (b) => b.toString(16).padStart(2, '0')).join(''),
       permissions: {
         printing: 'highResolution',

@@ -293,6 +293,30 @@ describe('buildPdf', () => {
     }
   })
 
+  it.skipIf(!hasQpdf)('opens with the password however its accents were typed', async () => {
+    // Decomposed (e + combining acute, as macOS often types) vs composed.
+    const { bytes } = await buildWithPassword('cafe\u0301 ﬁle')
+    const path = join(work, 'accents.pdf')
+    writeFileSync(path, bytes)
+    const opens = (password: string) => {
+      try {
+        execFileSync('qpdf', [`--password=${password}`, '--check', path], { stdio: 'ignore' })
+        return true
+      } catch {
+        return false
+      }
+    }
+    expect(opens('caf\u00e9 file')).toBe(true) // NFKC: composed é, "ﬁ" ligature → "fi"
+    expect(opens('cafe')).toBe(false)
+  })
+
+  it('refuses a password PDF readers would cut short', async () => {
+    await expect(buildWithPassword('a'.repeat(128))).rejects.toThrow(/too long/)
+    await expect(buildWithPassword('a'.repeat(127))).resolves.toBeDefined()
+    // Bytes, not characters: 43 three-byte characters is 129 bytes.
+    await expect(buildWithPassword('€'.repeat(43))).rejects.toThrow(/too long/)
+  })
+
   it('reports progress per page', async () => {
     const seen: number[] = []
     const { meta, bytes } = await fileAsset('quad-landscape.jpg')
