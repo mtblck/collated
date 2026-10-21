@@ -741,8 +741,10 @@ await context.close()
   await dialog.getByLabel('Position').selectOption('bottom-right')
   await dialog.getByLabel('Password to open').fill('correct horse')
   await axe(p, 'export options with numbers and password')
-  await dialog.getByRole('button', { name: 'Export locked PDF' }).click()
-  const [locked] = await Promise.all([p.waitForEvent('download')])
+  const [locked] = await Promise.all([
+    p.waitForEvent('download'),
+    dialog.getByRole('button', { name: 'Export locked PDF' }).click(),
+  ])
   const lockedPath = join(mkdtempSync(join(tmpdir(), 'collated-verify-lock-')), 'locked.pdf')
   await locked.saveAs(lockedPath)
   const lockedBytes = readFileSync(lockedPath)
@@ -807,8 +809,12 @@ await context.close()
   await p.getByLabel('Image dpi').blur()
   await optionsButton.click()
   await dialog.getByLabel('Password to open').fill('')
-  await dialog.getByRole('button', { name: 'Export PDF' }).click()
-  const [matched] = await Promise.all([p.waitForEvent('download')])
+  // Listen first: with the export worker already loaded, the file can be
+  // ready before a listener added after the click.
+  const [matched] = await Promise.all([
+    p.waitForEvent('download'),
+    dialog.getByRole('button', { name: 'Export PDF' }).click(),
+  ])
   const matchedPath = join(mkdtempSync(join(tmpdir(), 'collated-verify-match-')), 'matched.pdf')
   await matched.saveAs(matchedPath)
   const sizes = (await PDFDocument.load(readFileSync(matchedPath)))
