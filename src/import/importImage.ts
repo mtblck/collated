@@ -75,13 +75,29 @@ export const fit = (width: number, height: number, maxEdge: number, maxPixels = 
   }
 }
 
+/**
+ * HEIC/HEIF (iPhone photos) decodes natively only in Safari. Elsewhere,
+ * libheif in WebAssembly loads in its own worker on first use (~480 KB
+ * gzipped), so nobody pays for it until they drop a HEIC file.
+ */
+const decodeHeic = async (file: Blob): Promise<ImageBitmap> => {
+  const { decodeHeic: decode } = await import('./decodeHeic')
+  return decode(file)
+}
+
 const decode = async (file: Blob, kind: SniffedType): Promise<ImageBitmap> => {
   try {
     // Default imageOrientation ('from-image') applies EXIF, so this is upright.
     return await createImageBitmap(file)
   } catch {
-    if (kind === 'heic')
-      throw new ImportError('This browser can’t open HEIC photos. Safari can, or export as JPEG.')
+    if (kind === 'heic') {
+      try {
+        return await decodeHeic(file)
+      } catch (error) {
+        console.error(error)
+        throw new ImportError('This HEIC photo couldn’t be read. Try exporting it as JPEG.')
+      }
+    }
     throw new ImportError('Not an image this browser can read.')
   }
 }
@@ -92,7 +108,7 @@ const decode = async (file: Blob, kind: SniffedType): Promise<ImageBitmap> => {
  *
  * JPEG and PNG bytes are kept as they are whenever it's safe (see
  * core/imageInfo.ts), so a scan is never recompressed. Everything else the
- * browser can decode — WebP, AVIF, GIF, BMP, HEIC on Safari, mirrored-EXIF or
+ * browser can decode — WebP, AVIF, GIF, BMP, HEIC (natively or via libheif), mirrored-EXIF or
  * CMYK JPEGs — is re-encoded once.
  */
 export const importImage = async (

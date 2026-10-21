@@ -8,7 +8,7 @@ Everything happens in the browser. There is no server, no upload, no account and
 
 ## What it does
 
-- **Import** JPEG, PNG, WebP, AVIF, GIF and BMP — anything the browser can decode, including HEIC on Safari — and **PDFs**, which come in as one page per PDF page, by drag-and-drop, file picker or paste.
+- **Import** JPEG, PNG, HEIC (iPhone photos, in every browser), WebP, AVIF, GIF and BMP, and **PDFs**, which come in as one page per PDF page, by drag-and-drop, file picker or paste.
 - **Arrange** pages by drag, touch or keyboard (Space to pick up, arrows to move), or with Move earlier/later buttons.
 - **Per page:** quarter turns, fine straightening (±45°), scale (10–400%), Fit (whole image) or Fill (fill the page, cropping the overflow), and a filter: Original, Greyscale, or B&W for photographed paper.
 - **Document:** US Letter, Legal, Tabloid, A3, A4, A5, a custom size, or _Match image_ (each page sized to its own image at a chosen dpi; PDF pages keep their size); portrait, landscape, or _auto_ (each page turns to match its image); margins; title metadata and filename. Paper and units default to the visitor's locale (Letter/inches in North America, A4/mm elsewhere) and are remembered.
@@ -70,7 +70,9 @@ tests/         fixtures (with the script that generates them) and helpers
 
 **Image bytes live outside React state.** Undo history holds every version of the document; keeping multi-megabyte images in it would pin them all. State holds metadata, `assetStore` holds bytes, and a removed page's image is kept until the document is cleared so undo can bring it back.
 
-**Strict CSP.** `script-src 'self'`, `worker-src 'self'`, no inline scripts (the theme script is a file in `public/` so dark mode applies before first paint), `frame-ancestors 'none'`. `npm run hosting:check` fails the build if any of that, the base path, or the SPA rewrite drifts.
+**HEIC without loosening the CSP.** Only Safari decodes HEIC natively. The obvious library (heic-to's "CSP build") starts its decoder as a `blob:` worker, which `worker-src 'self'` refuses; allowing `blob:` workers would let any code built in the page run as a worker. Instead libheif-js runs in a worker of our own, its `.wasm` fetched from our origin, so the only addition to the policy is `'wasm-unsafe-eval'` — permission to compile WebAssembly, not to evaluate strings. `hosting:check` now rejects anything else in `script-src` and any `blob:` in `worker-src` (each mutation tried). The decoder (~490 KB gzipped) loads only when a HEIC file is dropped in a browser that needs it; verify imports one in Chromium and finds its page identical to the same image as JPEG.
+
+**Strict CSP.** `script-src 'self' 'wasm-unsafe-eval'`, `worker-src 'self'`, no inline scripts (the theme script is a file in `public/` so dark mode applies before first paint), `frame-ancestors 'none'`. `npm run hosting:check` fails the build if any of that, the base path, or the SPA rewrite drifts.
 
 **Library choices** (researched October 2026):
 
@@ -87,4 +89,4 @@ Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Licence
 
-[MIT](LICENSE) © Matt Black. Typefaces (Instrument Serif, Archivo, JetBrains Mono) are under the SIL Open Font License.
+[MIT](LICENSE) © Matt Black. Bundled libraries and their licences — including libheif (LGPL-3.0), loaded as a separate replaceable file — are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
