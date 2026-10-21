@@ -20,6 +20,7 @@ interface Header {
 }
 interface Config {
   headers: { source: string; headers: Header[] }[]
+  rewrites: { source: string; destination: string }[]
 }
 const original = readFileSync(join(root, 'vercel.json'), 'utf8')
 
@@ -118,6 +119,25 @@ describe('hosting:check', () => {
       'camera is allowed',
       setHeader('Permissions-Policy', 'microphone=(), geolocation=()'),
       'camera',
+    ],
+    [
+      'the fallback catches missing files again',
+      (config: Config) => {
+        config.rewrites = [
+          { source: '/tools/collated/(.*)', destination: '/tools/collated/index.html' },
+        ]
+      },
+      'Missing rewrite',
+    ],
+    [
+      'a second rewrite sends files to the app',
+      (config: Config) => {
+        config.rewrites.push({
+          source: '/tools/collated/assets/(.*)',
+          destination: '/tools/collated/index.html',
+        })
+      },
+      'missing files must 404',
     ],
     [
       'a second block loosens the CSP',

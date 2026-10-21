@@ -7,7 +7,9 @@
     { "source": "/", "destination": "/tools/collated/", "permanent": false },
     { "source": "/tools/collated", "destination": "/tools/collated/", "permanent": true }
   ],
-  "rewrites": [{ "source": "/tools/collated/(.*)", "destination": "/tools/collated/index.html" }],
+  "rewrites": [
+    { "source": "/tools/collated/((?:[^/]*/)*[^./]*)", "destination": "/tools/collated/index.html" }
+  ],
   "headers": [
     {
       "source": "/tools/collated/(.*)",

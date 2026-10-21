@@ -36,7 +36,47 @@ const request = (
   }
 }
 
-/** Builds the PDF in a module worker; resolves with the file. */
+const START_FAILED =
+  'The PDF export couldn’t start. If Collated was updated since this page was opened, reload the page and add your files again.'
+
+/** Vite bundles a worker only from this exact `new Worker(new URL(…))` shape. */
+const spawn = () => {
+  const worker = new Worker(new URL('./pdf.worker.ts', import.meta.url), {
+    type: 'module',
+    name: 'collated-pdf',
+  })
+  return worker
+}
+
+/**
+ * One export worker, started ahead of the first export and kept between
+ * exports. Its code is a hashed file from the build this page came from: a
+ * worker started only on Export, in a tab opened before a deploy, asks for a
+ * file the new deploy no longer has (#42). Once loaded, a deploy can't touch it.
+ */
+let idle: { worker: Worker; failed: boolean } | null = null
+
+/** Starts the export worker now, so Export never depends on fetching it later. */
+export const prepareExport = () => {
+  if (idle || typeof Worker === 'undefined') return
+  const entry = { worker: spawn(), failed: false }
+  // A load failure fires before any message; remember it for the export.
+  entry.worker.onerror = () => {
+    entry.failed = true
+  }
+  idle = entry
+}
+
+/** The ready worker if it loaded, else a fresh one. */
+const takeWorker = () => {
+  const entry = idle
+  idle = null
+  if (entry && !entry.failed) return entry.worker
+  entry?.worker.terminate()
+  return spawn()
+}
+
+/** Builds the PDF in the module worker; resolves with the file. */
 export const exportPdf = (
   state: DocState,
   onProgress?: Progress,
@@ -44,30 +84,37 @@ export const exportPdf = (
 ): Promise<Exported> => {
   const message = request(state, options.password, options.text)
   return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL('./pdf.worker.ts', import.meta.url), {
-      type: 'module',
-      name: 'collated-pdf',
-    })
-    const finish = () => {
-      worker.terminate()
+    const worker = takeWorker()
+    let started = false
+    const release = () => {
+      worker.onmessage = null
+      worker.onerror = null
+      // Keep a healthy worker for the next export; one is enough.
+      if (idle) worker.terminate()
+      else idle = { worker, failed: false }
+      idle.worker.onerror = () => {
+        if (idle) idle.failed = true
+      }
     }
     worker.onmessage = ({ data }: MessageEvent<ExportResponse>) => {
+      started = true
       if (data.type === 'progress') onProgress?.(data.done, data.total, data.attempt)
       else if (data.type === 'done') {
-        finish()
+        release()
         resolve({
           blob: new Blob([data.pdf as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }),
           compression: data.compression,
           fits: data.fits,
         })
       } else {
-        finish()
+        release()
         reject(new Error(data.message))
       }
     }
     worker.onerror = (event) => {
-      finish()
-      reject(new Error(event.message || 'The PDF export failed to start.'))
+      // Crashed or never loaded: don't reuse it.
+      worker.terminate()
+      reject(new Error(started && event.message ? event.message : START_FAILED))
     }
     worker.postMessage(message)
   })

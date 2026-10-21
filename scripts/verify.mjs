@@ -13,7 +13,14 @@
  *   SHOTS=dir                     where to save screenshots (default: shots)
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, extname, join } from 'node:path'
@@ -58,8 +65,13 @@ const server = createServer((req, res) => {
     return
   }
   let file = join(dist, path)
+  // As vercel.json: a missing file 404s; only extensionless paths get the app.
+  if (path.startsWith(BASE) && extname(path) && !existsSync(file)) {
+    res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found')
+    return
+  }
   if (!path.startsWith(BASE) || !existsSync(file) || !extname(file)) {
-    file = join(dist, 'tools', 'collated', 'index.html') // SPA fallback
+    file = join(dist, 'tools', 'collated', 'index.html') // app fallback
   }
   for (const h of headerBlock.headers) res.setHeader(h.key, h.value)
   res.setHeader('Content-Type', types[extname(file)] ?? 'application/octet-stream')
@@ -729,8 +741,10 @@ await context.close()
   await dialog.getByLabel('Position').selectOption('bottom-right')
   await dialog.getByLabel('Password to open').fill('correct horse')
   await axe(p, 'export options with numbers and password')
-  await dialog.getByRole('button', { name: 'Export locked PDF' }).click()
-  const [locked] = await Promise.all([p.waitForEvent('download')])
+  const [locked] = await Promise.all([
+    p.waitForEvent('download'),
+    dialog.getByRole('button', { name: 'Export locked PDF' }).click(),
+  ])
   const lockedPath = join(mkdtempSync(join(tmpdir(), 'collated-verify-lock-')), 'locked.pdf')
   await locked.saveAs(lockedPath)
   const lockedBytes = readFileSync(lockedPath)
@@ -795,8 +809,12 @@ await context.close()
   await p.getByLabel('Image dpi').blur()
   await optionsButton.click()
   await dialog.getByLabel('Password to open').fill('')
-  await dialog.getByRole('button', { name: 'Export PDF' }).click()
-  const [matched] = await Promise.all([p.waitForEvent('download')])
+  // Listen first: with the export worker already loaded, the file can be
+  // ready before a listener added after the click.
+  const [matched] = await Promise.all([
+    p.waitForEvent('download'),
+    dialog.getByRole('button', { name: 'Export PDF' }).click(),
+  ])
   const matchedPath = join(mkdtempSync(join(tmpdir(), 'collated-verify-match-')), 'matched.pdf')
   await matched.saveAs(matchedPath)
   const sizes = (await PDFDocument.load(readFileSync(matchedPath)))
@@ -1239,6 +1257,41 @@ await context.close()
   await p.keyboard.press('Escape')
   await p.keyboard.press('Escape')
   check((await p.locator('[role="alert"]').count()) === 0, 'Escape dismisses notices')
+  await ctx.close()
+}
+
+// 14. A deploy while the page is open (#42): the export worker loads when the
+//     first page arrives, so Export still works after its file is gone; and
+//     a missing file is a 404, never the app's HTML.
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1280, height: 800 } })
+  const missing = await p.request.get(`${URL_ROOT}assets/pdf.worker-gone.js`)
+  check(
+    missing.status() === 404 && !(await missing.text()).includes('<html'),
+    'a missing asset is a 404, not the app',
+    String(missing.status()),
+  )
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  const loaded = p.waitForEvent('requestfinished', (r) => /pdf\.worker-[^/]*\.js$/.test(r.url()))
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-landscape.jpg')])
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  const workerUrl = (await loaded).url()
+  ok('the export worker loads as soon as there is a page')
+  // "Deploy": the worker's file disappears from the server.
+  const workerFile = join(dist, new URL(workerUrl).pathname)
+  renameSync(workerFile, `${workerFile}.away`)
+  try {
+    const [saved] = await Promise.all([
+      p.waitForEvent('download', { timeout: 15_000 }),
+      p.getByRole('button', { name: /Export PDF/ }).click(),
+    ])
+    check(
+      (saved.suggestedFilename() ?? '').endsWith('.pdf'),
+      'Export still works after the worker file is gone',
+    )
+  } finally {
+    renameSync(`${workerFile}.away`, workerFile)
+  }
   await ctx.close()
 }
 
