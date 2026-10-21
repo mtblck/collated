@@ -1,4 +1,5 @@
 import type { Settings } from '../core/model'
+import { PAGE_NUMBER_START_MAX } from '../core/limits'
 import { PAGE_SIZES, localeDefaults } from '../core/pageSizes'
 
 const KEY = 'collated:settings'
@@ -78,9 +79,9 @@ export const loadSettings = (
           (raw.pageNumbers.position === 'bottom-right' || raw.pageNumbers.position === 'top-right')
             ? raw.pageNumbers.position
             : 'bottom-center',
-        start: Math.max(
-          0,
-          Math.round(finite(isRecord(raw.pageNumbers) ? raw.pageNumbers.start : 1, 1)),
+        start: Math.min(
+          PAGE_NUMBER_START_MAX,
+          Math.max(0, Math.round(finite(isRecord(raw.pageNumbers) ? raw.pageNumbers.start : 1, 1))),
         ),
       },
     }

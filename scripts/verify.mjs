@@ -77,8 +77,50 @@ const check = (condition, message, detail = '') => {
   else fails.push(`${message}${detail ? `\n      ${detail}` : ''}`)
 }
 
+// --- Same-origin and worker-CSP guards. ------------------------------------
+// The app promises it talks to nobody. Every request any page or worker in
+// any context makes (Playwright reports worker requests on the context) must
+// be to this server, or a data:/blob: URL; offenders are listed at the end.
+// A request the CSP refuses never reaches the network, so these catch what a
+// loosened policy would let through; CSP violations are caught separately.
+const ORIGIN = new URL(URL_ROOT).origin
+const offOrigin = new Set()
+/**
+ * Workers' securitypolicyviolation events can't be heard from the page, so a
+ * listener is added inside each worker as it starts (its console.error then
+ * reaches page.on('console') like the page's own). A violation in the first
+ * moments of a worker, before the listener lands, can still slip by.
+ */
+const guard = (context) => {
+  context.on('request', (request) => {
+    const url = request.url()
+    if (/^(data|blob):/.test(url)) return
+    if (new URL(url).origin !== ORIGIN) offOrigin.add(`${request.resourceType()} ${url}`)
+  })
+  context.on('page', (page) => {
+    page.on('worker', (worker) => {
+      worker
+        .evaluate(() => {
+          self.addEventListener('securitypolicyviolation', (e) => {
+            console.error(`CSP blocked in worker ${e.blockedURI} (${e.violatedDirective})`)
+          })
+        })
+        .catch(() => undefined) // a worker that has already finished
+    })
+  })
+}
+const checkSameOrigin = () => {
+  check(
+    offOrigin.size === 0,
+    'every request went to our own origin (pages and workers)',
+    [...offOrigin].join('\n      '),
+  )
+}
+// ---------------------------------------------------------------------------
+
 const open = async (options = {}) => {
   const context = await browser.newContext({ acceptDownloads: true, ...options })
+  guard(context)
   const page = await context.newPage()
   page.on('console', (m) => {
     if (m.type() === 'error') fails.push(`console: ${m.text()}`)
@@ -1200,6 +1242,7 @@ await context.close()
   await ctx.close()
 }
 
+checkSameOrigin()
 await browser.close()
 server.close()
 

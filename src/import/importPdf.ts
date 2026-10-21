@@ -1,4 +1,5 @@
 import type { PDFPageProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { MAX_PDF_PAGES } from '../core/limits'
 import type { Asset, QuarterTurns } from '../core/model'
 import { assetStore } from './assetStore'
 import { ImportError, THUMB_EDGE, fit, type Imported } from './importImage'
@@ -77,6 +78,12 @@ export const importPdf = async (
 
   const assets: Asset[] = []
   try {
+    // Checked before rendering anything: each page costs a thumbnail.
+    if (pdf.numPages > MAX_PDF_PAGES) {
+      throw new ImportError(
+        `This PDF has ${pdf.numPages.toLocaleString('en-US')} pages; up to ${MAX_PDF_PAGES} can be added from one file. Split it and add the parts.`,
+      )
+    }
     const base = file.name.replace(/\.pdf$/i, '') || 'PDF'
     for (let index = 0; index < pdf.numPages; index++) {
       const page = await pdf.getPage(index + 1)
