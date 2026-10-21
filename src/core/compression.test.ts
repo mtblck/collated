@@ -21,22 +21,24 @@ describe('targetPixels', () => {
 
 describe('imageJob', () => {
   it('leaves untouched images and PDF pages alone', () => {
-    expect(imageJob(asset('a'), 'original', 500, null)).toBeNull()
-    expect(imageJob(asset('p', { format: 'pdf' }), 'bw', 500, QUALITY_PRESETS.small)).toBeNull()
+    expect(imageJob(asset('a'), { filter: 'original' }, 500, null)).toBeNull()
+    expect(
+      imageJob(asset('p', { format: 'pdf' }), { filter: 'bw' }, 500, QUALITY_PRESETS.small),
+    ).toBeNull()
   })
 
   it('keeps B&W lossless and compresses everything else as JPEG', () => {
     const a = asset('a', { width: 3000, height: 2000 })
-    expect(imageJob(a, 'bw', 576, QUALITY_PRESETS.small)).toMatchObject({
+    expect(imageJob(a, { filter: 'bw' }, 576, QUALITY_PRESETS.small)).toMatchObject({
       format: 'png',
       width: 1200,
     })
-    expect(imageJob(a, 'original', 576, QUALITY_PRESETS.small)).toMatchObject({
+    expect(imageJob(a, { filter: 'original' }, 576, QUALITY_PRESETS.small)).toMatchObject({
       format: 'jpeg',
       quality: 0.7,
       width: 1200,
     })
-    expect(imageJob(a, 'grey', 576, null)).toMatchObject({
+    expect(imageJob(a, { filter: 'grey' }, 576, null)).toMatchObject({
       format: 'jpeg',
       quality: 0.9,
       width: 3000,

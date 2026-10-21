@@ -119,3 +119,9 @@ export const CloseIcon = (p: P) => (
     <path d="m5.5 5.5 9 9M14.5 5.5l-9 9" />
   </Icon>
 )
+
+export const CropIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M5.5 2.5v11a1 1 0 0 0 1 1h11M2.5 5.5h11a1 1 0 0 1 1 1v11" />
+  </Icon>
+)

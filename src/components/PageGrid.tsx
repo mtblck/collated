@@ -14,7 +14,7 @@ import { IconButton } from './controls'
 import { cx } from './cx'
 import { pageNumber } from './format'
 import { GripIcon, RotateLeftIcon, RotateRightIcon, TrashIcon } from './Icons'
-import { useFilteredThumb } from '../hooks/useFilteredThumb'
+import { usePageThumb } from '../hooks/usePageThumb'
 import { PagePreview } from './PagePreview'
 
 /** Card preview boxes are 4:5, close to every paper size, so rows stay level. */
@@ -44,7 +44,7 @@ const PageCard = memo(function PageCard({
   const { ref, handleRef, isDragging } = useSortable({ id: page.id, index })
   const layout = useMemo(() => layoutPage(settings, asset, page), [settings, asset, page])
   const mark = numberMark(settings.pageNumbers, index, layout.page, layout.content.x)
-  const thumbUrl = useFilteredThumb(asset, page.filter)
+  const thumbUrl = usePageThumb(asset, page)
   const n = pageNumber(index)
 
   const reveal =

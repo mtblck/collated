@@ -815,7 +815,103 @@ await context.close()
   await ctx.close()
 }
 
-// 9. Phone-sized, dark. -------------------------------------------------------
+// 9. Perspective crop: drag the corners onto the paper. ------------------------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'doc-skewed-4deg.jpg')])
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  const panel = p.locator('aside[aria-label="Selected page"]')
+  await panel.getByRole('button', { name: 'Crop to the page…' }).click()
+  const dialog = p.getByRole('dialog', { name: 'Crop to the page' })
+  check(await dialog.isVisible(), 'the crop editor opens as a modal dialog')
+  await axe(p, 'crop editor')
+  // The paper's corners in the fixture, worked out from how it was made
+  // (a 900 × 1200 page turned 4° clockwise onto a 982 × 1260 photo).
+  const paper = [
+    [0.0855, 0.0001],
+    [0.9998, 0.0499],
+    [0.9145, 0.9999],
+    [0.0002, 0.9501],
+  ]
+  const stage = await dialog.locator('img').boundingBox()
+  const names = ['Top-left', 'Top-right', 'Bottom-right', 'Bottom-left']
+  for (const [i, [nx, ny]] of paper.entries()) {
+    const handle = dialog.getByRole('button', { name: new RegExp(`^${names[i]} corner`) })
+    const box = await handle.boundingBox()
+    if (!stage || !box) throw new Error('crop editor layout')
+    await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await p.mouse.down()
+    await p.mouse.move(stage.x + nx * stage.width, stage.y + ny * stage.height, { steps: 6 })
+    await p.mouse.up()
+  }
+  await p.screenshot({ path: join(shots, 'crop-editor.png') })
+  await dialog.getByRole('button', { name: 'Apply crop' }).click()
+  check(!(await dialog.isVisible()), 'applying closes the crop editor')
+  await p.waitForTimeout(500) // cropped preview is made asynchronously
+  const preview = (await panel.locator('.sheet').first().screenshot(sheetShot)).toString('base64')
+
+  const [d] = await Promise.all([
+    p.waitForEvent('download'),
+    p.getByRole('button', { name: /Export PDF/ }).click(),
+  ])
+  const path = join(mkdtempSync(join(tmpdir(), 'collated-verify-crop-')), 'crop.pdf')
+  await d.saveAs(path)
+  if (hasPoppler) {
+    const prefix = path.replace(/\.pdf$/, '')
+    execFileSync('pdftoppm', ['-png', '-r', '72', '-singlefile', path, prefix])
+    const render = readFileSync(`${prefix}.png`).toString('base64')
+    const diff = await compareImages(render, preview)
+    check(
+      diff.farShare < 0.03,
+      `cropped preview matches the export (${(diff.farShare * 100).toFixed(2)}% differ)`,
+    )
+    const shape = await p.evaluate(async (src) => {
+      const img = new Image()
+      img.src = `data:image/png;base64,${src}`
+      await img.decode()
+      const c = document.createElement('canvas')
+      c.width = img.width
+      c.height = img.height
+      const g = c.getContext('2d')
+      g.drawImage(img, 0, 0)
+      const { data } = g.getImageData(0, 0, c.width, c.height)
+      let minX = c.width,
+        minY = c.height,
+        maxX = 0,
+        maxY = 0,
+        table = 0
+      for (let y = 0; y < c.height; y++) {
+        for (let x = 0; x < c.width; x++) {
+          const i = (y * c.width + x) * 4
+          if (data[i] > 250 && data[i + 1] > 250 && data[i + 2] > 250) continue
+          minX = Math.min(minX, x)
+          maxX = Math.max(maxX, x)
+          minY = Math.min(minY, y)
+          maxY = Math.max(maxY, y)
+        }
+      }
+      // The table is darker and redder than any paper, shadow included.
+      const ring = 4
+      for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+          if (x - minX > ring && maxX - x > ring && y - minY > ring && maxY - y > ring) continue
+          const i = (y * c.width + x) * 4
+          if (data[i] < 80 && data[i] - data[i + 2] > 10) table += 1
+        }
+      }
+      return { aspect: (maxX - minX + 1) / (maxY - minY + 1), table }
+    }, render)
+    check(
+      Math.abs(shape.aspect - 0.75) < 0.015,
+      `the cropped page has the paper's 3:4 shape (${shape.aspect.toFixed(3)})`,
+    )
+    check(shape.table < 20, `no table is left around the edges (${shape.table} px)`)
+  }
+  await ctx.close()
+}
+
+// 10. Phone-sized, dark. -------------------------------------------------------
 {
   const { context: phone, page: p } = await open({
     viewport: { width: 390, height: 844 },

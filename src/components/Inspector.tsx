@@ -1,4 +1,4 @@
-import { useId, useMemo, type ReactNode } from 'react'
+import { useId, useMemo, useState, type ReactNode } from 'react'
 import { layoutPage } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
 import type { Asset, Filter, FitMode, Page, PageTransform, Settings } from '../core/model'
@@ -6,6 +6,7 @@ import { ANGLE_LIMIT, SCALE_MAX, SCALE_MIN, isVector } from '../core/model'
 import { formatBytes, formatLength } from '../core/units'
 import { Button, IconButton, Segmented } from './controls'
 import {
+  CropIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
   CopyIcon,
@@ -14,7 +15,8 @@ import {
   RotateRightIcon,
   TrashIcon,
 } from './Icons'
-import { useFilteredThumb } from '../hooks/useFilteredThumb'
+import { usePageThumb } from '../hooks/usePageThumb'
+import { CropEditor } from './CropEditor'
 import { PagePreview } from './PagePreview'
 import { pageNumber } from './format'
 
@@ -74,7 +76,8 @@ export const Inspector = ({
   const layout = useMemo(() => layoutPage(settings, asset, page), [settings, asset, page])
   const mark = numberMark(settings.pageNumbers, index, layout.page, layout.content.x)
   const vector = isVector(asset)
-  const thumbUrl = useFilteredThumb(asset, page.filter)
+  const thumbUrl = usePageThumb(asset, page)
+  const [cropping, setCropping] = useState(false)
   const lowRes = !vector && layout.dpi < LOW_DPI
   // Hug landscape pages; give tall pages a 3:4 box so the panel stays short.
   const boxRatio = Math.max(layout.page.width / layout.page.height, 3 / 4)
@@ -84,7 +87,8 @@ export const Inspector = ({
     page.angle !== 0 ||
     page.scale !== 1 ||
     page.fit !== 'contain' ||
-    page.filter !== 'original'
+    page.filter !== 'original' ||
+    page.corners !== null
 
   return (
     <section aria-labelledby={`${id}-heading`} className="flex flex-col gap-6">
@@ -110,6 +114,49 @@ export const Inspector = ({
           showMargins
           mark={mark}
         />
+      </div>
+
+      <div>
+        <p className="label mb-2 text-ink-faint" id={`${id}-crop`}>
+          Crop
+        </p>
+        {vector ? (
+          <p className="text-xs text-ink-muted">PDF pages keep their original layout.</p>
+        ) : (
+          <div className="flex gap-2" role="group" aria-labelledby={`${id}-crop`}>
+            <Button
+              className="flex-1"
+              onClick={() => {
+                setCropping(true)
+              }}
+            >
+              <CropIcon width={16} height={16} />
+              {page.corners ? 'Adjust corners…' : 'Crop to the page…'}
+            </Button>
+            {page.corners && (
+              <Button
+                variant="quiet"
+                onClick={() => {
+                  actions.onTransform({ corners: null })
+                }}
+              >
+                Remove crop
+              </Button>
+            )}
+          </div>
+        )}
+        {cropping && (
+          <CropEditor
+            asset={asset}
+            initial={page.corners}
+            onApply={(corners) => {
+              actions.onTransform({ corners })
+            }}
+            onClose={() => {
+              setCropping(false)
+            }}
+          />
+        )}
       </div>
 
       <div>
