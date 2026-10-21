@@ -720,4 +720,25 @@ describe('App', () => {
       dialog.getByText('Bottom-right corner moved to 80.3% across, 80% down.'),
     ).toBeInTheDocument()
   })
+
+  it('loads the export code once there are pages, not before (#42)', async () => {
+    const prepareExport = vi.fn()
+    const { upload } = setup({ prepareExport })
+    expect(prepareExport).not.toHaveBeenCalled()
+    await upload('a.jpg')
+    await screen.findByRole('button', { name: 'Page 1: a.jpg' })
+    expect(prepareExport).toHaveBeenCalledTimes(1)
+    await upload('b.jpg')
+    await screen.findByRole('button', { name: 'Page 2: b.jpg' })
+    expect(prepareExport).toHaveBeenCalledTimes(1)
+  })
+
+  it('says to reload when code from an older build can’t load', async () => {
+    const { upload } = setup({
+      importFile: () =>
+        Promise.reject(new TypeError('Failed to fetch dynamically imported module: /x.js')),
+    })
+    await upload('a.jpg')
+    expect(await screen.findByRole('alert')).toHaveTextContent(/updated since this page was opened/)
+  })
 })

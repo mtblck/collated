@@ -13,7 +13,8 @@ import { DocumentBar, type ExportState } from './components/DocumentBar'
 import { DropOverlay, EmptyState, Header, Notices, type Notice } from './components/Chrome'
 import { Inspector, type InspectorActions } from './components/Inspector'
 import { PageGrid } from './components/PageGrid'
-import { download as saveFile, exportPdf, type Exported } from './export/exportPdf'
+import { download as saveFile, exportPdf, prepareExport, type Exported } from './export/exportPdf'
+import { STALE_BUILD_MESSAGE, isStaleBuild } from './lib/staleBuild'
 import { assetStore } from './import/assetStore'
 import { ImportError, importFile, type Imported } from './import/importFile'
 import { loadSettings, saveSettings } from './state/settingsStorage'
@@ -38,6 +39,8 @@ export interface AppDeps {
   recognizeText: (asset: Asset, page: Page) => Promise<OcrWord[]>
   storage: Pick<Storage, 'getItem' | 'setItem'> | undefined
   locale: string
+  /** Loads the export code ahead of time (see exportPdf.ts). */
+  prepareExport: () => void
 }
 
 const safeStorage = (): AppDeps['storage'] => {
@@ -57,6 +60,7 @@ const defaultDeps = (): AppDeps => ({
   recognizeText: pageWords,
   storage: safeStorage(),
   locale: navigator.language,
+  prepareExport,
 })
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
@@ -144,6 +148,13 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     saveSettings(deps.storage, settings)
   }, [deps.storage, settings])
 
+  // Once there's something to export, load the export code, so a deploy while
+  // working can't leave Export without it (#42).
+  const hasPages = pages.length > 0
+  useEffect(() => {
+    if (hasPages) deps.prepareExport()
+  }, [deps, hasPages])
+
   useLayoutEffect(() => {
     const pending = focusRequest
     if (!pending || pending.n === handledFocus.current) return
@@ -189,7 +200,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           const reason =
             error instanceof ImportError
               ? error.message
-              : 'It could not be read as an image or PDF.'
+              : isStaleBuild(error)
+                ? STALE_BUILD_MESSAGE
+                : 'It could not be read as an image or PDF.'
           failed.push(`${file.name || 'A file'}: ${reason}`)
         }
       }
@@ -369,7 +382,11 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         )
       }
     } catch (error) {
-      notify(`The PDF couldn’t be built: ${error instanceof Error ? error.message : String(error)}`)
+      notify(
+        isStaleBuild(error)
+          ? STALE_BUILD_MESSAGE
+          : `The PDF couldn’t be built: ${error instanceof Error ? error.message : String(error)}`,
+      )
       setStatus('Export failed.')
     } finally {
       setExporting({ busy: false, done: 0, total: 0 })

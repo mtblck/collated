@@ -34,10 +34,21 @@ if (!vite.includes('outDir: `dist/tools/${SLUG}`')) {
 }
 if (config.outputDirectory !== 'dist') problems.push('vercel.json outputDirectory must be "dist".')
 
-// 2. SPA fallback and trailing-slash redirect.
-const fallback = (config.rewrites ?? []).find((r) => r.source === `${BASE}(.*)`)
+// 2. App fallback and trailing-slash redirect. The fallback serves the app
+//    for paths without a file extension only: a missing file (an asset from
+//    an older build, asked for by a tab opened before a deploy) must 404, not
+//    come back as the app's HTML under the assets' immutable caching, which
+//    a module worker can't run ("The PDF export failed to start", #42).
+const FALLBACK_SOURCE = `${BASE}((?:[^/]*/)*[^./]*)`
+const rewrites = config.rewrites ?? []
+const fallback = rewrites.find((r) => r.source === FALLBACK_SOURCE)
 if (fallback?.destination !== `${BASE}index.html`) {
-  problems.push(`Missing rewrite ${BASE}(.*) -> ${BASE}index.html.`)
+  problems.push(`Missing rewrite ${FALLBACK_SOURCE} -> ${BASE}index.html.`)
+}
+if (rewrites.some((r) => r !== fallback && r.destination === `${BASE}index.html`)) {
+  problems.push(
+    'Only the extensionless fallback may rewrite to index.html (missing files must 404).',
+  )
 }
 if (
   !(config.redirects ?? []).some((r) => r.source === `/tools/${SLUG}` && r.destination === BASE)
