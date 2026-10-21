@@ -5,7 +5,7 @@ order: 3
 
 # Arranging pages
 
-Select a page to edit it in the panel on the right. The large preview there is exactly what the PDF page will look like.
+Select a page to edit it in the panel on the right. The large preview there is exactly what the PDF page will look like. Click or tap it to see the page full screen, at full resolution: pinch (or use a trackpad pinch, Ctrl + scroll, or the + and − keys) to zoom, and drag to move around. **0** fits the page again; Escape closes it.
 
 ## Order
 

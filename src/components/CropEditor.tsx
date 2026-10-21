@@ -180,10 +180,7 @@ export const CropEditor = ({
         <div className="flex justify-center bg-paper-sunk p-4 sm:p-6">
           <div
             ref={stage}
-            className={cx(
-              'relative touch-none select-none',
-              picked !== null && 'cursor-crosshair',
-            )}
+            className={cx('relative touch-none select-none', picked !== null && 'cursor-crosshair')}
             style={{
               aspectRatio: `${width} / ${height}`,
               width: `min(100%, calc(60dvh * ${width / height}))`,

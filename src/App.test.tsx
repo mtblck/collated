@@ -257,6 +257,36 @@ describe('App', () => {
     ])
   })
 
+  it('opens the page larger from the inspector, zooms by button and key (#45)', async () => {
+    const { user, upload } = setup()
+    await upload('photo.jpg')
+    const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+    const open = panel.getByRole('button', { name: 'View page 1 larger' })
+    await user.click(open)
+    const dialog = within(await screen.findByRole('dialog', { name: 'Page 1: photo.jpg' }))
+    const zoomLevel = () => document.querySelector('[data-zoom-level]')?.textContent
+    expect(zoomLevel()).toBe('100%')
+    await user.click(dialog.getByRole('button', { name: /^Zoom in/ }))
+    expect(zoomLevel()).toBe('150%')
+    await user.keyboard('+')
+    expect(zoomLevel()).toBe('200%')
+    await user.keyboard('-')
+    expect(zoomLevel()).toBe('150%')
+    await user.keyboard('0')
+    expect(zoomLevel()).toBe('100%')
+    // Zoom out at fit stays focusable but does nothing.
+    expect(dialog.getByRole('button', { name: /^Zoom out/ })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
+    // Each step is announced once, not every frame of a pinch.
+    expect(dialog.getByRole('status')).toHaveTextContent('100%')
+    await user.click(dialog.getByRole('button', { name: 'Close' }))
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  })
+
   it('refuses crossed corners', async () => {
     const { user, upload } = setup()
     await upload('photo.jpg')

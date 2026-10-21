@@ -43,6 +43,38 @@ const renderThumb = async (page: PDFPageProxy, width: number, height: number): P
 }
 
 /**
+ * One page drawn larger (long edge `maxEdge` px), for the page viewer. pdf.js
+ * is already loaded if the PDF is in the document.
+ */
+export const renderPdfPage = async (bytes: Uint8Array, pageIndex: number, maxEdge: number) => {
+  const pdfjs = await loadPdfJs()
+  const task = pdfjs.getDocument({
+    data: bytes.slice(),
+    verbosity: pdfjs.VerbosityLevel.ERRORS,
+    useSystemFonts: true,
+  })
+  const pdf = await task.promise
+  try {
+    const page = await pdf.getPage(pageIndex + 1)
+    const upright = page.getViewport({ scale: 1 })
+    const size = fit(upright.width * 4, upright.height * 4, maxEdge)
+    const viewport = page.getViewport({ scale: size.width / upright.width })
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(viewport.width)
+    canvas.height = Math.round(viewport.height)
+    await page.render({ canvas, viewport, background: '#ffffff' }).promise
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob)
+        else reject(new Error('The browser could not draw this PDF page.'))
+      }, 'image/png')
+    })
+  } finally {
+    void task.destroy()
+  }
+}
+
+/**
  * Reads a PDF into one asset per page. All pages share the file's bytes (kept
  * as they are: the export embeds the pages as vectors, so nothing is
  * rasterised). pdf.js renders the thumbnails with each page's /Rotate applied,
