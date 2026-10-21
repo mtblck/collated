@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Asset, Page, Settings } from './core/model'
 import { pdfFilename } from './core/filename'
 import { compressionFor, estimateBytes } from './core/compression'
@@ -8,6 +8,7 @@ import { pageWords } from './lib/pageText'
 import type { OcrWord } from './core/textLayer'
 import { layoutPage } from './core/geometry'
 import { formatBytes } from './core/units'
+import { describeChange } from './core/describeChange'
 import { DocumentBar, type ExportState } from './components/DocumentBar'
 import { DropOverlay, EmptyState, Header, Notices, type Notice } from './components/Chrome'
 import { Inspector, type InspectorActions } from './components/Inspector'
@@ -64,6 +65,22 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 const filesFrom = (list: FileList | null | undefined): File[] =>
   list ? Array.from(list).filter((file) => file.size > 0 || file.type !== '') : []
 
+/** A modal dialog (the crop editor) is open: page-level shortcuts stand down. */
+const modalOpen = () => [...document.querySelectorAll('dialog')].some((d) => d.open)
+
+/** A popover (export options) is open; it handles its own Escape. */
+const popoverOpen = () =>
+  [...document.querySelectorAll('[popover]')].some((el) => {
+    try {
+      return el.matches(':popover-open')
+    } catch {
+      return false // no popover support (jsdom)
+    }
+  })
+
+/** PDF AES-256 uses at most 127 bytes of the password and drops the rest silently. */
+export const PASSWORD_MAX_BYTES = 127
+
 const isEditable = (target: EventTarget | null) =>
   target instanceof HTMLElement &&
   (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) &&
@@ -74,7 +91,7 @@ const isEditable = (target: EventTarget | null) =>
 
 export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const deps = useMemo(() => ({ ...defaultDeps(), ...injected }), [injected])
-  const { doc, act, undo, redo, canUndo, canRedo, endGesture } = useDocument(() =>
+  const { doc, previous, next, act, undo, redo, canUndo, canRedo, endGesture } = useDocument(() =>
     loadSettings(deps.storage, deps.locale),
   )
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -93,10 +110,30 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     fits: boolean
   } | null>(null)
   const [status, setStatus] = useState('')
+  // Repeating a message (undo, undo) must still be heard: a live region only
+  // speaks when its text changes, so alternate a trailing no-break space.
+  const announce = useCallback((text: string) => {
+    setStatus((current) => (current === text ? `${text}\u00a0` : text))
+  }, [])
   const [notices, setNotices] = useState<Notice[]>([])
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const noticeId = useRef(0)
+  /**
+   * Where focus goes after a change that may remove the focused control:
+   * a page's select button (else the add/choose button). `always` moves it
+   * regardless; otherwise only if focus was lost to the page. Set in the
+   * same batch as the change, so the effect below sees both.
+   */
+  const [focusRequest, setFocusRequest] = useState<{
+    pageId: string | null
+    always: boolean
+    n: number
+  } | null>(null)
+  const handledFocus = useRef(0)
+  const requestFocus = useCallback((pageId: string | null, always: boolean) => {
+    setFocusRequest((last) => ({ pageId, always, n: (last?.n ?? 0) + 1 }))
+  }, [])
 
   const { pages, assets, settings } = doc
   const selectedIndex = pages.findIndex((p) => p.id === selectedId)
@@ -106,6 +143,20 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   useEffect(() => {
     saveSettings(deps.storage, settings)
   }, [deps.storage, settings])
+
+  useLayoutEffect(() => {
+    const pending = focusRequest
+    if (!pending || pending.n === handledFocus.current) return
+    handledFocus.current = pending.n
+    const active = document.activeElement
+    if (!pending.always && active && active !== document.body && active.isConnected) return
+    const card = pending.pageId
+      ? document.querySelector<HTMLElement>(
+          `[data-page-id="${CSS.escape(pending.pageId)}"] [data-page-select]`,
+        )
+      : null
+    ;(card ?? document.querySelector<HTMLElement>('[data-focus-fallback]'))?.focus()
+  }, [focusRequest])
 
   const notify = useCallback((text: string) => {
     noticeId.current += 1
@@ -191,35 +242,94 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       event.preventDefault()
       void addFiles(files)
     }
-    const onKey = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || isEditable(event.target)) return
-      const key = event.key.toLowerCase()
-      if (key === 'z' && !event.shiftKey) undo()
-      else if ((key === 'z' && event.shiftKey) || key === 'y') redo()
-      else return
-      event.preventDefault()
-    }
     window.addEventListener('dragenter', onEnter)
     window.addEventListener('dragleave', onLeave)
     window.addEventListener('dragover', onOver)
     window.addEventListener('drop', onDrop)
     window.addEventListener('paste', onPaste)
-    window.addEventListener('keydown', onKey)
     return () => {
       window.removeEventListener('dragenter', onEnter)
       window.removeEventListener('dragleave', onLeave)
       window.removeEventListener('dragover', onOver)
       window.removeEventListener('drop', onDrop)
       window.removeEventListener('paste', onPaste)
-      window.removeEventListener('keydown', onKey)
     }
-  }, [addFiles, undo, redo])
+  }, [addFiles])
+
+  /** The page index focus should return to after `to` replaces the document. */
+  const keepFocusThrough = useCallback(
+    (to: DocState | undefined) => {
+      if (!to) return
+      const from = document.activeElement?.closest('[data-page-id]')?.getAttribute('data-page-id')
+      const index = pages.findIndex((p) => p.id === (from ?? selectedId))
+      const target = to.pages[Math.min(Math.max(index, 0), to.pages.length - 1)]
+      requestFocus(target?.id ?? null, false)
+      // If the selected page is going away, select the one taking its place.
+      if (selectedId !== null && !to.pages.some((p) => p.id === selectedId)) {
+        setSelectedId(target?.id ?? null)
+      }
+    },
+    [pages, requestFocus, selectedId],
+  )
+
+  const onUndo = useCallback(() => {
+    if (!previous) return
+    const what = describeChange(previous, doc)
+    keepFocusThrough(previous)
+    undo()
+    announce(what ? `Undone: ${what}.` : 'Undone.')
+  }, [announce, doc, keepFocusThrough, previous, undo])
+  const onRedo = useCallback(() => {
+    if (!next) return
+    const what = describeChange(doc, next)
+    keepFocusThrough(next)
+    redo()
+    announce(what ? `Redone: ${what}.` : 'Redone.')
+  }, [announce, doc, keepFocusThrough, next, redo])
+
+  const dismissLatest = useCallback(() => {
+    setNotices((list) => list.slice(0, -1))
+  }, [])
+
+  // Keyboard undo/redo, and Escape for the latest notice.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      // The crop editor is modal: nothing behind it may change.
+      if (modalOpen()) return
+      if (event.key === 'Escape') {
+        if (!event.defaultPrevented && !popoverOpen() && !isEditable(event.target)) {
+          dismissLatest()
+        }
+        return
+      }
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || isEditable(event.target)) return
+      const key = event.key.toLowerCase()
+      if (key === 'z' && !event.shiftKey) onUndo()
+      else if ((key === 'z' && event.shiftKey) || key === 'y') onRedo()
+      else return
+      event.preventDefault()
+    }
+    // Capture, so a popover's own Escape hasn't closed it yet when we look.
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [dismissLatest, onUndo, onRedo])
 
   const chooseFiles = useCallback(() => {
     fileInput.current?.click()
   }, [])
 
+  // Normalised so the same password typed on another keyboard or system
+  // (composed vs decomposed accents, full-width forms) opens the file.
+  const lockPassword = password.normalize('NFKC')
+  const passwordError =
+    new TextEncoder().encode(lockPassword).length > PASSWORD_MAX_BYTES
+      ? `Too long: a PDF password can use at most ${PASSWORD_MAX_BYTES} bytes (about ${PASSWORD_MAX_BYTES} plain letters, fewer with accents or other scripts), and anything after that would be silently ignored.`
+      : null
+
   const onExport = useCallback(async () => {
+    if (passwordError) return
     setExporting({ busy: true, done: 0, total: pages.length })
     setStatus('Building PDF…')
     try {
@@ -243,7 +353,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         (done, total, attempt) => {
           setExporting({ busy: true, done, total, attempt })
         },
-        { ...(password ? { password } : {}), ...(text ? { text } : {}) },
+        { ...(lockPassword ? { password: lockPassword } : {}), ...(text ? { text } : {}) },
       )
       const filename = pdfFilename(settings.title)
       deps.download(result.blob, filename)
@@ -251,7 +361,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       const used = result.compression ? `${result.compression.dpi} dpi` : 'original images'
       setLastExport({ size, used, fits: result.fits })
       setStatus(
-        `Saved ${filename} (${size}, ${used}${text ? ', searchable' : ''}${password ? ', password-protected' : ''}).`,
+        `Saved ${filename} (${size}, ${used}${text ? ', searchable' : ''}${lockPassword ? ', password-protected' : ''}).`,
       )
       if (!result.fits && settings.maxBytes !== null) {
         notify(
@@ -264,7 +374,18 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     } finally {
       setExporting({ busy: false, done: 0, total: 0 })
     }
-  }, [deps, doc, notify, pages, assets, settings.title, settings.maxBytes, settings.ocr, password])
+  }, [
+    deps,
+    doc,
+    notify,
+    pages,
+    assets,
+    settings.title,
+    settings.maxBytes,
+    settings.ocr,
+    lockPassword,
+    passwordError,
+  ])
 
   const onRotate = useCallback(
     (id: string, by: -1 | 1) => {
@@ -275,10 +396,16 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const onRemove = useCallback(
     (id: string) => {
       const index = pages.findIndex((p) => p.id === id)
+      const rest = pages.filter((p) => p.id !== id)
+      // The next page takes its place (else the previous); focus goes to it,
+      // and so does the selection if the removed page had it.
+      const neighbour = rest[Math.min(index, rest.length - 1)]
       act({ type: 'removePage', id })
-      setStatus(`Removed page ${index + 1}. Undo to bring it back.`)
+      if (selectedId === id) setSelectedId(neighbour?.id ?? null)
+      requestFocus(neighbour?.id ?? null, true)
+      announce(`Removed page ${index + 1}. Undo to bring it back.`)
     },
-    [act, pages],
+    [act, announce, pages, requestFocus, selectedId],
   )
   const onMove = useCallback(
     (from: number, to: number) => {
@@ -319,11 +446,13 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         }
         act({ type: 'transformPages', patches })
         const one = ids.length === 1
+        // One page with no lines gets a visible notice, which is announced
+        // itself; the status is cleared so it isn't said twice.
         setStatus(
           one
             ? patches[0]
               ? `Straightened by ${patches[0].patch.angle > 0 ? '+' : ''}${patches[0].patch.angle.toFixed(1)}°.`
-              : 'No clear lines to straighten by; left as it is.'
+              : ''
             : `Straightened ${patches.length} of ${ids.length} pages.${
                 unclear === 1
                   ? ' 1 page had no clear lines and was left as it is.'
@@ -354,7 +483,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       },
       onMove: (by) => {
         act({ type: 'movePage', from: selectedIndex, to: selectedIndex + by })
-        setStatus(`Moved to position ${selectedIndex + by + 1} of ${pages.length}.`)
+        announce(`Moved to position ${selectedIndex + by + 1} of ${pages.length}.`)
       },
       onDuplicate: () => {
         const newId = deps.newId()
@@ -375,7 +504,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         void autoStraighten(scope === 'all' ? pages.map((p) => p.id) : [id])
       },
     }
-  }, [act, autoStraighten, deps, endGesture, onRemove, pages, selected, selectedIndex])
+  }, [act, announce, autoStraighten, deps, endGesture, onRemove, pages, selected, selectedIndex])
 
   const selectedAsset = selected ? assets[selected.assetId] : undefined
 
@@ -416,8 +545,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
               canRedo={canRedo}
               exporting={exporting}
               onSettings={onSettings}
-              onUndo={undo}
-              onRedo={redo}
+              onUndo={onUndo}
+              onRedo={onRedo}
               onRotateAll={(by) => {
                 act({ type: 'rotateAll', by })
               }}
@@ -427,6 +556,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
               lastExport={lastExport}
               password={password}
               onPassword={setPassword}
+              passwordError={passwordError}
             />
             <div className="mx-auto flex max-w-[1600px] flex-col gap-10 px-4 py-6 sm:px-6 lg:flex-row lg:items-start">
               <section aria-label="Pages" className="min-w-0 flex-1">
@@ -495,6 +625,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         items={notices}
         onDismiss={(id) => {
           setNotices((list) => list.filter((n) => n.id !== id))
+        }}
+        onDismissAll={() => {
+          setNotices([])
         }}
       />
     </div>

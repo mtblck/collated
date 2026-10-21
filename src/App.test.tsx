@@ -148,7 +148,9 @@ describe('App', () => {
     expect(page.getByRole('button', { name: 'Reset' })).toBeEnabled()
     await user.click(page.getByRole('button', { name: 'Reset' }))
     expect(page.getByText('0.0°')).toBeInTheDocument()
-    expect(page.getByRole('button', { name: 'Reset' })).toBeDisabled()
+    // Unavailable but still focused, rather than disabled out from under focus.
+    expect(page.getByRole('button', { name: 'Reset' })).toHaveAttribute('aria-disabled', 'true')
+    expect(page.getByRole('button', { name: 'Reset' })).toHaveFocus()
   })
 
   it('sets a filter per page, explains the re-encode, and disables it for PDF pages', async () => {
@@ -202,11 +204,17 @@ describe('App', () => {
     const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
     await user.click(panel.getByRole('button', { name: 'Crop to the page…' }))
     const dialog = within(await screen.findByRole('dialog', { name: 'Crop to the page' }))
-    const corner = dialog.getByRole('button', { name: /^Top-left corner/ })
-    expect(corner).toHaveAccessibleName('Top-left corner, 0% across, 0% down')
+    const corner = dialog.getByRole('button', { name: 'Top-left corner' })
+    expect(corner).toHaveAccessibleDescription('0% across, 0% down')
     corner.focus()
     await user.keyboard('{Shift>}{ArrowRight}{ArrowDown}{/Shift}{ArrowRight}')
-    expect(corner).toHaveAccessibleName('Top-left corner, 5.5% across, 5% down')
+    // The name stays put; the position is in the description, and announced
+    // once the keys settle.
+    expect(corner).toHaveAccessibleName('Top-left corner')
+    expect(corner).toHaveAccessibleDescription('5.5% across, 5% down')
+    expect(
+      await dialog.findByText('Top-left corner, 5.5% across, 5% down.', {}, { timeout: 2000 }),
+    ).toBeInTheDocument()
     await user.click(dialog.getByRole('button', { name: 'Apply crop' }))
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -224,7 +232,7 @@ describe('App', () => {
     await user.click(panel.getByRole('button', { name: 'Crop to the page…' }))
     const dialog = within(await screen.findByRole('dialog', { name: 'Crop to the page' }))
     // Drag the top-left corner past the top-right one.
-    dialog.getByRole('button', { name: /^Top-left corner/ }).focus()
+    dialog.getByRole('button', { name: 'Top-left corner' }).focus()
     for (let i = 0; i < 21; i++) await user.keyboard('{Shift>}{ArrowRight}{/Shift}')
     await user.keyboard('{Shift>}{ArrowDown}{/Shift}')
     expect(dialog.getByRole('alert')).toHaveTextContent('cross over')
@@ -237,8 +245,11 @@ describe('App', () => {
     await user.click(await screen.findByRole('button', { name: 'Duplicate' }))
     expect(pageLabels()).toEqual(['Page 1: a.jpg', 'Page 2: a.jpg'])
     expect(screen.getByRole('button', { name: 'Page 2: a.jpg' })).toHaveAttribute(
-      'aria-pressed',
+      'aria-current',
       'true',
+    )
+    expect(screen.getByRole('button', { name: 'Page 1: a.jpg' })).not.toHaveAttribute(
+      'aria-current',
     )
   })
 
@@ -307,7 +318,8 @@ describe('App', () => {
         }),
     })
     await upload('a.jpg')
-    const limit = await screen.findByLabelText('Keep the file under')
+    const limit = await screen.findByLabelText(/^Keep the file under/)
+    expect(limit).toHaveAccessibleName('Keep the file under (megabytes)')
     await user.type(limit, '1{Enter}')
     await user.click(screen.getByRole('button', { name: /Export PDF/ }))
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -323,7 +335,8 @@ describe('App', () => {
     const { user, store, upload } = setup({ exportPdf })
     await upload('a.jpg')
     await user.type(await screen.findByLabelText('Password to open'), 'hunter2')
-    await user.click(screen.getByRole('button', { name: /Export PDF · 1 page/ }))
+    // The main button says the PDF will be locked.
+    await user.click(screen.getByRole('button', { name: 'Export locked PDF · 1 page' }))
     await waitFor(() => {
       expect(exportPdf).toHaveBeenCalled()
     })
@@ -405,5 +418,306 @@ describe('App', () => {
     })
     expect(await screen.findByRole('list', { name: '1 page' })).toBeInTheDocument()
     expect(event.defaultPrevented).toBe(true)
+  })
+
+  describe('focus and announcements', () => {
+    it('moves focus to the next page (else the previous) after removing one', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'b.jpg', 'c.jpg')
+      await user.click(await screen.findByRole('button', { name: 'Remove page 2' }))
+      expect(screen.getByRole('button', { name: 'Page 2: c.jpg' })).toHaveFocus()
+      await user.click(screen.getByRole('button', { name: 'Remove page 2' }))
+      expect(screen.getByRole('button', { name: 'Page 1: a.jpg' })).toHaveFocus()
+      // The last page: focus goes to the import button that replaces the grid.
+      await user.click(screen.getByRole('button', { name: 'Remove page 1' }))
+      expect(screen.getByRole('button', { name: 'Choose files' })).toHaveFocus()
+    })
+
+    it('selects and focuses the next page when the inspector removes the selected one', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'b.jpg')
+      const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+      await user.click(panel.getByRole('button', { name: 'Remove' }))
+      const next = screen.getByRole('button', { name: 'Page 1: b.jpg' })
+      expect(next).toHaveFocus()
+      expect(next).toHaveAttribute('aria-current', 'true')
+      expect(panel.getByRole('heading', { level: 2, name: 'b.jpg' })).toBeInTheDocument()
+    })
+
+    it('moves focus to the other reorder button at either end', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'b.jpg')
+      await user.click(await screen.findByRole('button', { name: 'Page 2: b.jpg' }))
+      await user.click(screen.getByRole('button', { name: 'Move page earlier' }))
+      expect(screen.getByRole('button', { name: 'Move page earlier' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Move page later' })).toHaveFocus()
+      await user.keyboard('{Enter}')
+      expect(screen.getByRole('button', { name: 'Move page earlier' })).toHaveFocus()
+    })
+
+    it('announces undo and redo, naming what changed, every time', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'b.jpg')
+      await user.click(await screen.findByRole('button', { name: 'Remove page 1' }))
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      expect(status()).toHaveTextContent('Undone: removed page 1.')
+      await user.click(screen.getByRole('button', { name: /^Redo/ }))
+      expect(status()).toHaveTextContent('Redone: removed page 1.')
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      await user.click(screen.getByRole('button', { name: 'Rotate page 1 left' }))
+      await user.click(screen.getByRole('button', { name: 'Rotate page 1 left' }))
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      expect(status()?.textContent).toBe('Undone: edited page 1.')
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      // Same words again: the text still changes, so it's spoken again.
+      expect(status()?.textContent).toBe('Undone: edited page 1.\u00a0')
+    })
+
+    it('puts focus on the import button when undo empties the document', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg')
+      await user.click(await screen.findByRole('button', { name: 'Rotate page 1 left' }))
+      const undoButton = screen.getByRole('button', { name: /^Undo/ })
+      await user.click(undoButton)
+      await user.click(undoButton) // undoes the import too
+      // The grid is gone; focus lands on the import button rather than the page.
+      expect(screen.getByRole('button', { name: 'Choose files' })).toHaveFocus()
+    })
+
+    it('focuses the page in its place when undo removes the focused page', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'b.jpg')
+      await user.click(await screen.findByRole('button', { name: 'Page 2: b.jpg' }))
+      await user.click(screen.getByRole('button', { name: 'Duplicate' }))
+      screen.getByRole('button', { name: 'Page 3: b.jpg' }).focus()
+      await user.keyboard('{Control>}z{/Control}')
+      expect(pageLabels()).toHaveLength(2)
+      expect(screen.getByRole('button', { name: 'Page 2: b.jpg' })).toHaveFocus()
+      expect(screen.getByRole('button', { name: 'Page 2: b.jpg' })).toHaveAttribute(
+        'aria-current',
+        'true',
+      )
+    })
+
+    it('ignores undo shortcuts while the crop dialog is open', async () => {
+      const { user, upload } = setup()
+      await upload('photo.jpg')
+      const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+      await user.click(panel.getByRole('button', { name: 'Crop to the page…' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Crop to the page' })
+      within(dialog).getByRole('button', { name: 'Top-left corner' }).focus()
+      await user.keyboard('{Control>}z{/Control}')
+      expect(pageLabels()).toEqual(['Page 1: photo.jpg'])
+      expect(dialog).toBeInTheDocument()
+    })
+
+    it('keeps the export button focusable and inactive while busy', async () => {
+      let finish: (value: Awaited<ReturnType<AppDeps['exportPdf']>>) => void = () => undefined
+      const exportPdf = vi.fn<AppDeps['exportPdf']>(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve
+          }),
+      )
+      const { user, upload } = setup({ exportPdf })
+      await upload('a.jpg')
+      const button = await screen.findByRole('button', { name: /Export PDF · 1 page/ })
+      await user.click(button)
+      expect(button).toHaveFocus()
+      expect(button).toHaveAttribute('aria-disabled', 'true')
+      expect(button).toBeEnabled()
+      await user.click(button) // ignored while busy
+      expect(exportPdf).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        finish({ blob: new Blob(['%PDF']), compression: null, fits: true })
+        await Promise.resolve()
+      })
+      await waitFor(() => {
+        expect(button).not.toHaveAttribute('aria-disabled')
+      })
+      expect(button).toHaveFocus()
+    })
+
+    it('keeps auto-straighten focusable and inactive while it runs', async () => {
+      let finish: (value: { angle: number; confidence: number } | null) => void = () => undefined
+      const { user, upload } = setup({
+        estimateSkew: () =>
+          new Promise((resolve) => {
+            finish = resolve
+          }),
+      })
+      await upload('a.jpg', 'b.jpg')
+      const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+      const auto = panel.getByRole('button', { name: 'Auto-straighten' })
+      await user.click(auto)
+      expect(auto).toHaveFocus()
+      expect(auto).toHaveAttribute('aria-disabled', 'true')
+      expect(panel.getByRole('button', { name: 'All pages' })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      )
+      await act(async () => {
+        finish({ angle: 1, confidence: 2 })
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      })
+      expect(auto).not.toHaveAttribute('aria-disabled')
+      expect(auto).toHaveFocus()
+    })
+
+    it('says "no clear lines" once, as a notice, not again in the status', async () => {
+      const { user, upload } = setup()
+      await upload('blank.jpg')
+      const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+      await user.click(panel.getByRole('button', { name: 'Auto-straighten' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent('No clear lines found')
+      expect(status()?.textContent).toBe('')
+    })
+  })
+
+  describe('notices', () => {
+    it('shows the latest with a count of the rest, and Escape dismisses it', async () => {
+      const { user, upload } = setup()
+      await upload('one.txt', 'two.txt', 'three.txt')
+      expect(await screen.findByRole('alert')).toHaveTextContent('three.txt')
+      expect(screen.getAllByRole('alert')).toHaveLength(1)
+      expect(screen.getByText('and 2 earlier messages')).toBeInTheDocument()
+      screen.getByRole('button', { name: 'Choose files' }).focus()
+      await user.keyboard('{Escape}')
+      expect(screen.getByRole('alert')).toHaveTextContent('two.txt')
+      expect(screen.getByText('and 1 earlier message')).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Dismiss all' }))
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      // Focus goes somewhere sensible, not to the page.
+      expect(screen.getByRole('button', { name: 'Choose files' })).toHaveFocus()
+    })
+
+    it('leaves notices alone when Escape is pressed in a field', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'notes.txt')
+      await user.click(await screen.findByLabelText('Title & filename'))
+      await user.keyboard('{Escape}')
+      expect(screen.getByRole('alert')).toHaveTextContent('notes.txt')
+    })
+  })
+
+  describe('fields', () => {
+    it('keeps the default dpi valid and steps it with the arrow keys', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg')
+      await user.selectOptions(await screen.findByLabelText('Page size'), 'image')
+      const dpi = screen.getByLabelText('Image dpi')
+      expect(dpi).toHaveValue(300)
+      expect(dpi).toBeValid()
+      expect(dpi).toHaveAttribute('step', 'any')
+      await user.click(dpi)
+      await user.keyboard('{ArrowUp}')
+      expect(dpi).toHaveValue(310)
+      await user.keyboard('{ArrowDown}{ArrowDown}')
+      expect(dpi).toHaveValue(290)
+    })
+
+    it('steps an off-grid value onto the grid, like the browser', async () => {
+      const { user, upload } = setup()
+      await upload('tall.jpg')
+      await user.click(await screen.findByRole('radio', { name: 'mm' }))
+      const margin = screen.getByLabelText(/^Margin/)
+      expect(margin).toHaveAccessibleName('Margin in millimetres')
+      await user.clear(margin)
+      await user.type(margin, '12.7{Enter}')
+      expect(margin).toBeValid()
+      await user.keyboard('{ArrowUp}')
+      expect(margin).toHaveValue(13)
+      await user.click(screen.getByRole('radio', { name: 'in' }))
+      expect(screen.getByLabelText(/^Margin/)).toHaveAccessibleName('Margin in inches')
+    })
+  })
+
+  describe('password', () => {
+    it('has a show toggle that keeps focus and switches the field type', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg')
+      const field = await screen.findByLabelText('Password to open')
+      expect(field).toHaveAttribute('type', 'password')
+      expect(field).toHaveAttribute('autocomplete', 'off')
+      expect(field).toHaveAttribute('data-1p-ignore')
+      expect(field).toHaveAttribute('data-lpignore', 'true')
+      const show = screen.getByRole('button', { name: 'Show password', hidden: true })
+      expect(show).toHaveAttribute('aria-pressed', 'false')
+      await user.click(show)
+      expect(show).toHaveAttribute('aria-pressed', 'true')
+      expect(show).toHaveFocus()
+      expect(field).toHaveAttribute('type', 'text')
+    })
+
+    it('normalises the password before export', async () => {
+      const exportPdf = vi.fn<AppDeps['exportPdf']>(() =>
+        Promise.resolve({ blob: new Blob(['%PDF']), compression: null, fits: true }),
+      )
+      const { user, upload } = setup({ exportPdf })
+      await upload('a.jpg')
+      // "e" + combining acute, and a full-width A: NFKC makes them "é" and "A".
+      fireEvent.change(await screen.findByLabelText('Password to open'), {
+        target: { value: 'caféＡ' },
+      })
+      await user.click(screen.getByRole('button', { name: /Export locked PDF/ }))
+      await waitFor(() => {
+        expect(exportPdf).toHaveBeenCalled()
+      })
+      expect(exportPdf.mock.calls[0]?.[2]).toEqual({ password: 'caféA' })
+    })
+
+    it('refuses a password longer than a PDF can hold, saying why', async () => {
+      const exportPdf = vi.fn<AppDeps['exportPdf']>()
+      const { user, upload } = setup({ exportPdf })
+      await upload('a.jpg')
+      const field = await screen.findByLabelText('Password to open')
+      // 64 two-byte letters: 128 bytes, one over.
+      fireEvent.change(field, { target: { value: 'é'.repeat(64) } })
+      expect(field).toHaveAttribute('aria-invalid', 'true')
+      expect(field).toHaveAccessibleDescription(/Too long: a PDF password can use at most 127/)
+      await user.click(screen.getByRole('button', { name: /Export locked PDF/ }))
+      expect(exportPdf).not.toHaveBeenCalled()
+      expect(field).toHaveFocus()
+      fireEvent.change(field, { target: { value: 'é'.repeat(63) } })
+      expect(field).not.toHaveAttribute('aria-invalid')
+    })
+
+    it('tells the truth about what the password and OCR do', async () => {
+      const { upload } = setup()
+      await upload('a.jpg')
+      expect(await screen.findByLabelText('Password to open')).toHaveAccessibleDescription(
+        /name \(from the title\) and its number of pages aren’t hidden/,
+      )
+      expect(
+        screen.getByRole('checkbox', { name: 'Make text searchable (OCR)', hidden: true }),
+      ).toHaveAccessibleDescription(/added to the PDF invisibly, so anyone with the file/)
+    })
+  })
+
+  it('places a picked crop corner where the image is tapped', async () => {
+    const { user, upload } = setup()
+    await upload('photo.jpg')
+    const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+    await user.click(panel.getByRole('button', { name: 'Crop to the page…' }))
+    const dialog = within(await screen.findByRole('dialog', { name: 'Crop to the page' }))
+    const corner = dialog.getByRole('button', { name: 'Bottom-right corner' })
+    // Pick it (Enter clicks, as a tap does).
+    corner.focus()
+    await user.keyboard('{Enter}')
+    expect(corner).toHaveAttribute('aria-pressed', 'true')
+    expect(dialog.getByText(/Bottom-right corner picked/)).toBeInTheDocument()
+    const image = dialog.getByRole('img', { name: /The whole of/ })
+    const stage = image.parentElement
+    if (!stage) throw new Error('stage')
+    vi.spyOn(stage, 'getBoundingClientRect').mockReturnValue(
+      DOMRect.fromRect({ x: 100, y: 50, width: 300, height: 200 }),
+    )
+    fireEvent.pointerDown(image, { clientX: 340, clientY: 210 })
+    fireEvent.pointerUp(image, { clientX: 341, clientY: 210 })
+    expect(corner).toHaveAccessibleDescription('80.3% across, 80% down')
+    expect(corner).toHaveAttribute('aria-pressed', 'false')
+    expect(
+      dialog.getByText('Bottom-right corner moved to 80.3% across, 80% down.'),
+    ).toBeInTheDocument()
   })
 })

@@ -6,7 +6,7 @@ import {
 } from '@dnd-kit/dom'
 import { DragDropProvider } from '@dnd-kit/react'
 import { isSortable, useSortable } from '@dnd-kit/react/sortable'
-import { memo, useMemo } from 'react'
+import { memo, useEffect, useMemo, useRef, type ComponentProps } from 'react'
 import { layoutPage } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
 import type { Asset, Page, Settings } from '../core/model'
@@ -60,7 +60,10 @@ const PageCard = memo(function PageCard({
         <button
           type="button"
           className="block aspect-[4/5] w-full focus-visible:outline-offset-4"
-          aria-pressed={selected}
+          // The selected page, not a toggle: choosing another page is the
+          // only way to change it.
+          aria-current={selected ? 'true' : undefined}
+          data-page-select
           aria-label={`Page ${index + 1}: ${asset.name}`}
           onClick={() => {
             onSelect(page.id)
@@ -156,32 +159,46 @@ export const PageGrid = ({
   onMove: (from: number, to: number) => void
 }) => {
   const count = pages.length
-  const position = (index: number) => `position ${index + 1} of ${count}`
+  // The provider applies its plugins once; announcements read the count
+  // from here so they never speak a stale one ("position 1 of 0").
+  const countRef = useRef(count)
+  useEffect(() => {
+    countRef.current = count
+  }, [count])
+  const plugins = useMemo(() => {
+    const position = (index: number) => `position ${index + 1} of ${countRef.current}`
+    const plugins: ComponentProps<typeof DragDropProvider>['plugins'] = (defaults) => [
+      ...defaults,
+      // Speak in page numbers rather than internal ids.
+      Accessibility.configure({
+        announcements: {
+          dragstart: ({ operation: { source } }: DragStartEvent) =>
+            isSortable(source) ? `Picked up page ${source.index + 1}.` : undefined,
+          // Dragover fires before the list is reordered, so the source's own
+          // index is still the old one; the target is where it's going.
+          dragover: ({ operation: { source, target } }: DragOverEvent) =>
+            isSortable(source) && isSortable(target)
+              ? `Page moved to ${position(target.index)}.`
+              : undefined,
+          dragend: ({ operation: { source }, canceled }: DragEndEvent) => {
+            if (!isSortable(source)) return undefined
+            return canceled
+              ? `Move cancelled. Page returned to ${position(source.initialIndex)}.`
+              : `Page dropped at ${position(source.index)}.`
+          },
+        },
+        screenReaderInstructions: {
+          draggable:
+            'Press Space or Enter to pick up the page, use the arrow keys to move it, then Space or Enter to drop it, or Escape to cancel.',
+        },
+      }),
+    ]
+    return plugins
+  }, [])
 
   return (
     <DragDropProvider
-      plugins={(defaults) => [
-        ...defaults,
-        // Speak in page numbers rather than internal ids.
-        Accessibility.configure({
-          announcements: {
-            dragstart: ({ operation: { source } }: DragStartEvent) =>
-              isSortable(source) ? `Picked up page ${source.index + 1}.` : undefined,
-            dragover: ({ operation: { source } }: DragOverEvent) =>
-              isSortable(source) ? `Page moved to ${position(source.index)}.` : undefined,
-            dragend: ({ operation: { source }, canceled }: DragEndEvent) => {
-              if (!isSortable(source)) return undefined
-              return canceled
-                ? `Move cancelled. Page returned to ${position(source.initialIndex)}.`
-                : `Page dropped at ${position(source.index)}.`
-            },
-          },
-          screenReaderInstructions: {
-            draggable:
-              'Press Space or Enter to pick up the page, use the arrow keys to move it, then Space or Enter to drop it, or Escape to cancel.',
-          },
-        }),
-      ]}
+      plugins={plugins}
       onDragEnd={({ operation: { source }, canceled }) => {
         if (canceled || !isSortable(source)) return
         if (source.initialIndex !== source.index) onMove(source.initialIndex, source.index)

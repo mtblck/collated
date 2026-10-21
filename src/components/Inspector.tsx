@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { layoutPage } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
 import type { Asset, Filter, FitMode, Page, PageTransform, Settings } from '../core/model'
@@ -78,6 +78,22 @@ export const Inspector = ({
   const vector = isVector(asset)
   const thumbUrl = usePageThumb(asset, page)
   const [cropping, setCropping] = useState(false)
+  const cropButton = useRef<HTMLButtonElement>(null)
+  const earlier = useRef<HTMLButtonElement>(null)
+  const later = useRef<HTMLButtonElement>(null)
+  // Moving to an end disables that button; focus goes to its sibling.
+  const focusAfterMove = useRef<'earlier' | 'later' | null>(null)
+  useEffect(() => {
+    const target = focusAfterMove.current
+    focusAfterMove.current = null
+    if (target === 'earlier') earlier.current?.focus()
+    if (target === 'later') later.current?.focus()
+  }, [index])
+  const move = (by: -1 | 1) => {
+    if (by < 0 && index - 1 === 0) focusAfterMove.current = 'later'
+    if (by > 0 && index + 1 === count - 1) focusAfterMove.current = 'earlier'
+    actions.onMove(by)
+  }
   const lowRes = !vector && layout.dpi < LOW_DPI
   // Hug landscape pages; give tall pages a 3:4 box so the panel stays short.
   const boxRatio = Math.max(layout.page.width / layout.page.height, 3 / 4)
@@ -121,10 +137,14 @@ export const Inspector = ({
           Crop
         </p>
         {vector ? (
-          <p className="text-xs text-ink-muted">PDF pages keep their original layout.</p>
+          <p className="text-xs text-ink-muted">
+            PDF pages are copied in as they are, with their text and anything else on the page, and
+            can’t be cropped.
+          </p>
         ) : (
           <div className="flex gap-2" role="group" aria-labelledby={`${id}-crop`}>
             <Button
+              ref={cropButton}
               className="flex-1"
               onClick={() => {
                 setCropping(true)
@@ -137,6 +157,8 @@ export const Inspector = ({
               <Button
                 variant="quiet"
                 onClick={() => {
+                  // This button goes away; keep focus on the crop control.
+                  cropButton.current?.focus()
                   actions.onTransform({ corners: null })
                 }}
               >
@@ -208,10 +230,11 @@ export const Inspector = ({
           onBlur={actions.onGestureEnd}
         />
         <div className="mt-2 flex gap-2">
+          {/* Inactive while running, rather than disabled, so focus stays put. */}
           <Button
             size="md"
             className="h-8 flex-1 text-xs"
-            disabled={straightening}
+            inactive={straightening}
             onClick={() => {
               actions.onAutoStraighten('page')
             }}
@@ -221,7 +244,8 @@ export const Inspector = ({
           <Button
             variant="quiet"
             className="h-8 text-xs"
-            disabled={straightening || count < 2}
+            disabled={count < 2}
+            inactive={straightening}
             onClick={() => {
               actions.onAutoStraighten('all')
             }}
@@ -318,11 +342,12 @@ export const Inspector = ({
       <div className="flex flex-wrap gap-2">
         <div className="flex" role="group" aria-label="Reorder">
           <IconButton
+            ref={earlier}
             variant="secondary"
             label="Move page earlier"
             disabled={index === 0}
             onClick={() => {
-              actions.onMove(-1)
+              move(-1)
             }}
           >
             <ArrowLeftIcon width={16} height={16} />
@@ -330,10 +355,11 @@ export const Inspector = ({
           <IconButton
             variant="secondary"
             className="-ml-px"
+            ref={later}
             label="Move page later"
             disabled={index === count - 1}
             onClick={() => {
-              actions.onMove(1)
+              move(1)
             }}
           >
             <ArrowRightIcon width={16} height={16} />
@@ -342,7 +368,7 @@ export const Inspector = ({
         <Button onClick={actions.onDuplicate}>
           <CopyIcon width={16} height={16} /> Duplicate
         </Button>
-        <Button disabled={!changed} onClick={actions.onReset}>
+        <Button inactive={!changed} onClick={actions.onReset}>
           <ResetIcon width={16} height={16} /> Reset
         </Button>
         <Button variant="quiet" disabled={count < 2} onClick={actions.onApplyToAll}>

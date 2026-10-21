@@ -125,3 +125,9 @@ export const CropIcon = (p: P) => (
     <path d="M5.5 2.5v11a1 1 0 0 0 1 1h11M2.5 5.5h11a1 1 0 0 1 1 1v11" />
   </Icon>
 )
+export const LockIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="4.5" y="9" width="11" height="8" rx="1" />
+    <path d="M7 9V6.5a3 3 0 0 1 6 0V9" />
+  </Icon>
+)

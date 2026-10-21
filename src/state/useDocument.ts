@@ -27,6 +27,9 @@ export const useDocument = (initialSettings: () => Settings) => {
   return useMemo(
     () => ({
       doc: history.present,
+      /** The states undo and redo would go to, for describing them. */
+      previous: history.past.at(-1),
+      next: history.future[0],
       canUndo: canUndo(history),
       canRedo: canRedo(history),
       act,

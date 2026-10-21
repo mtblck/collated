@@ -1010,6 +1010,196 @@ await context.close()
   await phone.close()
 }
 
+// 12. Accessibility: focus is never dropped, reorders are announced right. ----
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles(
+    '[data-testid="file-input"]',
+    ['quad-landscape.jpg', 'quad-portrait.jpg', 'quad-exif6.jpg', 'doc-photo.jpg'].map((f) =>
+      join(fixtures, f),
+    ),
+  )
+  await p.waitForSelector('ol[aria-label="4 pages"]')
+  const focused = () =>
+    p.evaluate(() => {
+      const a = document.activeElement
+      return a && a !== document.body
+        ? (a.getAttribute('aria-label') ?? a.textContent ?? '')
+        : 'body'
+    })
+  const dndSays = () =>
+    p.evaluate(() => document.querySelector('[id^="dnd-kit-announcement"]')?.textContent ?? '')
+
+  // dnd-kit's live region: the target position and the real page count.
+  await p.getByRole('button', { name: 'Reorder page 1' }).focus()
+  await p.keyboard.press('Space')
+  await p.waitForTimeout(150)
+  await p.keyboard.press('ArrowRight')
+  await p.waitForTimeout(800) // dragover announcements are debounced (500 ms)
+  const over = await dndSays()
+  check(over === 'Page moved to position 2 of 4.', 'reorder announces where the page moved', over)
+  await p.keyboard.press('Space')
+  await p.waitForTimeout(500)
+  const dropped = await dndSays()
+  check(dropped === 'Page dropped at position 2 of 4.', 'reorder announces the drop', dropped)
+
+  // Removing from the grid moves focus to the page that took its place.
+  await p.getByRole('button', { name: 'Remove page 2' }).focus()
+  await p.keyboard.press('Enter')
+  check(
+    /^Page 2: /.test(await focused()),
+    'removing a page from the grid focuses the next page',
+    await focused(),
+  )
+
+  // Moving a page to the front: focus goes to "Move page later".
+  await p.getByRole('button', { name: /^Page 2: / }).click()
+  const panel = p.locator('aside[aria-label="Selected page"]')
+  await panel.getByRole('button', { name: 'Move page earlier' }).focus()
+  await p.keyboard.press('Enter')
+  check(
+    (await focused()) === 'Move page later',
+    'moving a page to the front keeps focus on the reorder buttons',
+    await focused(),
+  )
+
+  // Removing in the inspector: focus and selection go to the next page.
+  await panel.getByRole('button', { name: 'Remove' }).focus()
+  await p.keyboard.press('Enter')
+  check(
+    /^Page 1: /.test(await focused()),
+    'removing in the inspector focuses the page in its place',
+    await focused(),
+  )
+
+  // Undo is announced.
+  await p.keyboard.press('Control+z')
+  const undone = (await p.locator('#status').textContent()) ?? ''
+  check(/^Undone: removed page 1\./.test(undone), 'undo is announced', undone)
+
+  // The export button keeps focus while it's busy and after.
+  const exportButton = p.getByRole('button', { name: /^Export PDF · / })
+  await exportButton.focus()
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.keyboard.press('Enter')])
+  await dl.path()
+  await p.waitForFunction(() => /Saved/.test(document.getElementById('status')?.textContent ?? ''))
+  check(
+    /^Export PDF · /.test(await focused()),
+    'the export button keeps focus through the export',
+    await focused(),
+  )
+
+  // Export options: a too-long password is refused inline; Tab out closes it.
+  await p.getByRole('button', { name: /Export options/ }).click()
+  const dialog = p.getByRole('dialog', { name: 'Export options' })
+  const password = dialog.getByLabel('Password to open')
+  await password.fill('é'.repeat(64))
+  check(
+    (await password.getAttribute('aria-invalid')) === 'true',
+    'a password over 127 bytes is marked invalid',
+  )
+  await axe(p, 'export options, password error')
+  await dialog.getByRole('button', { name: 'Show password' }).click()
+  check((await password.getAttribute('type')) === 'text', 'Show reveals the password')
+  await password.fill('ok')
+  await dialog.getByRole('button', { name: 'Export locked PDF' }).focus()
+  await p.keyboard.press('Tab')
+  check(!(await dialog.isVisible()), 'Tab out of export options closes them')
+  check(
+    (await p.getByRole('button', { name: /^Export locked PDF · / }).count()) === 1,
+    'the main export button says the PDF will be locked',
+  )
+  await p.getByRole('button', { name: /Export options/ }).click()
+  await password.fill('')
+  await p.keyboard.press('Escape')
+
+  // Crop: tap a corner, then tap the image, instead of dragging (WCAG 2.5.7).
+  await p.getByRole('button', { name: /: doc-photo\.jpg$/ }).click()
+  await panel.getByRole('button', { name: 'Crop to the page…' }).click()
+  const crop = p.getByRole('dialog', { name: 'Crop to the page' })
+  await crop.waitFor()
+  const corner = crop.getByRole('button', { name: 'Top-left corner', exact: true })
+  await corner.click()
+  check((await corner.getAttribute('aria-pressed')) === 'true', 'tapping a corner picks it')
+  await axe(p, 'crop editor, corner picked')
+  const stage = await crop.locator('img').boundingBox()
+  if (!stage) throw new Error('crop editor layout')
+  await p.mouse.click(stage.x + stage.width * 0.2, stage.y + stage.height * 0.25)
+  const at = await corner.evaluate(
+    (el) => document.getElementById(el.getAttribute('aria-describedby') ?? '')?.textContent ?? '',
+  )
+  const [ax, ay] = (at.match(/[\d.]+/g) ?? []).map(Number)
+  check(
+    Math.abs(ax - 20) < 1 && Math.abs(ay - 25) < 1,
+    'tapping the image moves the picked corner there',
+    at,
+  )
+  check(
+    (await corner.getAttribute('aria-label')) === 'Top-left corner',
+    'corner names stay stable as they move',
+  )
+  // Undo shortcuts wait while the modal dialog is open.
+  await p.keyboard.press('Control+z')
+  check(
+    (await crop.isVisible()) && (await p.locator('ol[aria-label="3 pages"]').count()) === 1,
+    'Ctrl+Z does nothing behind the crop dialog',
+  )
+  await p.keyboard.press('Escape')
+  await ctx.close()
+}
+
+// 13. Notices: one at a time, Escape dismisses, focused controls stay clear. --
+{
+  const { context: ctx, page: p } = await open({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [
+    join(fixtures, 'quad-landscape.jpg'),
+    join(fixtures, 'not-an-image.txt'),
+    join(fixtures, 'quad-password.pdf'),
+  ])
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  await p.waitForSelector('[role="alert"]')
+  check(
+    (await p.locator('[role="alert"]').count()) === 1,
+    'several failures show as one notice with a count',
+  )
+  const reserved = await p.evaluate(
+    () => getComputedStyle(document.documentElement).scrollPaddingBottom,
+  )
+  check(
+    reserved !== 'auto' && parseFloat(reserved) > 0,
+    'room is reserved under a notice',
+    reserved,
+  )
+  // The last control on the page, tabbed to, isn't hidden by the notice.
+  const remove = p
+    .locator('aside[aria-label="Selected page"]')
+    .getByRole('button', { name: 'Remove' })
+  await remove.focus()
+  const overlap = await p.evaluate(() => {
+    const a = document.activeElement?.getBoundingClientRect()
+    const n = document.querySelector('[role="alert"]')?.closest('.fixed')?.getBoundingClientRect()
+    return a && n ? Math.max(0, Math.min(a.bottom, n.bottom) - Math.max(a.top, n.top)) : -1
+  })
+  check(overlap === 0, 'a focused control is not covered by the notice', `${overlap}px overlap`)
+  await p
+    .locator('h1')
+    .first()
+    .evaluate((h) => {
+      h.setAttribute('tabindex', '-1')
+      h.focus()
+    })
+  await p.keyboard.press('Escape')
+  await p.keyboard.press('Escape')
+  check((await p.locator('[role="alert"]').count()) === 0, 'Escape dismisses notices')
+  await ctx.close()
+}
+
 await browser.close()
 server.close()
 
