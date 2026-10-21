@@ -54,6 +54,19 @@ describe('settings storage', () => {
     expect(loadSettings(store, 'en-GB')).toEqual(defaultSettings('en-GB'))
   })
 
+  it('clamps the page-number start to the field’s range', () => {
+    const store = memory()
+    const start = (value: unknown) => {
+      store.setItem('collated:settings', JSON.stringify({ pageNumbers: { start: value } }))
+      return loadSettings(store, 'en-GB').pageNumbers.start
+    }
+    expect(start(-3)).toBe(0)
+    expect(start(12.4)).toBe(12)
+    expect(start(9999)).toBe(9999)
+    expect(start(1e9)).toBe(9999)
+    expect(start('7')).toBe(1)
+  })
+
   it('survives storage that throws', () => {
     const throwing = {
       getItem: () => {

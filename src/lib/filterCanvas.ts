@@ -1,7 +1,7 @@
 import { applyFilter, filterEncoding } from '../core/filters'
 import type { Filter } from '../core/model'
 import type { ImageJob } from '../core/pdf'
-import { rotatedBounds } from '../core/geometry'
+import { rotatedBounds, type Part } from '../core/geometry'
 import { toPixels, warp, warpSize, type Quad } from '../core/perspective'
 
 /**
@@ -38,12 +38,19 @@ const render = async (
   filter: Filter,
   encode: { type: string; quality?: number },
   corners: Quad | null = null,
+  /** Only this rectangle of the (uncornered) image. */
+  part: Part | null = null,
 ): Promise<Blob> => {
   const bitmap = await createImageBitmap(source)
   try {
+    const crop = part && !corners ? part : { x0: 0, y0: 0, x1: 1, y1: 1 }
+    const sx = crop.x0 * bitmap.width
+    const sy = crop.y0 * bitmap.height
+    const sw = Math.max(1, (crop.x1 - crop.x0) * bitmap.width)
+    const sh = Math.max(1, (crop.y1 - crop.y0) * bitmap.height)
     const natural = corners
       ? warpSize(toPixels(corners, bitmap.width, bitmap.height))
-      : { width: bitmap.width, height: bitmap.height }
+      : { width: Math.round(sw), height: Math.round(sh) }
     const wanted = size(natural)
     const cap = Math.min(1, Math.sqrt(MAX_CANVAS_PIXELS / (wanted.width * wanted.height)))
     const width = Math.max(1, Math.round(wanted.width * cap))
@@ -66,7 +73,7 @@ const render = async (
       ctx.fillStyle = '#fff'
       ctx.fillRect(0, 0, width, height)
       ctx.imageSmoothingQuality = 'high'
-      ctx.drawImage(bitmap, 0, 0, width, height)
+      ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, width, height)
     }
     if (filter !== 'original') {
       const pixels = ctx.getImageData(0, 0, width, height)
@@ -101,6 +108,7 @@ export const processToBlob = (source: Blob, job: ImageJob) =>
     job.filter,
     job.format === 'png' ? { type: 'image/png' } : { type: 'image/jpeg', quality: job.quality },
     job.corners,
+    job.part,
   )
 
 /**

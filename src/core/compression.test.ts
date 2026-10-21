@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { asset, fixture, page, settings } from '../../tests/helpers'
 import { FIT_STEPS, QUALITY_PRESETS, buildWithin, estimateBytes, targetPixels } from './compression'
 import { buildPdf, imageJob } from './pdf'
+import { stripJpegMetadata } from './jpegClean'
 
 describe('targetPixels', () => {
   it('caps the printed resolution and never upscales', () => {
@@ -76,7 +77,8 @@ describe('buildPdf with compression', () => {
       },
     )
     expect(job).toMatchObject({ format: 'jpeg', quality: 0.7 })
-    expect(Buffer.from(out).includes(Buffer.from(smaller))).toBe(true)
+    // Embedded without its EXIF, otherwise byte for byte.
+    expect(Buffer.from(out).includes(Buffer.from(stripJpegMetadata(smaller)))).toBe(true)
   })
 })
 

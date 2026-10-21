@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button, IconButton } from './controls'
 import { CloseIcon, MoonIcon, SunIcon } from './Icons'
 
@@ -79,7 +79,8 @@ export const EmptyState = ({ onChoose }: { onChoose: () => void }) => (
         <p className="font-display text-3xl text-ink sm:text-4xl">
           Drop scans, photos or PDFs here
         </p>
-        <Button variant="primary" size="lg" onClick={onChoose}>
+        {/* Where focus goes when the last page is removed. */}
+        <Button variant="primary" size="lg" onClick={onChoose} data-focus-fallback>
           Choose files
         </Button>
         <p className="text-sm text-ink-muted">or paste them from the clipboard</p>
@@ -99,7 +100,7 @@ export const EmptyState = ({ onChoose }: { onChoose: () => void }) => (
         ],
         [
           'Export',
-          'One PDF, built in your browser. Scanned JPEGs go in untouched, never recompressed.',
+          'One PDF, built in your browser. Scanned JPEGs go in as they are, not recompressed.',
         ],
       ].map(([title, body], i) => (
         <li key={title}>
@@ -133,31 +134,100 @@ export interface Notice {
   text: string
 }
 
+/**
+ * Messages that need reading (failed imports, export problems). They stay
+ * until dismissed — by button, or Escape (handled by the app) — and only the
+ * latest is shown, with a count of the rest, so a burst of failures doesn't
+ * stack up over the page on a phone. While one is up, the page reserves room
+ * below its content and scrolls focused controls clear of it (WCAG 2.4.11).
+ */
 export const Notices = ({
   items,
   onDismiss,
+  onDismissAll,
 }: {
   items: Notice[]
   onDismiss: (id: number) => void
-}) =>
-  items.length > 0 ? (
-    <div className="fixed right-4 bottom-4 z-40 flex w-[min(26rem,calc(100vw-2rem))] flex-col gap-2">
-      {items.map((notice) => (
-        <div
-          key={notice.id}
-          role="alert"
-          className="flex items-start gap-3 border border-l-2 border-rule border-l-accent bg-paper py-3 pr-2 pl-4 text-sm text-ink shadow-lg"
+  onDismissAll: () => void
+}) => {
+  const box = useRef<HTMLDivElement>(null)
+  const returnTo = useRef<HTMLElement | null>(null)
+  const latest = items.at(-1)
+  const more = items.length - 1
+
+  useEffect(() => {
+    const el = box.current
+    const root = document.documentElement
+    if (!el) return
+    const reserve = () => {
+      const room = `${Math.ceil(el.getBoundingClientRect().height) + 24}px`
+      root.style.scrollPaddingBottom = room
+      document.body.style.paddingBottom = room
+    }
+    reserve()
+    // Remember where focus came from, to give it back on dismissal.
+    const onFocusIn = (event: FocusEvent) => {
+      const from = event.relatedTarget
+      if (from instanceof HTMLElement && !el.contains(from)) returnTo.current = from
+    }
+    el.addEventListener('focusin', onFocusIn)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(reserve)
+    observer?.observe(el)
+    return () => {
+      observer?.disconnect()
+      el.removeEventListener('focusin', onFocusIn)
+      root.style.scrollPaddingBottom = ''
+      document.body.style.paddingBottom = ''
+    }
+  }, [latest])
+
+  if (!latest) return null
+  // Dismissing the last message removes the box; give focus back to where it
+  // came from rather than dropping it to the page.
+  const leave = (then: () => void) => {
+    const back = returnTo.current
+    if (items.length === 1 || then === onDismissAll) {
+      if (back?.isConnected) back.focus()
+      else document.querySelector<HTMLElement>('[data-focus-fallback]')?.focus()
+    }
+    then()
+  }
+  return (
+    <div
+      ref={box}
+      className="fixed right-4 bottom-4 z-40 w-[min(26rem,calc(100vw-2rem))] border border-l-2 border-rule border-l-accent bg-paper text-sm text-ink shadow-lg"
+    >
+      <div className="flex items-start gap-3 py-2 pr-2 pl-4">
+        {/* Keyed so each new message is a new alert, and announced. */}
+        <p key={latest.id} role="alert" className="flex-1 pt-2">
+          {latest.text}
+        </p>
+        <IconButton
+          label={more > 0 ? 'Dismiss this message' : 'Dismiss'}
+          onClick={() => {
+            leave(() => {
+              onDismiss(latest.id)
+            })
+          }}
         >
-          <p className="flex-1 pt-1.5">{notice.text}</p>
-          <IconButton
-            label="Dismiss"
+          <CloseIcon width={16} height={16} />
+        </IconButton>
+      </div>
+      {more > 0 && (
+        <div className="flex items-center justify-between gap-3 border-t border-rule-soft py-1 pr-2 pl-4">
+          <p className="text-xs text-ink-muted">
+            and {more} earlier {more === 1 ? 'message' : 'messages'}
+          </p>
+          <Button
+            variant="quiet"
             onClick={() => {
-              onDismiss(notice.id)
+              leave(onDismissAll)
             }}
           >
-            <CloseIcon width={16} height={16} />
-          </IconButton>
+            Dismiss all
+          </Button>
         </div>
-      ))}
+      )}
     </div>
-  ) : null
+  )
+}

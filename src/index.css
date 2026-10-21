@@ -76,6 +76,9 @@
   --c-ink-muted: oklch(0.445 0.013 55);
   --c-ink-faint: oklch(0.54 0.012 60);
   --c-rule: oklch(0.892 0.009 72);
+  /* Borders that identify a control (fields, segmented controls): ≥ 3:1 on
+     paper (WCAG 1.4.11). Decorative rules stay --c-rule. */
+  --c-control: oklch(0.62 0.012 60);
   --c-rule-soft: oklch(0.935 0.007 76);
   --c-accent: oklch(0.552 0.171 38);
   --c-accent-dim: oklch(0.552 0.171 38 / 0.12);
@@ -94,6 +97,7 @@
   --c-ink-muted: oklch(0.775 0.011 75);
   --c-ink-faint: oklch(0.65 0.011 70);
   --c-rule: oklch(0.305 0.011 70);
+  --c-control: oklch(0.52 0.011 70);
   --c-rule-soft: oklch(0.248 0.01 68);
   --c-accent: oklch(0.702 0.153 42);
   --c-accent-dim: oklch(0.702 0.153 42 / 0.16);
@@ -110,6 +114,7 @@
   --color-ink-muted: var(--c-ink-muted);
   --color-ink-faint: var(--c-ink-faint);
   --color-rule: var(--c-rule);
+  --color-control: var(--c-control);
   --color-rule-soft: var(--c-rule-soft);
   --color-accent: var(--c-accent);
   --color-accent-dim: var(--c-accent-dim);
@@ -146,7 +151,7 @@
     outline-offset: 3px;
     border-radius: 1px;
   }
-  button:not(:disabled),
+  button:not(:disabled, [aria-disabled='true']),
   [role='button']:not([aria-disabled='true']),
   select:not(:disabled),
   label:has(input[type='radio']:not(:disabled)) {
@@ -256,7 +261,7 @@
 
   .field {
     height: 2.25rem;
-    border: 1px solid var(--c-rule);
+    border: 1px solid var(--c-control);
     border-radius: 2px;
     background: var(--c-paper);
     padding-inline: 0.625rem;
@@ -265,11 +270,22 @@
     font-variant-numeric: tabular-nums;
   }
   .field:hover:not(:disabled) {
-    border-color: var(--c-ink-faint);
+    border-color: var(--c-ink-muted);
   }
   .field:focus-visible {
     outline-offset: 0;
     border-color: var(--c-accent);
+  }
+  /* Number fields use step="any" so every value is valid; the browser's spin
+     buttons would then step by 1 (an inch at a time), so NumberField steps
+     with the arrow keys itself and the spinners are hidden. */
+  .field[type='number'] {
+    appearance: textfield;
+  }
+  .field[type='number']::-webkit-inner-spin-button,
+  .field[type='number']::-webkit-outer-spin-button {
+    appearance: none;
+    margin: 0;
   }
 }
 

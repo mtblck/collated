@@ -8,6 +8,7 @@
  * rotation and mirroring, so the pixels come back upright.
  */
 import wasmUrl from 'libheif-js/libheif-wasm/libheif.wasm?url'
+import { MAX_IMPORT_PIXELS } from '../core/limits'
 import type { HeicRequest, HeicResponse } from './heicProtocol'
 
 declare const self: DedicatedWorkerGlobalScope
@@ -18,7 +19,7 @@ interface HeifImage {
   is_primary(): boolean
   display(
     target: { data: Uint8ClampedArray; width: number; height: number },
-    done: (result: { data: Uint8ClampedArray } | null) => void,
+    done: (result: { data: Uint8ClampedArray<ArrayBuffer> } | null) => void,
   ): void
 }
 interface Libheif {
@@ -26,6 +27,7 @@ interface Libheif {
 }
 
 let libheif: Promise<Libheif> | undefined
+/** Loads libheif once; a failed load isn't cached, so the next file retries. */
 const load = () =>
   (libheif ??= (async () => {
     const [{ default: factory }, wasm] = await Promise.all([
@@ -40,7 +42,10 @@ const load = () =>
       }),
     ])
     return factory({ wasmBinary: wasm })
-  })())
+  })().catch((error: unknown) => {
+    libheif = undefined
+    throw error
+  }))
 
 const post = (message: HeicResponse, transfer: Transferable[] = []) => {
   self.postMessage(message, transfer)
@@ -54,7 +59,13 @@ self.onmessage = async ({ data }: MessageEvent<HeicRequest>) => {
     if (!image) throw new Error('No image in this HEIC file.')
     const width = image.get_width()
     const height = image.get_height()
-    const pixels = await new Promise<Uint8ClampedArray>((resolve, reject) => {
+    // The size comes from the file's header; refuse it before allocating
+    // width × height × 4 bytes (a 1.5 KB file can claim 20000 × 20000).
+    if (!(width > 0 && height > 0) || width * height > MAX_IMPORT_PIXELS) {
+      post({ ok: false, message: `HEIC claims ${width}×${height}`, tooLarge: { width, height } })
+      return
+    }
+    const pixels = await new Promise<Uint8ClampedArray<ArrayBuffer>>((resolve, reject) => {
       image.display({ data: new Uint8ClampedArray(width * height * 4), width, height }, (out) => {
         if (out) resolve(out.data)
         else reject(new Error('HEIC decode failed.'))

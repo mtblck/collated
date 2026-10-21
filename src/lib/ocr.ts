@@ -1,5 +1,6 @@
 import type { Worker as TesseractWorker } from 'tesseract.js'
 import type { OcrWord } from '../core/textLayer'
+import { TimeoutError, withTimeout } from './timeout'
 
 /**
  * OCR with tesseract.js, entirely on this device. Everything it loads is
@@ -10,10 +11,25 @@ import type { OcrWord } from '../core/textLayer'
  */
 const base = () => new URL(`${import.meta.env.BASE_URL}ocr/`, location.href).href
 
-let worker: Promise<TesseractWorker> | undefined
+/**
+ * Starting includes the first download (~4 MB), so it gets longer than a
+ * page. A page at OCR size takes seconds; minutes means the engine is stuck.
+ */
+export const OCR_START_TIMEOUT_MS = 180_000
+export const OCR_PAGE_TIMEOUT_MS = 120_000
 
-const getWorker = () =>
-  (worker ??= (async () => {
+let worker: Promise<TesseractWorker> | undefined
+/** The started worker behind `worker`, once it has started. */
+let ready: TesseractWorker | undefined
+
+/**
+ * One worker for the session. If starting it fails or a page stalls, it's
+ * terminated and forgotten, so the next attempt starts fresh rather than
+ * reusing a broken worker forever.
+ */
+const getWorker = () => {
+  if (worker) return worker
+  const starting = (async () => {
     const { createWorker, OEM } = await import('tesseract.js')
     return createWorker('eng', OEM.LSTM_ONLY, {
       workerPath: `${base()}worker.min.js`,
@@ -22,7 +38,41 @@ const getWorker = () =>
       workerBlobURL: false,
       gzip: true,
     })
-  })())
+  })()
+  const current: Promise<TesseractWorker> = withTimeout(
+    starting,
+    OCR_START_TIMEOUT_MS,
+    'Text recognition took too long to start, so it was stopped. Try again.',
+    () => {
+      // If it does start after all, don't leave it running.
+      starting.then((w) => w.terminate()).catch(() => undefined)
+    },
+  ).then(
+    (w) => {
+      if (worker === current) ready = w
+      return w
+    },
+    (error: unknown) => {
+      if (worker === current) worker = undefined
+      throw error instanceof TimeoutError
+        ? error
+        : new Error('Text recognition couldn’t start. Check the connection and try again.', {
+            cause: error,
+          })
+    },
+  )
+  worker = current
+  return current
+}
+
+/** Terminates a worker and, if it's the cached one, forgets it. */
+const reset = (w: TesseractWorker) => {
+  if (ready === w) {
+    worker = undefined
+    ready = undefined
+  }
+  w.terminate().catch(() => undefined)
+}
 
 /** Words below this confidence (0–100) are more likely noise than text. */
 const MIN_CONFIDENCE = 40
@@ -37,7 +87,21 @@ export const recognizeWords = async (
   height: number,
 ): Promise<OcrWord[]> => {
   const w = await getWorker()
-  const { data } = await w.recognize(image, {}, { blocks: true })
+  let data
+  try {
+    ;({ data } = await withTimeout(
+      w.recognize(image, {}, { blocks: true }),
+      OCR_PAGE_TIMEOUT_MS,
+      'Reading the text on a page took too long, so it was stopped. Try again, or turn off searchable text.',
+      () => {
+        reset(w)
+      },
+    ))
+  } catch (error) {
+    // A failed recognise may have left the engine in a bad state.
+    reset(w)
+    throw error
+  }
   const words: OcrWord[] = []
   for (const block of data.blocks ?? []) {
     for (const paragraph of block.paragraphs) {

@@ -1,0 +1,29 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      # Minor and patch bumps arrive as one PR; majors one by one.
+      minor-and-patch:
+        update-types: [minor, patch]
+        exclude-patterns: ['@dnd-kit/*']
+      # dnd-kit is 0.x and pinned exactly (see CLAUDE.md): its patches come
+      # on their own, so verify's keyboard-reorder and announcement checks
+      # are read for that bump alone.
+      dnd-kit:
+        patterns: ['@dnd-kit/*']
+    ignore:
+      # In 0.x a minor is a breaking release: upgrade those by hand.
+      - dependency-name: '@dnd-kit/*'
+        update-types: [version-update:semver-major, version-update:semver-minor]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']

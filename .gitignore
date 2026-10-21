@@ -6,3 +6,4 @@ shots
 .DS_Store
 .vercel
 .claude/worktrees
+*.tsbuildinfo

@@ -3,14 +3,14 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PDFDocument } from '@cantoo/pdf-lib'
+import { PDFDocument, PDFName } from '@cantoo/pdf-lib'
 import { afterAll, describe, expect, it } from 'vitest'
 import { asset, fixture, page, settings } from '../../tests/helpers'
 import { layoutPage } from './geometry'
 import type { Asset, Page, Settings } from './model'
 import { passthrough } from './imageInfo'
 import { pdfFilename } from './filename'
-import { buildPdf, pageTurns, placement, visibleBox } from './pdf'
+import { buildPdf, imageJob, pageTurns, placement, visibleBox, type ImageJob } from './pdf'
 
 const NOW = new Date('2026-10-21T12:00:00Z')
 
@@ -65,17 +65,36 @@ const build = async (s: Settings, items: { file: string; page?: Partial<Page> }[
     { settings: s, pages, assets },
     {
       getBytes: (id) => bytesById.get(id) ?? new Uint8Array(),
-      // Stands in for the worker's canvas: returns the upright original, so
+      // Stands in for the worker's canvas: decodes upright (EXIF applied),
+      // keeps the job's part, resizes and encodes. Filters aren't applied, so
       // placement (not pixels) is what's under test.
-      processImage: (_bytes, job) =>
-        Promise.resolve(
-          fixture(job.format === 'png' ? 'quad-landscape.png' : 'quad-landscape.jpg'),
-        ),
+      processImage: (bytes, job) => Promise.resolve(canvasStandIn(bytes, job)),
       now: NOW,
     },
   )
   return { bytes, assets, pages }
 }
+
+const STAND_IN = `
+import io, json, sys
+from PIL import Image, ImageOps
+job = json.loads(sys.argv[1])
+im = ImageOps.exif_transpose(Image.open(io.BytesIO(sys.stdin.buffer.read()))).convert('RGB')
+part = job.get('part')
+if part:
+    w, h = im.size
+    im = im.crop((round(part['x0'] * w), round(part['y0'] * h), round(part['x1'] * w), round(part['y1'] * h)))
+im = im.resize((job['width'], job['height']))
+out = io.BytesIO()
+im.save(out, 'PNG' if job['format'] == 'png' else 'JPEG', quality=90)
+sys.stdout.buffer.write(out.getvalue())
+`
+
+/** What lib/filterCanvas.ts does, minus filters and corners, via Pillow. */
+const canvasStandIn = (bytes: Uint8Array, job: ImageJob) =>
+  new Uint8Array(
+    execFileSync('python3', ['-c', STAND_IN, JSON.stringify(job)], { input: Buffer.from(bytes) }),
+  )
 
 const hasTool = (tool: string) => {
   try {
@@ -127,6 +146,19 @@ describe('buildPdf', () => {
     ])
     expect(pdf.getTitle()).toBe('Tax 2026')
     expect(pdf.getCreator()).toBe('Collated')
+  })
+
+  it('says only what the user chose: no default title, no URL, no time of day', async () => {
+    const { bytes } = await build(settings(), [{ file: 'quad-exif6.jpg' }])
+    const pdf = await PDFDocument.load(bytes, { updateMetadata: false })
+    expect(pdf.getTitle()).toBeUndefined()
+    expect(pdf.getProducer()).toBe('Collated')
+    expect(pdf.getCreator()).toBe('Collated')
+    expect(pdf.getCreationDate()?.toISOString()).toBe('2026-10-21T00:00:00.000Z')
+    expect(pdf.getModificationDate()?.toISOString()).toBe('2026-10-21T00:00:00.000Z')
+    expect(pdf.catalog.get(PDFName.of('Lang'))?.toString()).toBe('(en)')
+    // The photo's EXIF (camera, time, GPS) isn't in the file.
+    expect(Buffer.from(bytes).includes(Buffer.from('Exif\0'))).toBe(false)
   })
 
   it('embeds a JPEG byte-for-byte instead of re-encoding it', async () => {
@@ -259,6 +291,30 @@ describe('buildPdf', () => {
       ]).toString()
       expect(info).toMatch(/AESv3|256/)
     }
+  })
+
+  it.skipIf(!hasQpdf)('opens with the password however its accents were typed', async () => {
+    // Decomposed (e + combining acute, as macOS often types) vs composed.
+    const { bytes } = await buildWithPassword('cafe\u0301 ﬁle')
+    const path = join(work, 'accents.pdf')
+    writeFileSync(path, bytes)
+    const opens = (password: string) => {
+      try {
+        execFileSync('qpdf', [`--password=${password}`, '--check', path], { stdio: 'ignore' })
+        return true
+      } catch {
+        return false
+      }
+    }
+    expect(opens('caf\u00e9 file')).toBe(true) // NFKC: composed é, "ﬁ" ligature → "fi"
+    expect(opens('cafe')).toBe(false)
+  })
+
+  it('refuses a password PDF readers would cut short', async () => {
+    await expect(buildWithPassword('a'.repeat(128))).rejects.toThrow(/too long/)
+    await expect(buildWithPassword('a'.repeat(127))).resolves.toBeDefined()
+    // Bytes, not characters: 43 three-byte characters is 129 bytes.
+    await expect(buildWithPassword('€'.repeat(43))).rejects.toThrow(/too long/)
   })
 
   it('reports progress per page', async () => {
@@ -406,6 +462,20 @@ describe.skipIf(!hasPdftoppm)('rendered output matches the layout', () => {
       s: { orientation: 'portrait' },
       p: { fit: 'cover', scale: 0.7 },
     },
+    // Hidden parts aren't stored: these keep only the visible part.
+    { name: 'Fill, cropped to the page', file: 'quad-landscape.jpg', p: { fit: 'cover' } },
+    {
+      name: 'scaled past 100%, straightened',
+      file: 'quad-landscape.jpg',
+      s: { margin: 40 },
+      p: { scale: 1.5, angle: 10 },
+    },
+    {
+      name: 'EXIF 6, turned and scaled past 100%',
+      file: 'quad-exif6.jpg',
+      p: { turns: 1, scale: 1.4, angle: -7 },
+    },
+    { name: 'PNG filled onto a portrait page', file: 'quad-landscape.png', p: { fit: 'cover' } },
   ]
 
   it.each(cases)('$name', async ({ file, s, p }) => {
@@ -436,8 +506,146 @@ describe.skipIf(!hasPdftoppm)('rendered output matches the layout', () => {
           `${quadrant} at ${x.toFixed(0)},${y.toFixed(0)} was ${got.join(',')}`,
         ).toBe(true)
     }
+    // A grid over the printable area, each point checked against the colour
+    // the layout puts there: catches content shifted or scaled by a little.
+    const quadrantColour = (u: number, v: number) =>
+      u < 0.5
+        ? v < 0.5
+          ? QUADRANTS.tl.rgb
+          : QUADRANTS.bl.rgb
+        : v < 0.5
+          ? QUADRANTS.tr.rgb
+          : QUADRANTS.br.rgb
+    const band = 0.04
+    for (let gx = 1; gx < 16; gx++) {
+      for (let gy = 1; gy < 16; gy++) {
+        const x = layout.content.x + (layout.content.width * gx) / 16
+        const y = layout.content.y + (layout.content.height * gy) / 16
+        const dx = x - cx
+        const dy = y - cy
+        const u = (dx * Math.cos(r) + dy * Math.sin(r)) / width + 0.5
+        const v = (-dx * Math.sin(r) + dy * Math.cos(r)) / height + 0.5
+        // Skip points near an edge or a quadrant boundary, where resampling blurs.
+        const near = (n: number) =>
+          Math.abs(n) < band || Math.abs(n - 0.5) < band || Math.abs(n - 1) < band
+        if (near(u) || near(v)) continue
+        const want = u < 0 || u > 1 || v < 0 || v > 1 ? [255, 255, 255] : quadrantColour(u, v)
+        const got = pixel(x, y)
+        expect(
+          close(got, want),
+          `grid ${gx},${gy} (u ${u.toFixed(2)}, v ${v.toFixed(2)}) was ${got.join(',')}`,
+        ).toBe(true)
+      }
+    }
     // Margins stay blank: the image is clipped to the printable area.
     if (layout.content.x > 4)
       expect(close(pixel(2, layout.page.height / 2), [255, 255, 255])).toBe(true)
+  })
+})
+
+describe.skipIf(!hasPdftoppm)('a page that hides part of its image', () => {
+  // gradient.png: red = how far across, green = how far down.
+  const cases: { name: string; s?: Partial<Settings>; p: Partial<Page> }[] = [
+    { name: 'Fill', p: { fit: 'cover' } },
+    { name: 'scaled 150%, straightened, margin', s: { margin: 40 }, p: { scale: 1.5, angle: 10 } },
+    { name: 'turned, scaled 180%', s: { orientation: 'portrait' }, p: { turns: 1, scale: 1.8 } },
+  ]
+
+  it.each(cases)('stores only what shows, in place ($name)', async ({ s, p }) => {
+    const docSettings = settings({ size: 'letter', ...s })
+    const { bytes, assets, pages } = await build(docSettings, [{ file: 'gradient.png', page: p }])
+    const meta = assets['gradient.png']
+    const pageModel = pages[0]
+    if (!meta || !pageModel) throw new Error('setup')
+    const layout = layoutPage(docSettings, meta, pageModel)
+
+    // The stored image is the visible part, not the whole image.
+    const listed = execFileSync('pdfimages', ['-list', '-'], { input: Buffer.from(bytes) })
+      .toString()
+      .split('\n')
+      .slice(2)
+      .filter(Boolean)
+      .map((line) => line.trim().split(/\s+/).map(String))
+    expect(listed).toHaveLength(1)
+    const [, , , w = '0', h = '0'] = listed[0] ?? []
+    expect(Number(w) * Number(h)).toBeLessThan(meta.width * meta.height * 0.9)
+
+    // And it lands where the whole image would have: colour = position.
+    const pixel = rasterise(bytes)
+    const { cx, cy, width, height, rotation } = layout.image
+    const r = (rotation * Math.PI) / 180
+    let checked = 0
+    for (let gx = 1; gx < 12; gx++) {
+      for (let gy = 1; gy < 12; gy++) {
+        const x = layout.content.x + (layout.content.width * gx) / 12
+        const y = layout.content.y + (layout.content.height * gy) / 12
+        const dx = x - cx
+        const dy = y - cy
+        const u = (dx * Math.cos(r) + dy * Math.sin(r)) / width + 0.5
+        const v = (-dx * Math.sin(r) + dy * Math.cos(r)) / height + 0.5
+        if (u < 0.02 || u > 0.98 || v < 0.02 || v > 0.98) continue
+        const got = pixel(x, y)
+        const want = [255 * u, 255 * v, 128]
+        expect(
+          got.every((c, i) => Math.abs(c - (want[i] ?? 0)) < 16),
+          `at u ${u.toFixed(2)}, v ${v.toFixed(2)}: ${got.join(',')}`,
+        ).toBe(true)
+        checked++
+      }
+    }
+    expect(checked).toBeGreaterThan(40)
+  })
+})
+
+describe('cropping a page’s hidden part', () => {
+  it('crops on whole pixels, copies them 1:1, and keeps a PNG lossless', async () => {
+    const jobs: ImageJob[] = []
+    const { bytes, meta } = await fileAsset('gradient.png')
+    const docSettings = settings({ size: 'letter' })
+    await buildPdf(
+      {
+        settings: docSettings,
+        pages: [page('p', meta.id, { scale: 1.37, angle: 3 })],
+        assets: { [meta.id]: meta },
+      },
+      {
+        getBytes: () => bytes,
+        processImage: (b, job) => {
+          jobs.push(job)
+          return Promise.resolve(canvasStandIn(b, job))
+        },
+      },
+    )
+    const [job] = jobs
+    if (!job?.part) throw new Error('expected a cropped job')
+    const { x0, y0, x1, y1 } = job.part
+    for (const [edge, size] of [
+      [x0, meta.width],
+      [x1, meta.width],
+      [y0, meta.height],
+      [y1, meta.height],
+    ] as const) {
+      expect(Number.isInteger(Math.round(edge * size * 1e6) / 1e6)).toBe(true)
+    }
+    // Output is exactly the cropped pixels: no resampling at 100%.
+    expect(job.width).toBe(Math.round((x1 - x0) * meta.width))
+    expect(job.height).toBe(Math.round((y1 - y0) * meta.height))
+    expect(job.format).toBe('png')
+  })
+
+  it('re-encodes a cropped JPEG once, at 0.92', () => {
+    const job = imageJob(
+      asset('a', { width: 1000, height: 800 }),
+      { filter: 'original' },
+      500,
+      null,
+      {
+        x0: 0.1,
+        y0: 0,
+        x1: 0.9,
+        y1: 1,
+      },
+    )
+    expect(job).toMatchObject({ format: 'jpeg', quality: 0.92, width: 800, height: 800 })
   })
 })

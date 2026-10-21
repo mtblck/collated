@@ -1,15 +1,16 @@
-import { useId, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { useId, type ButtonHTMLAttributes, type ReactNode, type Ref } from 'react'
 import { cx } from './cx'
 
 type Variant = 'primary' | 'secondary' | 'quiet'
 
+// `aria-disabled:` mirrors `disabled:` for buttons that stay focusable (`inactive`).
 const VARIANTS: Record<Variant, string> = {
   primary:
-    'bg-ink text-paper hover:bg-ink/85 disabled:bg-ink/30 disabled:text-paper/80 border border-transparent',
+    'bg-ink text-paper hover:bg-ink/85 disabled:bg-ink/30 disabled:text-paper/80 aria-disabled:bg-ink/30 aria-disabled:text-paper/80 border border-transparent',
   secondary:
-    'border border-rule bg-paper text-ink hover:border-ink-faint disabled:text-ink-faint disabled:hover:border-rule',
+    'border border-rule bg-paper text-ink hover:border-ink-faint disabled:text-ink-faint disabled:hover:border-rule aria-disabled:text-ink-faint aria-disabled:hover:border-rule',
   quiet:
-    'border border-transparent text-ink-muted hover:text-ink hover:bg-ink/5 disabled:text-ink-faint/60 disabled:hover:bg-transparent',
+    'border border-transparent text-ink-muted hover:text-ink hover:bg-ink/5 disabled:text-ink-faint/60 disabled:hover:bg-transparent aria-disabled:text-ink-faint/60 aria-disabled:hover:bg-transparent',
 }
 
 /*
@@ -26,13 +27,27 @@ const SIZES: Record<Size, string> = {
   'icon-sm': 'size-7',
 }
 
+export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: Variant
+  size?: Size
+  /**
+   * Unavailable but still focusable: `aria-disabled`, and clicks are ignored.
+   * For a button that becomes unavailable while focused (busy, or the end of
+   * a list), where `disabled` would drop focus to the page.
+   */
+  inactive?: boolean
+  ref?: Ref<HTMLButtonElement>
+}
+
 export const Button = ({
   variant = 'secondary',
   size = 'md',
   className,
   type = 'button',
+  inactive = false,
+  onClick,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: Size }) => (
+}: ButtonProps) => (
   <button
     type={type}
     className={cx(
@@ -41,6 +56,14 @@ export const Button = ({
       VARIANTS[variant],
       className,
     )}
+    {...(inactive ? { 'aria-disabled': true } : {})}
+    onClick={(event) => {
+      if (inactive) {
+        event.preventDefault()
+        return
+      }
+      onClick?.(event)
+    }}
     {...props}
   />
 )
@@ -51,10 +74,9 @@ export const IconButton = ({
   small = false,
   variant = 'quiet',
   ...props
-}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'aria-label'> & {
+}: Omit<ButtonProps, 'aria-label' | 'size'> & {
   label: string
   small?: boolean
-  variant?: Variant
 }) => (
   <Button
     variant={variant}
@@ -88,12 +110,12 @@ export const Segmented = <T extends string>({
   return (
     <fieldset className="min-w-0" disabled={disabled} aria-describedby={describedBy}>
       <legend className={cx('label mb-2 text-ink-faint', hideLegend && 'sr-only')}>{legend}</legend>
-      <div className="flex h-9 rounded-[2px] border border-rule">
+      <div className="flex h-9 rounded-[2px] border border-control">
         {options.map((option) => (
           <label
             key={option.value}
             className={cx(
-              'relative flex flex-1 items-center justify-center px-3 text-sm whitespace-nowrap transition-colors not-first:border-l not-first:border-rule',
+              'relative flex flex-1 items-center justify-center px-3 text-sm whitespace-nowrap transition-colors not-first:border-l not-first:border-control',
               'has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent',
               disabled
                 ? value === option.value

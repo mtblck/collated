@@ -14,7 +14,10 @@ const SLUG = 'collated'
 const BASE = `/tools/${SLUG}/`
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const read = (file) => readFileSync(join(root, file), 'utf8')
-const config = JSON.parse(read('vercel.json'))
+// An alternative vercel.json can be passed for the mutation tests.
+const config = JSON.parse(
+  process.argv[2] ? readFileSync(process.argv[2], 'utf8') : read('vercel.json'),
+)
 const problems = []
 
 // 1. Files live at the same path on the tool's own domain and behind the
@@ -45,40 +48,88 @@ for (const key of ['cleanUrls', 'trailingSlash', 'routes']) {
   if (key in config) problems.push(`"${key}" is set; it has silently disabled rewrites before.`)
 }
 
-// 3. The tool owns its CSP. The PDF export runs in a module worker, so
-//    worker-src must allow 'self'; thumbnails are blob: URLs.
+// 3. The tool owns its security headers, and the CSP is pinned exactly:
+//    every directive at its intended value and no others (a directive added
+//    later could only widen what default-src allows). Tightening one means
+//    changing it here too, on purpose.
 const block = (config.headers ?? []).find((b) => b.source === `${BASE}(.*)`)
-const csp = block?.headers.find((h) => h.key === 'Content-Security-Policy')?.value ?? ''
-const directive = (name) =>
-  csp
-    .split(';')
-    .map((d) => d.trim())
-    .find((d) => d.startsWith(`${name} `)) ?? ''
+// Vercel applies every block whose source matches, so another block could
+// override or add to these. Other blocks may only set caching.
+for (const other of config.headers ?? []) {
+  if (other === block) continue
+  for (const { key } of other.headers) {
+    if (key.toLowerCase() !== 'cache-control') {
+      problems.push(
+        `Header block ${other.source} sets ${key}; security headers belong only in ${BASE}(.*).`,
+      )
+    }
+  }
+}
+const header = (key) => block?.headers.find((h) => h.key.toLowerCase() === key.toLowerCase())?.value
+const POLICY = {
+  'default-src': "'self'",
+  // 'wasm-unsafe-eval' permits compiling WebAssembly and nothing else (not
+  // eval of strings). Two decoders need it: libheif for HEIC photos and
+  // tesseract.js-core for OCR. 'unsafe-eval', 'unsafe-inline', hashes, hosts
+  // or blob: would all widen it.
+  'script-src': "'self' 'wasm-unsafe-eval'",
+  // The PDF export, HEIC decoder, OCR and pdf.js all run in workers from our
+  // own origin. Never blob: (code built in the page could run as a worker).
+  'worker-src': "'self'",
+  // Inline style attributes (dnd-kit transforms, preview geometry).
+  'style-src': "'self' 'unsafe-inline'",
+  'font-src': "'self'",
+  // Thumbnails are blob: object URLs.
+  'img-src': "'self' blob: data:",
+  // The app talks to nobody: wasm, OCR data and pdf.js are fetched from here.
+  'connect-src': "'self'",
+  'manifest-src': "'self'",
+  'object-src': "'none'",
+  'frame-ancestors': "'none'",
+  'base-uri': "'self'",
+  'form-action': "'none'",
+}
+const csp = header('Content-Security-Policy') ?? ''
 if (!csp) problems.push(`No Content-Security-Policy header for ${BASE}(.*).`)
 else {
-  // 'self' plus, at most, 'wasm-unsafe-eval' — which permits compiling
-  // WebAssembly (the HEIC decoder) and nothing else. 'unsafe-eval',
-  // 'unsafe-inline', hashes, hosts or blob: would all widen it.
-  const scriptSources = directive('script-src').split(/\s+/).slice(1)
-  if (
-    !scriptSources.includes("'self'") ||
-    scriptSources.some((src) => src !== "'self'" && src !== "'wasm-unsafe-eval'")
-  ) {
-    problems.push(
-      "script-src must be 'self', optionally with 'wasm-unsafe-eval', and nothing else.",
-    )
+  const seen = new Map()
+  for (const part of csp.split(';')) {
+    const [name, ...values] = part.trim().split(/\s+/)
+    if (!name) continue
+    if (seen.has(name)) problems.push(`CSP ${name} appears twice (browsers use the first).`)
+    else seen.set(name, values.join(' '))
   }
-  if (directive('worker-src').includes('blob:')) {
-    problems.push('worker-src must not allow blob: (code built in the page could run as a worker).')
+  for (const [name, want] of Object.entries(POLICY)) {
+    const got = seen.get(name)
+    if (got === undefined) problems.push(`CSP is missing ${name} ${want}.`)
+    else if (got !== want) problems.push(`CSP ${name} must be exactly "${want}" (is "${got}").`)
   }
-  if (!directive('worker-src').includes("'self'")) {
-    problems.push("worker-src must include 'self' (the PDF export runs in a worker).")
+  for (const name of seen.keys()) {
+    if (!(name in POLICY)) problems.push(`CSP has an unexpected directive ${name}.`)
   }
-  if (!directive('img-src').includes('blob:')) {
-    problems.push('img-src must include blob: (page thumbnails are object URLs).')
-  }
-  if (!directive('frame-ancestors').includes("'none'"))
-    problems.push("frame-ancestors must be 'none'.")
+}
+const exact = (key, want) => {
+  const got = header(key)
+  if (got !== want) problems.push(`${key} must be "${want}" (is ${got ? `"${got}"` : 'missing'}).`)
+}
+exact('X-Content-Type-Options', 'nosniff')
+exact('X-Frame-Options', 'DENY')
+exact('Cross-Origin-Opener-Policy', 'same-origin')
+const referrer = header('Referrer-Policy')
+if (
+  !['no-referrer', 'same-origin', 'strict-origin', 'strict-origin-when-cross-origin'].includes(
+    referrer,
+  )
+) {
+  problems.push(`Referrer-Policy must be set to a strict policy (is ${referrer ?? 'missing'}).`)
+}
+const hsts = /max-age=(\d+)/.exec(header('Strict-Transport-Security') ?? '')
+if (!hsts || Number(hsts[1]) < 31_536_000) {
+  problems.push('Strict-Transport-Security must be set with max-age of at least a year.')
+}
+const permissions = header('Permissions-Policy') ?? ''
+for (const feature of ['camera=()', 'microphone=()', 'geolocation=()']) {
+  if (!permissions.includes(feature)) problems.push(`Permissions-Policy must include ${feature}.`)
 }
 
 // 4. No inline scripts: under script-src 'self' the browser refuses to run

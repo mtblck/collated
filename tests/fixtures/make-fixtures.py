@@ -46,6 +46,12 @@ upright.transpose(Image.Transpose.FLIP_LEFT_RIGHT).save(
 )
 upright.convert("CMYK").save(HERE / "quad-cmyk.jpg", quality=95)
 upright.save(HERE / "quad-landscape.webp", quality=95)
+
+# Colour encodes position (red = across, green = down), so a raster test can
+# tell where any point of the image landed, not just which quadrant.
+gradient = Image.new("RGB", (240, 160))
+gradient.putdata([(round(255 * x / 239), round(255 * y / 159), 128) for y in range(160) for x in range(240)])
+gradient.save(HERE / "gradient.png")
 # Pillow can't write Adam7 PNGs, so flip the IHDR interlace flag (and its CRC).
 # Only the header is read in tests; the pixel data is never decoded.
 png = bytearray(open(HERE / "quad-landscape.png", "rb").read())

@@ -30,7 +30,10 @@ export const ocrAssets = (base: string): Plugin => ({
     server.middlewares.use((req, res, next) => {
       const path = (req.url ?? '').split('?')[0] ?? ''
       const prefix = `${base}ocr/`
-      const file = path.startsWith(prefix) ? OCR_FILES[path.slice(prefix.length)] : undefined
+      const name = path.startsWith(prefix) ? path.slice(prefix.length) : ''
+      // Own keys only: /ocr/__proto__ or /ocr/constructor must not resolve
+      // to Object.prototype members.
+      const file = Object.hasOwn(OCR_FILES, name) ? OCR_FILES[name] : undefined
       if (!file) {
         next()
         return

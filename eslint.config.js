@@ -34,7 +34,12 @@ export default tseslint.config(
     // pdf-lib is ~240 KB gzipped and only needed to export: keep it in the
     // worker. Importing it (or core/pdf) from UI code puts it in the main bundle.
     files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/core/pdf.ts', 'src/**/*.test.ts', 'src/export/pdf.worker.ts'],
+    ignores: [
+      'src/core/pdf.ts',
+      'src/core/pdfSanitize.ts',
+      'src/**/*.test.ts',
+      'src/export/pdf.worker.ts',
+    ],
     rules: {
       '@typescript-eslint/no-restricted-imports': [
         'error',
@@ -42,7 +47,7 @@ export default tseslint.config(
           paths: [{ name: '@cantoo/pdf-lib', message: 'pdf-lib loads only in the export worker.' }],
           patterns: [
             {
-              regex: '/core/pdf$|^\\./pdf$',
+              regex: '/core/pdf(Sanitize)?$|^\\./pdf(Sanitize)?$',
               allowTypeImports: true,
               message: 'core/pdf pulls pdf-lib into the main bundle; use it from the worker.',
             },
