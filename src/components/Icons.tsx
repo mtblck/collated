@@ -145,3 +145,15 @@ export const HeartIcon = (p: P) => (
     <path d="M10 16.5s-6-3.6-6-8A3.5 3.5 0 0 1 10 6.3 3.5 3.5 0 0 1 16 8.5c0 4.4-6 8-6 8Z" />
   </Icon>
 )
+
+export const MinusIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M4 10h12" />
+  </Icon>
+)
+
+export const ExpandIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M11.5 3.5h5v5M8.5 16.5h-5v-5M16.5 3.5 11 9M3.5 16.5 9 11" />
+  </Icon>
+)

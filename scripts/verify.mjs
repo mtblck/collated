@@ -1517,6 +1517,184 @@ await context.close()
   await ctx.close()
 }
 
+// 17. Crop a turned page as shown (#43), with edge handles (#44). ------------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1280, height: 900 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-landscape.jpg')])
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  const panel = p.locator('aside[aria-label="Selected page"]')
+  await panel.getByRole('button', { name: 'Right' }).click()
+  await panel.getByRole('button', { name: 'Crop to the page…' }).click()
+  const dialog = p.getByRole('dialog', { name: 'Crop to the page' })
+  await dialog.waitFor()
+  const img = dialog.getByRole('img')
+  await p.waitForFunction(() => document.querySelector('dialog img')?.complete)
+  const box = await img.evaluate((el) => el.parentElement?.getBoundingClientRect().toJSON())
+  // quad-landscape: red top-left, green top-right, blue bottom-left. Turned
+  // clockwise, blue is at the top left and the view is portrait.
+  const shot = await p.screenshot({ clip: box })
+  const shotPath = join(mkdtempSync(join(tmpdir(), 'collated-crop-')), 'crop.png')
+  writeFileSync(shotPath, shot)
+  let png = { w: 0, h: 0, tl: [0, 0, 0], tr: [0, 0, 0] }
+  try {
+    png = JSON.parse(
+      execFileSync('python3', [
+        '-c',
+        'import json,sys\nfrom PIL import Image\nim=Image.open(sys.argv[1]).convert("RGB")\nw,h=im.size\nat=lambda fx,fy: list(im.getpixel((round(w*fx),round(h*fy))))\nprint(json.dumps({"w":w,"h":h,"tl":at(0.3,0.3),"tr":at(0.7,0.3)}))',
+        shotPath,
+      ]).toString(),
+    )
+  } catch {
+    fails.push('crop check needs python3 with Pillow')
+  }
+  const blueish = ([r, , b]) => b > 150 && r < 120
+  const redish = ([r, g, b]) => r > 150 && g < 120 && b < 120
+  check(
+    png.h > png.w && blueish(png.tl) && redish(png.tr),
+    'the crop editor shows the page turned as it is',
+    JSON.stringify(png),
+  )
+  await p.screenshot({ path: join(shots, 'crop-turned.png') })
+  // Drag the top edge straight down: both top corners move, sides stay put.
+  const edge = dialog.getByRole('button', { name: 'Top edge' })
+  const e = await edge.boundingBox()
+  if (e) {
+    await p.mouse.move(e.x + e.width / 2, e.y + e.height / 2)
+    await p.mouse.down()
+    await p.mouse.move(e.x + e.width / 2 + 40, e.y + e.height / 2 + 60, { steps: 6 })
+    await p.mouse.up()
+  }
+  const left = await dialog.getByRole('button', { name: 'Top-left corner' }).getAttribute('style')
+  const right = await dialog.getByRole('button', { name: 'Top-right corner' }).getAttribute('style')
+  const topOf = (style) => /top: ([\d.]+)%/.exec(style ?? '')?.[1]
+  const leftOf = (style) => /left: ([\d.]+)%/.exec(style ?? '')?.[1]
+  check(
+    topOf(left) === topOf(right) &&
+      Number(topOf(left)) > 3 &&
+      leftOf(left) === '0%'.replace('%', '') &&
+      leftOf(right) === '100',
+    'dragging the top edge moves both top corners straight down',
+    `${left} | ${right}`,
+  )
+  await axe(p, 'crop editor, turned, edge handles')
+  await ctx.close()
+}
+
+// 18. The page viewer (#45): larger, full resolution, pinch and Ctrl+wheel zoom.
+{
+  const { context: ctx, page: p } = await open({
+    viewport: { width: 1024, height: 768 },
+    hasTouch: true,
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'scan-letter-300dpi.jpg')])
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  const opener = p.getByRole('button', { name: 'View page 1 larger' })
+  await opener.click()
+  const viewer = p.getByRole('dialog', { name: /^Page 1: / })
+  await viewer.waitFor()
+  // The thumbnail is 720 px; the viewer swaps in the original.
+  await p.waitForFunction(
+    () => (document.querySelector('dialog[open] img')?.naturalWidth ?? 0) > 1000,
+    undefined,
+    { timeout: 10_000 },
+  )
+  ok('the viewer shows the page at full resolution')
+  await axe(p, 'page viewer')
+  const level = () => p.locator('[data-zoom-level]').textContent()
+  const stage = await p.locator('dialog[open] .cursor-grab').boundingBox()
+  if (!stage) throw new Error('viewer layout')
+  const cx = stage.x + stage.width / 2
+  const cy = stage.y + stage.height / 2
+  // A two-finger pinch, as touch input.
+  const cdp = await ctx.newCDPSession(p)
+  const touch = (type, spread) =>
+    cdp.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints:
+        type === 'touchEnd'
+          ? []
+          : [
+              { x: cx - spread, y: cy, id: 1 },
+              { x: cx + spread, y: cy, id: 2 },
+            ],
+    })
+  await touch('touchStart', 40)
+  for (const spread of [60, 90, 120, 160]) await touch('touchMove', spread)
+  await touch('touchEnd', 0)
+  const pinched = Number.parseInt((await level()) ?? '0', 10)
+  check(pinched >= 300, 'pinching zooms in (about 4× for fingers 4× apart)', `${pinched}%`)
+  // Pan by dragging, then Ctrl+wheel (a trackpad pinch) zooms out.
+  await p.keyboard.press('0')
+  check((await level()) === '100%', '0 fits the page')
+  // A touch double-tap zooms to 2× (the browser's own dblclick for touch
+  // mustn't undo it); two quick pans don't count as taps.
+  // Raw one-finger touches: these make Chromium fire dblclick too, as a
+  // real phone does (its synthetic tap gesture doesn't).
+  for (let n = 0; n < 2; n++) {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ x: cx, y: cy, id: 4 }],
+    })
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await p.waitForTimeout(60)
+  }
+  await p.waitForTimeout(400)
+  check((await level()) === '200%', 'a touch double-tap zooms to 2×', (await level()) ?? '')
+  for (const dx of [80, -80]) {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ x: cx, y: cy, id: 3 }],
+    })
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: cx + dx, y: cy, id: 3 }],
+    })
+    await touch('touchEnd', 0)
+  }
+  check((await level()) === '200%', 'two quick pans keep the zoom', (await level()) ?? '')
+  // The browser's own zoom keys are left to the browser.
+  const prevented = await p.evaluate(() => {
+    const event = new KeyboardEvent('keydown', {
+      key: '=',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    document.querySelector('dialog[open]')?.dispatchEvent(event)
+    return event.defaultPrevented
+  })
+  check(!prevented, 'Ctrl+= is left to the browser')
+  await p.keyboard.press('0')
+  await p.mouse.move(cx, cy)
+  await p.keyboard.down('Control')
+  await p.mouse.wheel(0, -200)
+  await p.keyboard.up('Control')
+  await p
+    .waitForFunction(
+      () => document.querySelector('[data-zoom-level]')?.textContent !== '100%',
+      undefined,
+      { timeout: 3000 },
+    )
+    .catch(() => undefined)
+  const wheeled = Number.parseInt((await level()) ?? '0', 10)
+  check(wheeled > 150, 'Ctrl+wheel zooms (a trackpad pinch)', `${wheeled}%`)
+  // The window itself never zooms: the page's own scale is untouched.
+  check(
+    (await p.evaluate(() => window.visualViewport?.scale ?? 1)) === 1,
+    'the browser page itself was not zoomed',
+  )
+  await p.keyboard.press('Escape')
+  await viewer.waitFor({ state: 'hidden' })
+  check(
+    (await p.evaluate(() => document.activeElement?.getAttribute('aria-label'))) ===
+      'View page 1 larger',
+    'closing the viewer returns focus to the preview',
+  )
+  await ctx.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { layoutPage, visiblePart } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
 import type { Asset, Filter, FitMode, Page, PageTransform, Settings } from '../core/model'
@@ -14,9 +14,12 @@ import {
   RotateLeftIcon,
   RotateRightIcon,
   TrashIcon,
+  ExpandIcon,
 } from './Icons'
 import { usePageThumb } from '../hooks/usePageThumb'
 import { CropEditor } from './CropEditor'
+import { PageViewer } from './PageViewer'
+import { detailImage } from '../lib/detailImage'
 import { PagePreview } from './PagePreview'
 import { pageNumber } from './format'
 
@@ -78,6 +81,13 @@ export const Inspector = ({
   const vector = isVector(asset)
   const thumbUrl = usePageThumb(asset, page)
   const [cropping, setCropping] = useState(false)
+  const [viewing, setViewing] = useState(false)
+  // Stable per image and look, so the viewer loads it once.
+  const { filter, corners } = page
+  const loadDetail = useCallback(
+    () => detailImage(asset, { filter, corners }),
+    [asset, filter, corners],
+  )
   const cropButton = useRef<HTMLButtonElement>(null)
   const earlier = useRef<HTMLButtonElement>(null)
   const later = useRef<HTMLButtonElement>(null)
@@ -124,7 +134,10 @@ export const Inspector = ({
         </h2>
       </header>
 
-      <div className="w-full rounded-[3px] bg-paper-sunk p-5" style={{ aspectRatio: boxRatio }}>
+      <div
+        className="relative w-full rounded-[3px] bg-paper-sunk p-5"
+        style={{ aspectRatio: boxRatio }}
+      >
         <PagePreview
           layout={layout}
           thumbUrl={thumbUrl}
@@ -132,7 +145,36 @@ export const Inspector = ({
           showMargins
           mark={mark}
         />
+        {/* Over the preview rather than around it: a button can't hold the
+            preview's blocks, and this keeps one clear name. */}
+        <button
+          type="button"
+          className="group absolute inset-0 cursor-zoom-in rounded-[3px] focus-visible:outline-offset-2"
+          aria-label={`View page ${String(index + 1)} larger`}
+          onClick={() => {
+            setViewing(true)
+          }}
+        >
+          <span
+            className="absolute right-2 bottom-2 inline-flex size-8 items-center justify-center rounded-full bg-paper/90 text-ink opacity-0 shadow transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+            aria-hidden="true"
+          >
+            <ExpandIcon width={16} height={16} />
+          </span>
+        </button>
       </div>
+      {viewing && (
+        <PageViewer
+          title={`Page ${String(index + 1)}: ${asset.name}`}
+          layout={layout}
+          thumbUrl={thumbUrl}
+          mark={mark}
+          loadDetail={loadDetail}
+          onClose={() => {
+            setViewing(false)
+          }}
+        />
+      )}
 
       <div>
         <p className="label mb-2 text-ink-faint" id={`${id}-crop`}>
@@ -172,6 +214,7 @@ export const Inspector = ({
         {cropping && (
           <CropEditor
             asset={asset}
+            turns={page.turns}
             initial={page.corners}
             onApply={(corners) => {
               actions.onTransform({ corners })
