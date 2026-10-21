@@ -35,7 +35,13 @@ const setup = (overrides: Partial<AppDeps> = {}) => {
       )
       return Promise.resolve({ assets, files: [{ id: bytesId, bytes: new Uint8Array([1]) }] })
     }),
-    exportPdf: vi.fn(() => Promise.resolve(new Blob(['%PDF'], { type: 'application/pdf' }))),
+    exportPdf: vi.fn(() =>
+      Promise.resolve({
+        blob: new Blob(['%PDF'], { type: 'application/pdf' }),
+        compression: null,
+        fits: true,
+      }),
+    ),
     download: vi.fn(),
     ...overrides,
   }
@@ -175,7 +181,11 @@ describe('App', () => {
 
   it('exports with the current document and names the file from the title', async () => {
     const exportPdf = vi.fn<AppDeps['exportPdf']>(() =>
-      Promise.resolve(new Blob(['%PDF'], { type: 'application/pdf' })),
+      Promise.resolve({
+        blob: new Blob(['%PDF'], { type: 'application/pdf' }),
+        compression: null,
+        fits: true,
+      }),
     )
     const { user, deps, upload } = setup({ exportPdf })
     await upload('a.jpg')
@@ -187,7 +197,51 @@ describe('App', () => {
     const [doc] = exportPdf.mock.calls[0] ?? []
     expect(doc?.pages).toHaveLength(1)
     expect(doc?.settings.title).toBe('Lease 2026')
-    expect(status()).toHaveTextContent('Saved Lease-2026.pdf.')
+    expect(status()).toHaveTextContent('Saved Lease-2026.pdf (4 B, original images).')
+  })
+
+  it('lowers the estimate when a smaller quality is chosen, and remembers it', async () => {
+    const { user, store, upload } = setup({
+      importFile: (f, newId) => {
+        const id = newId()
+        return Promise.resolve({
+          assets: [asset(id, { name: f.name, width: 4000, height: 3000, byteLength: 4_000_000 })],
+          files: [{ id, bytes: new Uint8Array([1]) }],
+        })
+      },
+    })
+    await upload('photo.jpg')
+    const options = await screen.findByRole('button', { name: /Export options:\s*Original/ })
+    expect(options).toHaveAccessibleName(/≈\s*3\.8 MB/)
+    // jsdom hides popover content but doesn't implement popovertarget, so the
+    // panel can't be opened here; its controls are queried directly. The
+    // browser verify opens the real popover.
+    await user.click(screen.getByRole('radio', { name: /Small/, hidden: true }))
+    // 4000 px across 11 in is ~364 dpi; capping at 150 dpi leaves ~17% of
+    // the pixels, so the estimate drops from megabytes to kilobytes.
+    expect(screen.getByRole('button', { name: /Export options:\s*Small/ })).toHaveAccessibleName(
+      /≈\s*\d+ KB/,
+    )
+    expect(JSON.parse(store.get('collated:settings') ?? '{}')).toMatchObject({ quality: 'small' })
+  })
+
+  it('warns when a size limit could not be met, and still saves', async () => {
+    const { user, deps, upload } = setup({
+      exportPdf: () =>
+        Promise.resolve({
+          blob: new Blob([new Uint8Array(3 * 1024 * 1024)]),
+          compression: { dpi: 96, quality: 0.6 },
+          fits: false,
+        }),
+    })
+    await upload('a.jpg')
+    const limit = await screen.findByLabelText('Keep the file under')
+    await user.type(limit, '1{Enter}')
+    await user.click(screen.getByRole('button', { name: /Export PDF/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Couldn’t get under 1.0 MB: the smallest version is 3.0 MB at 96 dpi. It was saved anyway.',
+    )
+    expect(deps.download).toHaveBeenCalled()
   })
 
   it('shows an error if the export fails and stays usable', async () => {

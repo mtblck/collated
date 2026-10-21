@@ -14,6 +14,8 @@ export const defaultSettings = (locale: string): Settings => {
     orientation: 'auto',
     margin: 0,
     title: '',
+    quality: 'original',
+    maxBytes: null,
   }
 }
 
@@ -54,6 +56,14 @@ export const loadSettings = (
         height: finite(custom.height, fallback.custom.height),
       },
       title: '',
+      quality:
+        raw.quality === 'high' || raw.quality === 'balanced' || raw.quality === 'small'
+          ? raw.quality
+          : 'original',
+      maxBytes:
+        typeof raw.maxBytes === 'number' && Number.isFinite(raw.maxBytes) && raw.maxBytes > 0
+          ? raw.maxBytes
+          : null,
     }
   } catch {
     return fallback

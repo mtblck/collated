@@ -67,7 +67,10 @@ const build = async (s: Settings, items: { file: string; page?: Partial<Page> }[
       getBytes: (id) => bytesById.get(id) ?? new Uint8Array(),
       // Stands in for the worker's canvas: returns the upright original, so
       // placement (not pixels) is what's under test.
-      filterImage: () => Promise.resolve({ bytes: fixture('quad-landscape.png'), format: 'png' }),
+      processImage: (_bytes, job) =>
+        Promise.resolve(
+          fixture(job.format === 'png' ? 'quad-landscape.png' : 'quad-landscape.jpg'),
+        ),
       now: NOW,
     },
   )
@@ -137,7 +140,7 @@ describe('buildPdf', () => {
     ).toHaveLength(1)
   })
 
-  it('runs filtered images through filterImage once per image and filter', async () => {
+  it('runs filtered images through processImage once per image and filter', async () => {
     const { meta, bytes } = await fileAsset('quad-landscape.jpg')
     const calls: string[] = []
     const out = await buildPdf(
@@ -153,9 +156,11 @@ describe('buildPdf', () => {
       },
       {
         getBytes: () => bytes,
-        filterImage: (_bytes, filter) => {
-          calls.push(filter)
-          return Promise.resolve({ bytes: fixture('quad-landscape.png'), format: 'png' })
+        processImage: (_bytes, job) => {
+          calls.push(job.filter)
+          return Promise.resolve(
+            fixture(job.format === 'png' ? 'quad-landscape.png' : 'quad-landscape.jpg'),
+          )
         },
       },
     )
@@ -175,7 +180,7 @@ describe('buildPdf', () => {
         },
         { getBytes: () => bytes },
       ),
-    ).rejects.toThrow(/filters/)
+    ).rejects.toThrow(/re-encode/)
   })
 
   it('reports progress per page', async () => {

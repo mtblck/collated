@@ -80,3 +80,11 @@ for i, y in enumerate(range(140, 1100, 46)):
         d.rectangle([x, y, x + width, y + 14], fill=(ink, ink, ink + 6))
         x += width + 18
 doc.save(HERE / "doc-photo.jpg", quality=88)
+
+# The same page as a 300 dpi US Letter scan (2550 x 3300), with sensor-like
+# grain so it compresses like a real photo rather than a flat test card.
+random.seed(11)
+large = doc.resize((2550, 3300), Image.Resampling.LANCZOS)
+grain = Image.effect_noise((2550, 3300), 10).convert("RGB")
+large = Image.blend(large, grain, 0.06)
+large.save(HERE / "scan-letter-300dpi.jpg", quality=92)

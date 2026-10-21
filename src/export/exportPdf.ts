@@ -1,8 +1,17 @@
+import type { Compression } from '../core/compression'
 import type { DocState } from '../core/model'
 import { assetStore } from '../import/assetStore'
 import type { ExportRequest, ExportResponse } from './protocol'
 
-export type Progress = (done: number, total: number) => void
+export type Progress = (done: number, total: number, attempt: number) => void
+
+export interface Exported {
+  blob: Blob
+  /** The compression the file used: the chosen quality, or a smaller step to meet a size limit. */
+  compression: Compression | null
+  /** False when a size limit couldn't be met; the blob is then the smallest build tried. */
+  fits: boolean
+}
 
 const request = (state: DocState): ExportRequest => {
   const used = new Set(state.pages.map((p) => p.assetId))
@@ -14,7 +23,7 @@ const request = (state: DocState): ExportRequest => {
 }
 
 /** Builds the PDF in a module worker; resolves with the file. */
-export const exportPdf = (state: DocState, onProgress?: Progress): Promise<Blob> => {
+export const exportPdf = (state: DocState, onProgress?: Progress): Promise<Exported> => {
   const message = request(state)
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./pdf.worker.ts', import.meta.url), {
@@ -25,10 +34,14 @@ export const exportPdf = (state: DocState, onProgress?: Progress): Promise<Blob>
       worker.terminate()
     }
     worker.onmessage = ({ data }: MessageEvent<ExportResponse>) => {
-      if (data.type === 'progress') onProgress?.(data.done, data.total)
+      if (data.type === 'progress') onProgress?.(data.done, data.total, data.attempt)
       else if (data.type === 'done') {
         finish()
-        resolve(new Blob([data.pdf as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }))
+        resolve({
+          blob: new Blob([data.pdf as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }),
+          compression: data.compression,
+          fits: data.fits,
+        })
       } else {
         finish()
         reject(new Error(data.message))

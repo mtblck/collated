@@ -1,13 +1,13 @@
 /// <reference lib="webworker" />
-import { filterEncoding } from '../core/filters'
+import { buildWithin, compressionFor } from '../core/compression'
 import { buildPdf } from '../core/pdf'
-import { filterToBlob } from '../lib/filterCanvas'
+import { processToBlob } from '../lib/filterCanvas'
 import type { ExportRequest, ExportResponse } from './protocol'
 
 /*
- * Builds the PDF off the main thread. Embedding passthrough JPEGs is cheap, but
- * PNG scans are decoded and recompressed by pdf-lib, which can take seconds
- * for a batch and would otherwise freeze the page.
+ * Builds the PDF off the main thread. Embedding passthrough JPEGs is cheap,
+ * but filtering, resizing and PNG recompression can take seconds for a batch
+ * and would otherwise freeze the page.
  */
 declare const self: DedicatedWorkerGlobalScope
 
@@ -17,24 +17,34 @@ const post = (message: ExportResponse, transfer: Transferable[] = []) => {
 
 self.onmessage = async ({ data }: MessageEvent<ExportRequest>) => {
   try {
-    const pdf = await buildPdf(data.input, {
-      getBytes: (id) => {
-        const bytes = data.bytes[id]
-        if (!bytes) throw new Error(`Missing image data for ${id}.`)
-        return bytes
+    const { settings } = data.input
+    let attempt = 1
+    const result = await buildWithin(
+      (compression) =>
+        buildPdf(
+          { ...data.input, compression },
+          {
+            getBytes: (id) => {
+              const bytes = data.bytes[id]
+              if (!bytes) throw new Error(`Missing image data for ${id}.`)
+              return bytes
+            },
+            processImage: async (bytes, job) => {
+              const blob = await processToBlob(new Blob([bytes as Uint8Array<ArrayBuffer>]), job)
+              return new Uint8Array(await blob.arrayBuffer())
+            },
+            onProgress: (done, total) => {
+              post({ type: 'progress', done, total, attempt })
+            },
+          },
+        ),
+      compressionFor(settings.quality),
+      settings.maxBytes,
+      (n) => {
+        attempt = n
       },
-      filterImage: async (bytes, filter) => {
-        const blob = await filterToBlob(new Blob([bytes as Uint8Array<ArrayBuffer>]), filter)
-        return {
-          bytes: new Uint8Array(await blob.arrayBuffer()),
-          format: filterEncoding(filter).format,
-        }
-      },
-      onProgress: (done, total) => {
-        post({ type: 'progress', done, total })
-      },
-    })
-    post({ type: 'done', pdf }, [pdf.buffer])
+    )
+    post({ type: 'done', ...result }, [result.pdf.buffer])
   } catch (error) {
     post({ type: 'error', message: error instanceof Error ? error.message : String(error) })
   }

@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Asset, Settings } from './core/model'
 import { pdfFilename } from './core/filename'
+import { compressionFor, estimateBytes } from './core/compression'
+import { layoutPage } from './core/geometry'
+import { formatBytes } from './core/units'
 import { DocumentBar, type ExportState } from './components/DocumentBar'
 import { DropOverlay, EmptyState, Header, Notices, type Notice } from './components/Chrome'
 import { Inspector, type InspectorActions } from './components/Inspector'
 import { PageGrid } from './components/PageGrid'
-import { download as saveFile, exportPdf } from './export/exportPdf'
+import { download as saveFile, exportPdf, type Exported } from './export/exportPdf'
 import { assetStore } from './import/assetStore'
 import { ImportError, importFile, type Imported } from './import/importFile'
 import { loadSettings, saveSettings } from './state/settingsStorage'
@@ -18,7 +21,10 @@ export interface AppDeps {
     newId: () => string,
     onPage?: (done: number, total: number) => void,
   ) => Promise<Imported>
-  exportPdf: (doc: DocState, onProgress: (done: number, total: number) => void) => Promise<Blob>
+  exportPdf: (
+    doc: DocState,
+    onProgress: (done: number, total: number, attempt: number) => void,
+  ) => Promise<Exported>
   download: (blob: Blob, filename: string) => void
   newId: () => string
   storage: Pick<Storage, 'getItem' | 'setItem'> | undefined
@@ -69,6 +75,11 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     pages?: { done: number; total: number }
   } | null>(null)
   const [exporting, setExporting] = useState<ExportState>({ busy: false, done: 0, total: 0 })
+  const [lastExport, setLastExport] = useState<{
+    size: string
+    used: string
+    fits: boolean
+  } | null>(null)
   const [status, setStatus] = useState('')
   const [notices, setNotices] = useState<Notice[]>([])
   const [dragging, setDragging] = useState(false)
@@ -200,19 +211,27 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     setExporting({ busy: true, done: 0, total: pages.length })
     setStatus('Building PDF…')
     try {
-      const blob = await deps.exportPdf(doc, (done, total) => {
-        setExporting({ busy: true, done, total })
+      const result = await deps.exportPdf(doc, (done, total, attempt) => {
+        setExporting({ busy: true, done, total, attempt })
       })
       const filename = pdfFilename(settings.title)
-      deps.download(blob, filename)
-      setStatus(`Saved ${filename}.`)
+      deps.download(result.blob, filename)
+      const size = formatBytes(result.blob.size)
+      const used = result.compression ? `${result.compression.dpi} dpi` : 'original images'
+      setLastExport({ size, used, fits: result.fits })
+      setStatus(`Saved ${filename} (${size}, ${used}).`)
+      if (!result.fits && settings.maxBytes !== null) {
+        notify(
+          `Couldn’t get under ${formatBytes(settings.maxBytes)}: the smallest version is ${size} at ${used}. It was saved anyway.`,
+        )
+      }
     } catch (error) {
       notify(`The PDF couldn’t be built: ${error instanceof Error ? error.message : String(error)}`)
       setStatus('Export failed.')
     } finally {
       setExporting({ busy: false, done: 0, total: 0 })
     }
-  }, [deps, doc, notify, pages.length, settings.title])
+  }, [deps, doc, notify, pages.length, settings.title, settings.maxBytes])
 
   const onRotate = useCallback(
     (id: string, by: -1 | 1) => {
@@ -277,6 +296,20 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
 
   const selectedAsset = selected ? assets[selected.assetId] : undefined
 
+  const estimate = useMemo(
+    () =>
+      estimateBytes(
+        pages.flatMap((page) => {
+          const asset = assets[page.assetId]
+          return asset
+            ? [{ asset, drawnWidthPt: layoutPage(settings, asset, page).image.width }]
+            : []
+        }),
+        compressionFor(settings.quality),
+      ),
+    [assets, pages, settings],
+  )
+
   return (
     <div className="relative min-h-dvh">
       <div className="grain pointer-events-none fixed inset-0 -z-10" aria-hidden="true" />
@@ -307,6 +340,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
               }}
               onAdd={chooseFiles}
               onExport={() => void onExport()}
+              estimate={estimate}
+              lastExport={lastExport}
             />
             <div className="mx-auto flex max-w-[1600px] flex-col gap-10 px-4 py-6 sm:px-6 lg:flex-row lg:items-start">
               <section aria-label="Pages" className="min-w-0 flex-1">

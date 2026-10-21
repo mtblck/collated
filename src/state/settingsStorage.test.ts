@@ -33,13 +33,22 @@ describe('settings storage', () => {
     const store = memory()
     store.setItem(
       'collated:settings',
-      JSON.stringify({ size: 'b5', unit: 'cm', margin: -4, orientation: 'portrait' }),
+      JSON.stringify({
+        size: 'b5',
+        unit: 'cm',
+        margin: -4,
+        orientation: 'portrait',
+        quality: 'ultra',
+        maxBytes: -1,
+      }),
     )
     expect(loadSettings(store, 'en-GB')).toMatchObject({
       size: 'a4',
       unit: 'mm',
       margin: 0,
       orientation: 'portrait',
+      quality: 'original',
+      maxBytes: null,
     })
     store.setItem('collated:settings', '{nope')
     expect(loadSettings(store, 'en-GB')).toEqual(defaultSettings('en-GB'))

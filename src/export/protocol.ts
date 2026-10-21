@@ -1,3 +1,4 @@
+import type { Compression } from '../core/compression'
 import type { BuildInput } from '../core/pdf'
 
 export interface ExportRequest {
@@ -7,6 +8,6 @@ export interface ExportRequest {
 }
 
 export type ExportResponse =
-  | { type: 'progress'; done: number; total: number }
-  | { type: 'done'; pdf: Uint8Array }
+  | { type: 'progress'; done: number; total: number; attempt: number }
+  | { type: 'done'; pdf: Uint8Array; compression: Compression | null; fits: boolean }
   | { type: 'error'; message: string }

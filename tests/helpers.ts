@@ -13,6 +13,8 @@ export const settings = (patch: Partial<Settings> = {}): Settings => ({
   orientation: 'auto',
   margin: 0,
   title: '',
+  quality: 'original',
+  maxBytes: null,
   ...patch,
 })
 

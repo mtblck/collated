@@ -553,7 +553,114 @@ await context.close()
   await ctx.close()
 }
 
-// 5. Phone-sized, dark. -------------------------------------------------------
+// 5. Compression and size limits. ---------------------------------------------
+{
+  const { context: ctx, page: p } = await open({
+    viewport: { width: 1440, height: 1000 },
+    locale: 'en-US',
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [
+    join(fixtures, 'scan-letter-300dpi.jpg'),
+    join(fixtures, 'scan-letter-300dpi.jpg'),
+  ])
+  await p.waitForSelector('ol[aria-label="2 pages"]')
+  const exportAndMeasure = async (name) => {
+    const [d] = await Promise.all([
+      p.waitForEvent('download'),
+      p.getByRole('button', { name: /Export PDF/ }).click(),
+    ])
+    const path = join(mkdtempSync(join(tmpdir(), 'collated-verify-size-')), name)
+    await d.saveAs(path)
+    await p.getByRole('button', { name: /Export PDF/ }).waitFor({ state: 'visible' })
+    await p.waitForFunction(() => !/Building|Shrinking/.test(document.body.innerText))
+    return { path, bytes: readFileSync(path).byteLength }
+  }
+  const original = await exportAndMeasure('original.pdf')
+
+  // The real popover: opened by its button, closed with Escape.
+  const optionsButton = p.getByRole('button', { name: /Export options/ })
+  await optionsButton.click()
+  const dialog = p.getByRole('dialog', { name: 'Export options' })
+  check(await dialog.isVisible(), 'export options open in a popover')
+  await axe(p, 'export options')
+  await dialog.getByRole('radio', { name: /Small/ }).check()
+  const estimateLabel = (await optionsButton.textContent()) ?? ''
+  await p.screenshot({ path: join(shots, 'export-options.png') })
+  await p.keyboard.press('Escape')
+  check(!(await dialog.isVisible()), 'Escape closes the export options')
+
+  const small = await exportAndMeasure('small.pdf')
+  check(
+    small.bytes < original.bytes * 0.5,
+    `Small quality shrinks a 300 dpi scan (${(original.bytes / 1e6).toFixed(2)} MB → ${(small.bytes / 1e6).toFixed(2)} MB)`,
+  )
+  const estimated = /≈ ([\d.]+) (KB|MB)/.exec(estimateLabel)
+  if (estimated) {
+    const est = Number(estimated[1]) * (estimated[2] === 'MB' ? 1024 * 1024 : 1024)
+    console.log(
+      `  --  estimate ${(est / 1e6).toFixed(2)} MB vs actual ${(small.bytes / 1e6).toFixed(2)} MB (${Math.round((est / small.bytes - 1) * 100)}%)`,
+    )
+  }
+  if (hasPoppler) {
+    const prefix = small.path.replace(/\.pdf$/, '')
+    execFileSync('pdftoppm', [
+      '-png',
+      '-r',
+      '72',
+      '-f',
+      '1',
+      '-l',
+      '1',
+      '-singlefile',
+      small.path,
+      prefix,
+    ])
+    const orig = original.path.replace(/\.pdf$/, '')
+    execFileSync('pdftoppm', [
+      '-png',
+      '-r',
+      '72',
+      '-f',
+      '1',
+      '-l',
+      '1',
+      '-singlefile',
+      original.path,
+      orig,
+    ])
+    const diff = await compareImages(
+      readFileSync(`${prefix}.png`).toString('base64'),
+      readFileSync(`${orig}.png`).toString('base64'),
+    )
+    check(
+      diff.farShare < 0.01,
+      `Small looks the same as Original at screen size (${(diff.farShare * 100).toFixed(2)}% of pixels differ)`,
+    )
+  }
+
+  // A limit tighter than Small: lower steps are tried until it fits.
+  await optionsButton.click()
+  const limit = dialog.getByLabel('Keep the file under')
+  const target = Math.max(0.1, Math.floor((small.bytes / (1024 * 1024)) * 6) / 10)
+  await limit.fill(String(target))
+  await limit.press('Enter')
+  await p.keyboard.press('Escape')
+  const limited = await exportAndMeasure('limited.pdf')
+  const alerts = await p.locator('[role="alert"]').allTextContents()
+  check(
+    limited.bytes <= target * 1024 * 1024 || alerts.some((a) => a.includes('Couldn’t get under')),
+    `a ${target} MB limit is met (${(limited.bytes / 1e6).toFixed(2)} MB) or reported`,
+  )
+  check(
+    /\d+ dpi/.test((await p.locator('#status').textContent()) ?? ''),
+    'the status reports which resolution the export used',
+    (await p.locator('#status').textContent()) ?? '',
+  )
+  await ctx.close()
+}
+
+// 6. Phone-sized, dark. -------------------------------------------------------
 {
   const { context: phone, page: p } = await open({
     viewport: { width: 390, height: 844 },

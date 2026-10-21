@@ -26,13 +26,15 @@ export default tseslint.config(
       '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
       '@typescript-eslint/consistent-type-imports': 'error',
       '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true }],
+      // Option labels wrap a radio plus a title and hint in nested spans.
+      'jsx-a11y/label-has-associated-control': ['error', { depth: 3 }],
     },
   },
   {
     // pdf-lib is ~240 KB gzipped and only needed to export: keep it in the
     // worker. Importing it (or core/pdf) from UI code puts it in the main bundle.
     files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/core/pdf.ts', 'src/core/pdf.test.ts', 'src/export/pdf.worker.ts'],
+    ignores: ['src/core/pdf.ts', 'src/**/*.test.ts', 'src/export/pdf.worker.ts'],
     rules: {
       '@typescript-eslint/no-restricted-imports': [
         'error',

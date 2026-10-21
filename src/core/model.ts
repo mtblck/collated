@@ -24,6 +24,12 @@ export type Filter = 'original' | 'grey' | 'bw'
 
 export type QuarterTurns = 0 | 1 | 2 | 3
 
+/**
+ * How images are stored in the PDF. `original` keeps them byte-for-byte; the
+ * others cap each image's printed resolution and re-encode it as JPEG.
+ */
+export type Quality = 'original' | 'high' | 'balanced' | 'small'
+
 export interface Settings {
   size: PageSizeId
   /** Used when size is `custom`; width and height in points. */
@@ -35,6 +41,9 @@ export interface Settings {
   margin: number
   /** PDF title metadata and the download filename. */
   title: string
+  quality: Quality
+  /** Optional ceiling on the exported file, in bytes; lower quality steps are tried to meet it. */
+  maxBytes: number | null
 }
 
 /**
