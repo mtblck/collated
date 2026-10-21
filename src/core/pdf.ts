@@ -16,15 +16,19 @@ import {
   setTextRenderingMode,
   showText,
   grayscale,
+  PDFName,
+  PDFString,
   type PDFFont,
   type PDFEmbeddedPage,
   type PDFImage,
   type PDFPage,
 } from '@cantoo/pdf-lib'
-import { layoutPage, type Layout } from './geometry'
+import { layoutPage, partLayout, visiblePart, type Layout, type Part } from './geometry'
 import { compressionFor, targetPixels, type Compression } from './compression'
 import { contentSize, type Asset, type Filter, type Page, type Settings } from './model'
-import type { Quad } from './perspective'
+import { FULL_IMAGE, apply, homography, type Quad } from './perspective'
+import { sanitizedPage } from './pdfSanitize'
+import { stripJpegMetadata } from './jpegClean'
 import { placeWord, type OcrWord } from './textLayer'
 import { NUMBER_GREY, numberMark } from './pageNumbers'
 
@@ -65,6 +69,13 @@ export interface ImageJob {
   filter: Filter
   /** Flatten this quadrilateral (fractions of the upright image) first. */
   corners: Quad | null
+  /**
+   * Keep only this rectangle of the upright image (no `corners`): the part a
+   * page shows when Fill or a scale past 100% hides the rest. With corners,
+   * the part is folded into them instead.
+   */
+  part: Part | null
+  /** Output pixels: of the part, when there is one. */
   width: number
   height: number
   format: 'jpeg' | 'png'
@@ -82,16 +93,32 @@ export const imageJob = (
   page: Pick<Page, 'filter'> & Partial<Pick<Page, 'corners'>>,
   drawnWidthPt: number,
   compression: Compression | null,
+  part: Part | null = null,
 ): ImageJob | null => {
   const { filter } = page
-  const corners = page.corners ?? null
-  if (asset.format === 'pdf' || (filter === 'original' && !compression && !corners)) return null
-  const { width, height } = targetPixels(contentSize(asset, page), drawnWidthPt, compression)
+  let corners = page.corners ?? null
+  if (asset.format === 'pdf' || (filter === 'original' && !compression && !corners && !part)) {
+    return null
+  }
+  const full = targetPixels(contentSize(asset, page), drawnWidthPt, compression)
+  const share = part ? { x: part.x1 - part.x0, y: part.y1 - part.y0 } : { x: 1, y: 1 }
+  if (part && corners) {
+    // A rectangle of the flattened page is a quadrilateral of the photo.
+    const h = homography(FULL_IMAGE, corners)
+    const at = (x: number, y: number) => apply(h, { x, y })
+    corners = [
+      at(part.x0, part.y0),
+      at(part.x1, part.y0),
+      at(part.x1, part.y1),
+      at(part.x0, part.y1),
+    ]
+  }
   return {
     filter,
     corners,
-    width,
-    height,
+    part: corners ? null : part,
+    width: Math.max(1, Math.round(full.width * share.x)),
+    height: Math.max(1, Math.round(full.height * share.y)),
     format: filter === 'bw' ? 'png' : 'jpeg',
     quality: compression?.quality ?? 0.9,
   }
@@ -117,11 +144,21 @@ const drawTextLayer = (page: PDFPage, font: PDFFont, layout: Layout, words: OcrW
     beginText(),
     setTextRenderingMode(TextRenderingMode.Invisible),
   )
+  const box = layout.content
   for (const word of words) {
     // pdf-lib substitutes "?" for characters the font lacks; skip instead.
     if (!encodable(word.text, supported)) continue
-    const encoded = font.encodeText(word.text)
     const at = placeWord(layout, word)
+    // Words the page hides (cropped by Fill or scale, or in the margins)
+    // aren't on the page, so they aren't in its text either.
+    const midX = at.x + at.width / 2
+    const midY = layout.page.height - at.y - at.size / 3
+    if (midX < box.x || midX > box.x + box.width || midY < box.y || midY > box.y + box.height) {
+      continue
+    }
+    // A trailing space so copied text and screen readers see separate words;
+    // the squeeze below spans the word itself.
+    const encoded = font.encodeText(`${word.text} `)
     const natural = font.widthOfTextAtSize(word.text, at.size)
     if (natural <= 0) continue
     page.pushOperators(
@@ -134,7 +171,7 @@ const drawTextLayer = (page: PDFPage, font: PDFFont, layout: Layout, words: OcrW
   page.pushOperators(endText(), popGraphicsState())
 }
 
-export const PRODUCER = 'Collated — mattblack.space/tools/collated'
+export const PRODUCER = 'Collated'
 
 /**
  * Where to put the stored content's bottom-left corner, and its size and
@@ -190,16 +227,24 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     input.compression === undefined ? compressionFor(settings.quality) : input.compression
   const now = options.now ?? new Date()
   const doc = await PDFDocument.create()
-  doc.setTitle(settings.title.trim() || 'Collated scans', { showInWindowTitleBar: true })
-  doc.setCreator('Collated')
+  // Only what the user chose to say: no default title, no tool URL, and the
+  // date without the time of day.
+  const title = settings.title.trim()
+  if (title) doc.setTitle(title, { showInWindowTitleBar: true })
+  doc.setCreator(PRODUCER)
   doc.setProducer(PRODUCER)
-  doc.setCreationDate(now)
-  doc.setModificationDate(now)
+  const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  doc.setCreationDate(day)
+  doc.setModificationDate(day)
+  // Screen readers pick a voice by the document's language. OCR reads English.
+  doc.catalog.set(PDFName.of('Lang'), PDFString.of('en'))
 
   // A duplicated page shares its content: embed each asset once, and parse
   // each source PDF once however many of its pages are used.
   type Embedded = ({ kind: 'image'; image: PDFImage } | { kind: 'page'; page: PDFEmbeddedPage }) & {
     turns: number
+    /** Holds only the visible part of the image (see `visiblePart`). */
+    cropped: boolean
   }
   const embedded = new Map<string, Embedded>()
   let font: PDFFont | undefined
@@ -224,36 +269,42 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
    */
   const embed = async (asset: BuildInput['assets'][string], job: ImageJob | null) => {
     const key = job
-      ? `${asset.id}:${job.filter}:${job.width}x${job.height}:${job.format}:${job.quality}:${JSON.stringify(job.corners)}`
+      ? `${asset.id}:${job.filter}:${job.width}x${job.height}:${job.format}:${job.quality}:${JSON.stringify(job.corners)}:${JSON.stringify(job.part)}`
       : asset.id
     const cached = embedded.get(key)
     if (cached) return cached
     let content: Embedded
     if (asset.format === 'pdf') {
       const src = await source(asset.bytesId)
-      const srcPage = src.getPage(asset.pdfPage ?? 0)
+      const srcPage = sanitizedPage(src, src.getPage(asset.pdfPage ?? 0))
       content = {
         kind: 'page',
         page: await doc.embedPage(srcPage, visibleBox(srcPage)),
         turns: asset.storedTurns,
+        cropped: false,
       }
     } else {
       const original = await options.getBytes(asset.bytesId)
       let bytes = original
       let format: 'jpeg' | 'png' = asset.format
       let turns = asset.storedTurns
+      let cropped = false
       if (job) {
         if (!options.processImage) throw new Error('This build can’t re-encode images.')
         const out = await options.processImage(original, job)
         // Filters and crops must apply; plain recompression only if it helps.
-        if (job.filter !== 'original' || job.corners || out.byteLength < original.byteLength) {
+        const must = job.filter !== 'original' || job.corners !== null || job.part !== null
+        if (must || out.byteLength < original.byteLength) {
           bytes = out
           format = job.format
           turns = 0
+          cropped = job.part !== null
         }
       }
-      const image = format === 'jpeg' ? await doc.embedJpg(bytes) : await doc.embedPng(bytes)
-      content = { kind: 'image', image, turns }
+      // Camera, time and GPS stay out of the file; the picture is untouched.
+      const image =
+        format === 'jpeg' ? await doc.embedJpg(stripJpegMetadata(bytes)) : await doc.embedPng(bytes)
+      content = { kind: 'image', image, turns, cropped }
     }
     embedded.set(key, content)
     return content
@@ -264,9 +315,10 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     if (!asset) throw new Error(`Page ${index + 1} refers to missing content.`)
     const layout = layoutPage(settings, asset, page)
     const pdfPage = doc.addPage([layout.page.width, layout.page.height])
-    const content = await embed(asset, imageJob(asset, page, layout.image.width, compression))
+    const part = asset.format === 'pdf' ? null : visiblePart(layout)
+    const content = await embed(asset, imageJob(asset, page, layout.image.width, compression, part))
     const box = layout.content
-    const at = placement(layout, content.turns)
+    const at = placement(content.cropped && part ? partLayout(layout, part) : layout, content.turns)
 
     // Clip to the printable area so a scaled-up or filled image never prints
     // into the margins — the preview clips the same way.

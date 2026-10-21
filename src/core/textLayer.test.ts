@@ -78,6 +78,46 @@ describe.skipIf(!hasPdftotext)('text layer', () => {
     }
   })
 
+  it('leaves out words the page hides (cropped off by Fill, or in the margins)', async () => {
+    // Filled onto a portrait page, the landscape image loses its left and
+    // right sides: words there aren't on the page, so not in its text.
+    const s = settings({ size: 'letter', orientation: 'portrait', margin: 36 })
+    const p = page('p', 'a', { fit: 'cover' })
+    const edges: OcrWord[] = [
+      { text: 'LeftEdge', x0: 0.02, y0: 0.5, x1: 0.12, y1: 0.56, baseline: 0.56 },
+      { text: 'Middle', x0: 0.45, y0: 0.5, x1: 0.55, y1: 0.56, baseline: 0.56 },
+      { text: 'RightEdge', x0: 0.88, y0: 0.5, x1: 0.98, y1: 0.56, baseline: 0.56 },
+    ]
+    const bytes = await buildPdf(
+      { settings: s, pages: [p], assets: { a: meta }, text: { p: edges } },
+      {
+        getBytes: () => jpeg,
+        processImage: () => Promise.resolve(jpeg),
+      },
+    )
+    expect(
+      readWords(bytes)
+        .map((w) => w.text)
+        .join(' '),
+    ).toBe('Middle')
+  })
+
+  it('separates words with spaces for copying and screen readers', async () => {
+    const bytes = await buildPdf(
+      {
+        settings: settings({ size: 'letter' }),
+        pages: [page('p', 'a')],
+        assets: { a: meta },
+        text: { p: words },
+      },
+      { getBytes: () => jpeg },
+    )
+    const plain = execFileSync('pdftotext', ['-raw', '-', '-'], {
+      input: Buffer.from(bytes),
+    }).toString()
+    expect(plain).toMatch(/Invoice\s+Total/)
+  })
+
   it('is invisible: the page renders the same with and without it', async () => {
     const s = settings({ size: 'letter' })
     const p = page('p', 'a')

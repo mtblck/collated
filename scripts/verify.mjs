@@ -28,7 +28,7 @@ const fixtures = join(root, 'tests', 'fixtures')
 const shots = join(root, process.env.SHOTS ?? 'shots')
 mkdirSync(shots, { recursive: true })
 const BASE = '/tools/collated/'
-const PORT = 4175
+const PORT = Number(process.env.VERIFY_PORT ?? 4175)
 const URL_ROOT = `http://localhost:${PORT}${BASE}`
 
 if (!existsSync(join(dist, 'tools', 'collated', 'index.html'))) {
@@ -320,6 +320,10 @@ check(
 check(
   pdfBytes.includes(readFileSync(join(fixtures, 'quad-landscape.jpg'))),
   'the plain JPEG is embedded byte-for-byte',
+)
+check(
+  !pdfBytes.includes(Buffer.from('Exif\0')) && !pdfBytes.includes(Buffer.from('mattblack.space')),
+  'no EXIF from the phone photo, and no tool URL, in the file',
 )
 
 // Preview ≡ PDF: render page 3 with poppler and compare it to the inspector's sheet.

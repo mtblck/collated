@@ -113,3 +113,71 @@ export const layoutPage = (
     dpi: source.width / (width / PT_PER_IN),
   }
 }
+
+/** Part of an image as fractions of its upright width and height. */
+export interface Part {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
+
+/** Below this hidden share of a side, an overflow is treated as rounding. */
+const HIDDEN_TOLERANCE = 0.005
+
+/**
+ * The part of the image the printable area shows, when the page hides some
+ * of it (Fill, or scaled past 100%): the image-space bounding box of the
+ * printable area, clamped to the image. Null when the whole image shows.
+ *
+ * The export stores only this part, so what the page hides isn't in the file.
+ */
+export const visiblePart = (layout: Layout): Part | null => {
+  const { cx, cy, width, height, rotation } = layout.image
+  const { x, y, width: w, height: h } = layout.content
+  const r = toRadians(rotation)
+  const cos = Math.cos(r)
+  const sin = Math.sin(r)
+  const us: number[] = []
+  const vs: number[] = []
+  for (const [px, py] of [
+    [x, y],
+    [x + w, y],
+    [x + w, y + h],
+    [x, y + h],
+  ] as const) {
+    // Undo the clockwise turn (screen space, y down) about the image centre.
+    const dx = px - cx
+    const dy = py - cy
+    us.push((dx * cos + dy * sin) / width + 0.5)
+    vs.push((-dx * sin + dy * cos) / height + 0.5)
+  }
+  const clamp = (n: number) => Math.min(1, Math.max(0, n))
+  const part = {
+    x0: clamp(Math.min(...us)),
+    y0: clamp(Math.min(...vs)),
+    x1: clamp(Math.max(...us)),
+    y1: clamp(Math.max(...vs)),
+  }
+  const t = HIDDEN_TOLERANCE
+  if (part.x0 <= t && part.y0 <= t && part.x1 >= 1 - t && part.y1 >= 1 - t) return null
+  return part
+}
+
+/** The layout of just `part` of the image: same place on the page, smaller. */
+export const partLayout = (layout: Layout, part: Part): Layout => {
+  const { cx, cy, width, height, rotation } = layout.image
+  const lx = ((part.x0 + part.x1) / 2 - 0.5) * width
+  const ly = ((part.y0 + part.y1) / 2 - 0.5) * height
+  const r = toRadians(rotation)
+  return {
+    ...layout,
+    image: {
+      cx: cx + lx * Math.cos(r) - ly * Math.sin(r),
+      cy: cy + lx * Math.sin(r) + ly * Math.cos(r),
+      width: width * (part.x1 - part.x0),
+      height: height * (part.y1 - part.y0),
+      rotation,
+    },
+  }
+}
