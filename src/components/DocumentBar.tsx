@@ -6,6 +6,7 @@ import { fromPoints, roundForUnit, toPoints } from '../core/units'
 import { Button, FieldLabel, IconButton, Segmented } from './controls'
 import {
   DownloadIcon,
+  LockIcon,
   PlusIcon,
   RedoIcon,
   RotateLeftIcon,
@@ -56,6 +57,7 @@ export const DocumentBar = ({
   lastExport,
   password,
   onPassword,
+  passwordError = null,
 }: {
   settings: Settings
   pageCount: number
@@ -72,8 +74,12 @@ export const DocumentBar = ({
   lastExport: { size: string; used: string; fits: boolean } | null
   password: string
   onPassword: (password: string) => void
+  /** Why the password can't be used, if it can't. */
+  passwordError?: string | null
 }) => {
   const id = useId()
+  const optionsId = `${id}-export-options`
+  const locked = password !== ''
   const { unit } = settings
   const inUnit = (points: number) => roundForUnit(fromPoints(points, unit), unit)
   const step = unit === 'in' ? 0.05 : 1
@@ -170,7 +176,9 @@ export const DocumentBar = ({
         />
 
         <div className="w-24">
-          <FieldLabel htmlFor={`${id}-margin`}>Margin</FieldLabel>
+          <FieldLabel htmlFor={`${id}-margin`}>
+            Margin <span className="sr-only">in {unit === 'in' ? 'inches' : 'millimetres'}</span>
+          </FieldLabel>
           <NumberField
             id={`${id}-margin`}
             value={inUnit(settings.margin)}
@@ -235,14 +243,16 @@ export const DocumentBar = ({
             role="group"
             aria-label="History"
           >
-            <IconButton label={`Undo (${mod}Z)`} disabled={!canUndo} onClick={onUndo}>
+            {/* Inactive rather than disabled: undoing the last step mustn't
+                drop focus from the button. */}
+            <IconButton label={`Undo (${mod}Z)`} inactive={!canUndo} onClick={onUndo}>
               <UndoIcon />
             </IconButton>
-            <IconButton label={`Redo (${mod}Shift+Z)`} disabled={!canRedo} onClick={onRedo}>
+            <IconButton label={`Redo (${mod}Shift+Z)`} inactive={!canRedo} onClick={onRedo}>
               <RedoIcon />
             </IconButton>
           </div>
-          <Button onClick={onAdd}>
+          <Button onClick={onAdd} data-focus-fallback>
             <PlusIcon width={16} height={16} />
             Add pages
           </Button>
@@ -255,16 +265,37 @@ export const DocumentBar = ({
             canExport={pageCount > 0 && !exporting.busy}
             password={password}
             onPassword={onPassword}
+            passwordError={passwordError}
+            panelId={optionsId}
           />
-          <Button variant="primary" disabled={pageCount === 0 || exporting.busy} onClick={onExport}>
-            <DownloadIcon width={16} height={16} />
+          <Button
+            variant="primary"
+            disabled={pageCount === 0}
+            // Stays focusable while busy, so focus isn't dropped mid-export.
+            inactive={exporting.busy}
+            {...(passwordError ? { 'aria-describedby': `${optionsId}-password-error` } : {})}
+            onClick={() => {
+              if (passwordError) {
+                // Show the problem where it can be fixed.
+                try {
+                  document.getElementById(optionsId)?.showPopover()
+                } catch {
+                  /* already open, or no popover support */
+                }
+                document.getElementById(`${optionsId}-password`)?.focus()
+                return
+              }
+              onExport()
+            }}
+          >
+            {locked ? <LockIcon width={16} height={16} /> : <DownloadIcon width={16} height={16} />}
             {exporting.busy
               ? exporting.phase === 'ocr'
                 ? `Reading text ${exporting.done + 1}/${exporting.total}…`
                 : (exporting.attempt ?? 1) > 1
                   ? `Shrinking, try ${exporting.attempt} · ${exporting.done}/${exporting.total}…`
                   : `Building ${exporting.done}/${exporting.total}…`
-              : `Export PDF · ${pageCount} ${pageCount === 1 ? 'page' : 'pages'}`}
+              : `Export ${locked ? 'locked ' : ''}PDF · ${pageCount} ${pageCount === 1 ? 'page' : 'pages'}`}
           </Button>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { QUALITY_PRESETS } from '../core/compression'
 import type { NumberPosition, Quality, Settings } from '../core/model'
 import { formatBytes } from '../core/units'
@@ -36,6 +36,8 @@ export const ExportOptions = ({
   canExport,
   password,
   onPassword,
+  passwordError = null,
+  panelId: givenPanelId,
 }: {
   settings: Pick<Settings, 'quality' | 'maxBytes' | 'pageNumbers' | 'ocr'>
   /** Estimated bytes for the current pages and quality. */
@@ -47,9 +49,37 @@ export const ExportOptions = ({
   /** Held in memory for this visit only — never saved. */
   password: string
   onPassword: (password: string) => void
+  /** Why the password can't be used, shown under the field. */
+  passwordError?: string | null
+  /** The panel's id; `${panelId}-password` is the password field's. */
+  panelId?: string
 }) => {
   const id = useId()
-  const panelId = `${id}-export-options`
+  const panelId = givenPanelId ?? `${id}-export-options`
+  const passwordId = `${panelId}-password`
+  const [showPassword, setShowPassword] = useState(false)
+  const panel = useRef<HTMLDivElement>(null)
+
+  // popover="auto" stays open when Tab leaves it, covering the page behind
+  // (the inspector, on a laptop); close it when focus moves outside.
+  useEffect(() => {
+    const el = panel.current
+    if (!el) return
+    const onFocusOut = (event: FocusEvent) => {
+      const next = event.relatedTarget
+      if (!(next instanceof HTMLElement) || el.contains(next)) return
+      if (next.getAttribute('popovertarget') === panelId) return // its own toggle
+      try {
+        if (el.matches(':popover-open')) el.hidePopover()
+      } catch {
+        /* no popover support (jsdom) */
+      }
+    }
+    el.addEventListener('focusout', onFocusOut)
+    return () => {
+      el.removeEventListener('focusout', onFocusOut)
+    }
+  }, [panelId])
   const current = OPTIONS.find((o) => o.value === settings.quality)?.label ?? 'Original'
 
   return (
@@ -72,6 +102,7 @@ export const ExportOptions = ({
         popover="auto"
         role="dialog"
         aria-labelledby={`${id}-title`}
+        ref={panel}
         className={cx(
           'm-0 max-h-[calc(100dvh-2rem)] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto border border-rule bg-paper p-5 text-ink shadow-xl',
           'lg:max-h-[calc(100dvh-7rem)]',
@@ -117,7 +148,7 @@ export const ExportOptions = ({
 
         <div className="mt-4">
           <label htmlFor={`${id}-max`} className="label mb-2 block text-ink-faint">
-            Keep the file under
+            Keep the file under <span className="sr-only">(megabytes)</span>
           </label>
           <div className="flex items-center gap-3">
             <NumberField
@@ -158,13 +189,13 @@ export const ExportOptions = ({
             Make text searchable (OCR)
           </label>
           <p id={`${id}-ocr-hint`} className="mt-1 ml-6 text-xs text-ink-muted">
-            English. Recognised on this device — nothing is uploaded. The first time, it downloads
+            English. Recognised on this device — nothing is uploaded. The text is added to the PDF
+            invisibly, so anyone with the file can search and copy it. The first time, it downloads
             about 4 MB; then a few seconds per page.
           </p>
         </div>
 
-        <fieldset className="mt-4">
-          <legend className="sr-only">Page numbers</legend>
+        <div className="mt-4">
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -177,7 +208,11 @@ export const ExportOptions = ({
             Page numbers
           </label>
           {settings.pageNumbers.show && (
-            <div className="mt-3 flex items-end gap-3">
+            <div
+              className="mt-3 flex items-end gap-3"
+              role="group"
+              aria-label="Page number options"
+            >
               <div className="flex-1">
                 <label htmlFor={`${id}-numpos`} className="label mb-2 block text-ink-faint">
                   Position
@@ -218,27 +253,51 @@ export const ExportOptions = ({
               </div>
             </div>
           )}
-        </fieldset>
+        </div>
 
         <div className="mt-4">
-          <label htmlFor={`${id}-password`} className="label mb-2 block text-ink-faint">
+          <label htmlFor={passwordId} className="label mb-2 block text-ink-faint">
             Password to open
           </label>
-          <input
-            id={`${id}-password`}
-            type="password"
-            className="field w-full"
-            value={password}
-            autoComplete="new-password"
-            placeholder="None"
-            aria-describedby={`${id}-password-hint`}
-            onChange={(event) => {
-              onPassword(event.target.value)
-            }}
-          />
-          <p id={`${id}-password-hint`} className="mt-1.5 text-xs text-ink-muted">
-            Optional. Encrypts the PDF (AES-256). Not saved anywhere — if you lose it, the file
-            can’t be opened.
+          <div className="flex gap-2">
+            <input
+              id={passwordId}
+              type={showPassword ? 'text' : 'password'}
+              className="field min-w-0 flex-1"
+              value={password}
+              // Not saved anywhere, so don't invite a password manager to save
+              // or generate one.
+              autoComplete="off"
+              data-1p-ignore
+              data-lpignore="true"
+              spellCheck={false}
+              autoCapitalize="off"
+              placeholder="None"
+              aria-invalid={passwordError ? true : undefined}
+              aria-describedby={cx(passwordError && `${passwordId}-error`, `${passwordId}-hint`)}
+              onChange={(event) => {
+                onPassword(event.target.value)
+              }}
+            />
+            <Button
+              aria-pressed={showPassword}
+              aria-controls={passwordId}
+              onClick={() => {
+                setShowPassword((shown) => !shown)
+              }}
+            >
+              Show <span className="sr-only">password</span>
+            </Button>
+          </div>
+          {passwordError && (
+            <p id={`${passwordId}-error`} className="mt-1.5 text-xs text-accent">
+              {passwordError}
+            </p>
+          )}
+          <p id={`${passwordId}-hint`} className="mt-1.5 text-xs text-ink-muted">
+            Optional. Encrypts the PDF’s contents (AES-256); the file’s name (from the title) and
+            its number of pages aren’t hidden. Not saved anywhere — if you lose it, the file can’t
+            be opened.
           </p>
         </div>
 
@@ -260,7 +319,7 @@ export const ExportOptions = ({
         <Button
           variant="primary"
           className="mt-4 w-full"
-          disabled={!canExport}
+          disabled={!canExport || Boolean(passwordError)}
           onClick={(event) => {
             event.currentTarget.closest<HTMLElement>('[popover]')?.hidePopover()
             onExport()
