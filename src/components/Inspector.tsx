@@ -1,7 +1,7 @@
 import { useId, useMemo, type ReactNode } from 'react'
 import { layoutPage } from '../core/geometry'
 import type { Asset, FitMode, Page, PageTransform, Settings } from '../core/model'
-import { ANGLE_LIMIT, SCALE_MAX, SCALE_MIN } from '../core/model'
+import { ANGLE_LIMIT, SCALE_MAX, SCALE_MIN, isVector } from '../core/model'
 import { formatBytes, formatLength } from '../core/units'
 import { Button, IconButton, Segmented } from './controls'
 import {
@@ -60,7 +60,8 @@ export const Inspector = ({
 }) => {
   const id = useId()
   const layout = useMemo(() => layoutPage(settings, asset, page), [settings, asset, page])
-  const lowRes = layout.dpi < LOW_DPI
+  const vector = isVector(asset)
+  const lowRes = !vector && layout.dpi < LOW_DPI
   // Hug landscape pages; give tall pages a 3:4 box so the panel stays short.
   const boxRatio = Math.max(layout.page.width / layout.page.height, 3 / 4)
   const percent = Math.round(page.scale * 100)
@@ -173,20 +174,31 @@ export const Inspector = ({
       </div>
 
       <dl className="divide-y divide-rule-soft border-y border-rule">
-        <Stat term="Image">
-          {asset.width} × {asset.height} px · {asset.format.toUpperCase()}
-        </Stat>
+        {vector ? (
+          <Stat term="Source">
+            PDF page {(asset.pdfPage ?? 0) + 1} · {formatLength(asset.width, settings.unit)} ×{' '}
+            {formatLength(asset.height, settings.unit)}
+          </Stat>
+        ) : (
+          <Stat term="Image">
+            {asset.width} × {asset.height} px · {asset.format.toUpperCase()}
+          </Stat>
+        )}
         <Stat term="Page">
           {formatLength(layout.page.width, settings.unit)} ×{' '}
           {formatLength(layout.page.height, settings.unit)}
         </Stat>
         <Stat term="Prints at">
-          <span className={lowRes ? 'text-accent' : undefined}>
-            {Math.round(layout.dpi)} dpi
-            {lowRes && <span className="ml-1 text-xs">· may look soft</span>}
-          </span>
+          {vector ? (
+            'Vector, any size'
+          ) : (
+            <span className={lowRes ? 'text-accent' : undefined}>
+              {Math.round(layout.dpi)} dpi
+              {lowRes && <span className="ml-1 text-xs">· may look soft</span>}
+            </span>
+          )}
         </Stat>
-        <Stat term="Stored">{formatBytes(asset.byteLength)}</Stat>
+        <Stat term={vector ? 'Source file' : 'Stored'}>{formatBytes(asset.byteLength)}</Stat>
       </dl>
 
       <div className="flex flex-wrap gap-2">

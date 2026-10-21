@@ -7,7 +7,9 @@ export type Progress = (done: number, total: number) => void
 const request = (state: DocState): ExportRequest => {
   const used = new Set(state.pages.map((p) => p.assetId))
   const assets = Object.fromEntries(Object.entries(state.assets).filter(([id]) => used.has(id)))
-  const bytes = Object.fromEntries([...used].map((id) => [id, assetStore.get(id)]))
+  // Pages of one PDF share its bytes: send each file once.
+  const bytesIds = new Set(Object.values(assets).map((a) => a.bytesId))
+  const bytes = Object.fromEntries([...bytesIds].map((id) => [id, assetStore.get(id)]))
   return { input: { settings: state.settings, pages: state.pages, assets }, bytes }
 }
 

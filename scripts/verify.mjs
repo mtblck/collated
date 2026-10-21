@@ -42,6 +42,7 @@ const headerBlock = vercel.headers.find((b) => b.source === `${BASE}(.*)`)
 const types = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
   '.css': 'text/css',
   '.svg': 'image/svg+xml',
   '.woff2': 'font/woff2',
@@ -100,6 +101,61 @@ const axe = async (page, label) => {
       .map((v) => `${v.id}: ${v.help} — ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)
       .join('\n      '),
   )
+}
+
+/**
+ * Compares two PNGs (base64) in a blank page: both scaled to 120 px wide, the
+ * share of pixels whose colour differs by more than 64/255. Edge anti-aliasing
+ * and JPEG ringing stay well under 3%; misplaced content doesn't.
+ */
+/** Screenshot options for a sheet: the margin guide is UI, not part of the PDF. */
+const sheetShot = {
+  animations: 'disabled',
+  style: '[data-margin-guide] { outline: none !important; }',
+}
+
+const compareImages = async (a, b) => {
+  const compare = await browser.newPage()
+  try {
+    return await compare.evaluate(
+      async ([srcA, srcB]) => {
+        const load = (src) =>
+          new Promise((resolve) => {
+            const img = new Image()
+            img.onload = () => resolve(img)
+            img.src = `data:image/png;base64,${src}`
+          })
+        const [ia, ib] = await Promise.all([load(srcA), load(srcB)])
+        const W = 120
+        const H = Math.round((W * ia.height) / ia.width)
+        const pixels = (img) => {
+          const c = document.createElement('canvas')
+          c.width = W
+          c.height = H
+          const ctx = c.getContext('2d')
+          ctx.drawImage(img, 0, 0, W, H)
+          return ctx.getImageData(0, 0, W, H).data
+        }
+        const pa = pixels(ia)
+        const pb = pixels(ib)
+        let total = 0
+        let far = 0
+        for (let i = 0; i < pa.length; i += 4) {
+          const d =
+            (Math.abs(pa[i] - pb[i]) +
+              Math.abs(pa[i + 1] - pb[i + 1]) +
+              Math.abs(pa[i + 2] - pb[i + 2])) /
+            3
+          total += d
+          if (d > 64) far += 1
+        }
+        return { mean: total / (pa.length / 4), farShare: far / (pa.length / 4) }
+      },
+      [a, b],
+    )
+  } finally {
+    await compare.close()
+  }
 }
 
 const pageNames = (page) =>
@@ -287,47 +343,10 @@ if (hasPoppler) {
   ])
   const rendered = readFileSync(`${prefix}.png`).toString('base64')
   const sheet = inspector.locator('.sheet').first()
-  const preview = (await sheet.screenshot({ animations: 'disabled' })).toString('base64')
+  const preview = (await sheet.screenshot(sheetShot)).toString('base64')
   writeFileSync(join(shots, 'page3-pdf.png'), Buffer.from(rendered, 'base64'))
   writeFileSync(join(shots, 'page3-preview.png'), Buffer.from(preview, 'base64'))
-  const compare = await browser.newPage()
-  const diff = await compare.evaluate(
-    async ([a, b]) => {
-      const load = (src) =>
-        new Promise((resolve) => {
-          const img = new Image()
-          img.onload = () => resolve(img)
-          img.src = `data:image/png;base64,${src}`
-        })
-      const [ia, ib] = await Promise.all([load(a), load(b)])
-      const W = 120
-      const H = Math.round((W * ia.height) / ia.width)
-      const pixels = (img) => {
-        const c = document.createElement('canvas')
-        c.width = W
-        c.height = H
-        const ctx = c.getContext('2d')
-        ctx.drawImage(img, 0, 0, W, H)
-        return ctx.getImageData(0, 0, W, H).data
-      }
-      const pa = pixels(ia)
-      const pb = pixels(ib)
-      let total = 0
-      let far = 0
-      for (let i = 0; i < pa.length; i += 4) {
-        const d =
-          (Math.abs(pa[i] - pb[i]) +
-            Math.abs(pa[i + 1] - pb[i + 1]) +
-            Math.abs(pa[i + 2] - pb[i + 2])) /
-          3
-        total += d
-        if (d > 64) far += 1
-      }
-      return { mean: total / (pa.length / 4), farShare: far / (pa.length / 4) }
-    },
-    [rendered, preview],
-  )
-  await compare.close()
+  const diff = await compareImages(rendered, preview)
   // Edge anti-aliasing and JPEG ringing differ; misplacement shows up as a
   // large share of pixels in the wrong colour.
   check(
@@ -343,7 +362,92 @@ await page.getByRole('button', { name: 'Dismiss' }).first().click()
 check((await page.locator('[role="alert"]').count()) === 0, 'notices can be dismissed')
 await context.close()
 
-// 3. Phone-sized, dark. -------------------------------------------------------
+// 3. PDFs: merge pages from PDFs alongside images. ----------------------------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles(
+    '[data-testid="file-input"]',
+    [
+      'quad-3pages.pdf',
+      'quad-rotate90.pdf',
+      'quad-password.pdf',
+      'quad-owner-locked.pdf',
+      'quad-landscape.jpg',
+    ].map((f) => join(fixtures, f)),
+  )
+  await p.waitForSelector('ol[aria-label="8 pages"]', { timeout: 20_000 })
+  ok('imported 3 + 1 + 3 PDF pages and an image; the password-protected PDF was skipped')
+  const alertText = (await p.locator('[role="alert"]').allTextContents()).join(' ')
+  check(
+    /quad-password\.pdf: .*password/i.test(alertText),
+    'the password-protected PDF is reported by name',
+    alertText,
+  )
+  const rotated = await p.$eval('[aria-label="Page 4: quad-rotate90.pdf"] img', (img) => ({
+    w: img.naturalWidth,
+    h: img.naturalHeight,
+  }))
+  check(
+    rotated.w > rotated.h,
+    'a PDF page with /Rotate 90 previews upright (landscape)',
+    JSON.stringify(rotated),
+  )
+  await p.getByRole('button', { name: 'Page 4: quad-rotate90.pdf' }).click()
+  const inspectorPdf = p.locator('aside[aria-label="Selected page"]')
+  check(
+    (await inspectorPdf.textContent())?.includes('Vector, any size') ?? false,
+    'the inspector reports PDF pages as vector',
+  )
+  await p.screenshot({ path: join(shots, 'pdf-merge.png'), fullPage: true })
+  await axe(p, 'PDF pages')
+
+  const [dl] = await Promise.all([
+    p.waitForEvent('download'),
+    p.getByRole('button', { name: /Export PDF/ }).click(),
+  ])
+  const outPath = join(mkdtempSync(join(tmpdir(), 'collated-verify-pdf-')), 'merged.pdf')
+  await dl.saveAs(outPath)
+  const merged = await PDFDocument.load(readFileSync(outPath))
+  check(merged.getPageCount() === 8, 'merged PDF has all 8 pages', String(merged.getPageCount()))
+  const images =
+    readFileSync(outPath)
+      .toString('latin1')
+      .match(/\/Subtype\s*\/Image/g) ?? []
+  check(
+    images.length === 1,
+    'PDF pages stay vector (the only raster is the JPEG)',
+    `${images.length} images`,
+  )
+
+  if (hasPoppler) {
+    // Preview ≡ PDF for the rotated PDF page, as for images above.
+    const prefix = outPath.replace(/\.pdf$/, '')
+    execFileSync('pdftoppm', [
+      '-png',
+      '-r',
+      '72',
+      '-f',
+      '4',
+      '-l',
+      '4',
+      '-singlefile',
+      outPath,
+      prefix,
+    ])
+    const diff = await compareImages(
+      readFileSync(`${prefix}.png`).toString('base64'),
+      (await inspectorPdf.locator('.sheet').first().screenshot(sheetShot)).toString('base64'),
+    )
+    check(
+      diff.farShare < 0.03,
+      `rotated PDF page: preview matches the export (${(diff.farShare * 100).toFixed(2)}% of pixels differ)`,
+    )
+  }
+  await ctx.close()
+}
+
+// 4. Phone-sized, dark. -------------------------------------------------------
 {
   const { context: phone, page: p } = await open({
     viewport: { width: 390, height: 844 },

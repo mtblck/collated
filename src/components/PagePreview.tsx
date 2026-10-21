@@ -39,6 +39,7 @@ export const PagePreview = ({
         style={{ aspectRatio: `${page.width} / ${page.height}` }}
       >
         <div
+          data-margin-guide={showMargins || undefined}
           className={cx(
             'absolute overflow-hidden',
             showMargins &&
