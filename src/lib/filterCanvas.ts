@@ -1,6 +1,7 @@
 import { applyFilter, filterEncoding } from '../core/filters'
 import type { Filter } from '../core/model'
 import type { ImageJob } from '../core/pdf'
+import { rotatedBounds } from '../core/geometry'
 import { toPixels, warp, warpSize, type Quad } from '../core/perspective'
 
 /**
@@ -101,3 +102,49 @@ export const processToBlob = (source: Blob, job: ImageJob) =>
     job.format === 'png' ? { type: 'image/png' } : { type: 'image/jpeg', quality: job.quality },
     job.corners,
   )
+
+/**
+ * The image a page shows, as it shows it — cropped, then turned and
+ * straightened — on white, at most `maxEdge` pixels on its long side. This is
+ * what OCR reads, so a photo turned upright is read upright and word boxes are
+ * fractions of the displayed image (see core/textLayer.ts).
+ */
+export const displayedToBlob = async (
+  source: Blob,
+  corners: Quad | null,
+  rotation: number,
+  maxEdge: number,
+) => {
+  // Crop first, at a size whose rotated bounds fit `maxEdge`.
+  const content = await createImageBitmap(
+    await render(
+      source,
+      (natural) => {
+        const bounds = rotatedBounds(natural.width, natural.height, rotation)
+        const scale = Math.min(1, maxEdge / Math.max(bounds.width, bounds.height))
+        return {
+          width: Math.max(1, Math.round(natural.width * scale)),
+          height: Math.max(1, Math.round(natural.height * scale)),
+        }
+      },
+      'original',
+      { type: 'image/png' },
+      corners,
+    ),
+  )
+  try {
+    const bounds = rotatedBounds(content.width, content.height, rotation)
+    const width = Math.max(1, Math.round(bounds.width))
+    const height = Math.max(1, Math.round(bounds.height))
+    const canvas = new OffscreenCanvas(width, height)
+    const ctx = context(canvas, false)
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, width, height)
+    ctx.translate(width / 2, height / 2)
+    ctx.rotate((rotation * Math.PI) / 180)
+    ctx.drawImage(content, -content.width / 2, -content.height / 2)
+    return { blob: await canvas.convertToBlob({ type: 'image/png' }), width, height }
+  } finally {
+    content.close()
+  }
+}

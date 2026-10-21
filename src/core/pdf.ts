@@ -7,6 +7,14 @@ import {
   pushGraphicsState,
   rectangle,
   StandardFonts,
+  TextRenderingMode,
+  beginText,
+  endText,
+  setCharacterSqueeze,
+  setFontAndSize,
+  setTextMatrix,
+  setTextRenderingMode,
+  showText,
   grayscale,
   type PDFFont,
   type PDFEmbeddedPage,
@@ -17,6 +25,7 @@ import { layoutPage, type Layout } from './geometry'
 import { compressionFor, targetPixels, type Compression } from './compression'
 import { contentSize, type Asset, type Filter, type Page, type Settings } from './model'
 import type { Quad } from './perspective'
+import { placeWord, type OcrWord } from './textLayer'
 import { NUMBER_GREY, numberMark } from './pageNumbers'
 
 export interface BuildInput {
@@ -29,6 +38,8 @@ export interface BuildInput {
   pages: Page[]
   /** Encrypts the PDF (AES-256) so it opens only with this. Never stored. */
   password?: string
+  /** Recognised words per page id, written as an invisible, searchable text layer. */
+  text?: Record<string, OcrWord[]>
   assets: Record<
     string,
     Pick<Asset, 'id' | 'width' | 'height' | 'format' | 'storedTurns' | 'bytesId' | 'pdfPage'>
@@ -84,6 +95,43 @@ export const imageJob = (
     format: filter === 'bw' ? 'png' : 'jpeg',
     quality: compression?.quality ?? 0.9,
   }
+}
+
+/**
+ * Invisible text (rendering mode 3) over each recognised word: selectable and
+ * searchable, never drawn. Each word is squeezed horizontally to span the
+ * printed word exactly. Words the standard font can't encode (outside
+ * Windows-1252) are skipped rather than mangled.
+ */
+/** Whether every code point (not UTF-16 unit) of `text` is in the font. */
+const encodable = (text: string, supported: Set<number>) => {
+  for (const ch of text) if (!supported.has(ch.codePointAt(0) ?? -1)) return false
+  return true
+}
+
+const drawTextLayer = (page: PDFPage, font: PDFFont, layout: Layout, words: OcrWord[]) => {
+  const key = page.node.newFontDictionary(font.name, font.ref)
+  const supported = new Set(font.getCharacterSet())
+  page.pushOperators(
+    pushGraphicsState(),
+    beginText(),
+    setTextRenderingMode(TextRenderingMode.Invisible),
+  )
+  for (const word of words) {
+    // pdf-lib substitutes "?" for characters the font lacks; skip instead.
+    if (!encodable(word.text, supported)) continue
+    const encoded = font.encodeText(word.text)
+    const at = placeWord(layout, word)
+    const natural = font.widthOfTextAtSize(word.text, at.size)
+    if (natural <= 0) continue
+    page.pushOperators(
+      setFontAndSize(key, at.size),
+      setCharacterSqueeze((at.width / natural) * 100),
+      setTextMatrix(1, 0, 0, 1, at.x, at.y),
+      showText(encoded),
+    )
+  }
+  page.pushOperators(endText(), popGraphicsState())
 }
 
 export const PRODUCER = 'Collated — mattblack.space/tools/collated'
@@ -155,6 +203,7 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
   }
   const embedded = new Map<string, Embedded>()
   let font: PDFFont | undefined
+  let textFont: PDFFont | undefined
   const sources = new Map<string, Promise<PDFDocument>>()
   const source = (bytesId: string) => {
     let loaded = sources.get(bytesId)
@@ -231,6 +280,12 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     if (content.kind === 'page') pdfPage.drawPage(content.page, draw)
     else pdfPage.drawImage(content.image, draw)
     pdfPage.pushOperators(popGraphicsState())
+
+    const words = input.text?.[page.id]
+    if (words?.length) {
+      textFont ??= await doc.embedFont(StandardFonts.Helvetica)
+      drawTextLayer(pdfPage, textFont, layout, words)
+    }
 
     const mark = numberMark(settings.pageNumbers, index, layout.page, layout.content.x)
     if (mark) {

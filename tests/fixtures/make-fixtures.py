@@ -94,6 +94,24 @@ large.save(HERE / "scan-letter-300dpi.jpg", quality=92)
 skewed = doc.rotate(-4, resample=Image.Resampling.BICUBIC, expand=True, fillcolor=(70, 62, 55))
 skewed.save(HERE / "doc-skewed-4deg.jpg", quality=88)
 
+# A page of real printed text for OCR, stored sideways (as a phone photo of a
+# page held landscape would be) so the test also covers reading after a turn.
+from PIL import ImageFont
+
+font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 34)
+text_page = Image.new("RGB", (1275, 1650), (250, 249, 245))
+td = ImageDraw.Draw(text_page)
+for i, line in enumerate(
+    [
+        "Collated verification page",
+        "The quick brown fox jumps over the lazy dog.",
+        "Invoice number 4417, total due 1,234.56",
+        "Searchable text should land on these words.",
+    ]
+):
+    td.text((110, 160 + i * 70), line, font=font, fill=(25, 25, 30))
+text_page.transpose(Image.Transpose.ROTATE_90).save(HERE / "text-page-sideways.jpg", quality=90)
+
 # An iPhone-style HEIC of the quadrant image. Needs pillow-heif; skipped (and
 # the committed file kept) when it isn't installed.
 try:

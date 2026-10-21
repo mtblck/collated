@@ -2,13 +2,15 @@
 
 Collated is MIT-licensed. It ships these libraries in its built files:
 
-| Library                                                                                                             | Licence    | Used for                                          | Loaded                                                        |
-| ------------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------- | ------------------------------------------------------------- |
-| [React](https://react.dev)                                                                                          | MIT        | UI                                                | Always                                                        |
-| [@dnd-kit](https://dndkit.com) (`react`, `dom`)                                                                     | MIT        | Drag-and-drop reordering                          | Always                                                        |
-| [@cantoo/pdf-lib](https://github.com/cantoo-scribe/pdf-lib)                                                         | MIT        | Building the PDF                                  | On export (worker)                                            |
-| [pdf.js](https://mozilla.github.io/pdf.js/) (`pdfjs-dist`)                                                          | Apache-2.0 | Reading dropped PDFs and drawing their thumbnails | When a PDF is added                                           |
-| [libheif](https://github.com/strukturag/libheif) via [libheif-js](https://github.com/catdad-experiments/libheif-js) | LGPL-3.0   | Decoding HEIC photos where the browser can't      | When a HEIC file is added in a browser without native support |
+| Library                                                                                                             | Licence                      | Used for                                          | Loaded                                                        |
+| ------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------- | ------------------------------------------------------------- |
+| [React](https://react.dev)                                                                                          | MIT                          | UI                                                | Always                                                        |
+| [@dnd-kit](https://dndkit.com) (`react`, `dom`)                                                                     | MIT                          | Drag-and-drop reordering                          | Always                                                        |
+| [@cantoo/pdf-lib](https://github.com/cantoo-scribe/pdf-lib)                                                         | MIT                          | Building the PDF                                  | On export (worker)                                            |
+| [pdf.js](https://mozilla.github.io/pdf.js/) (`pdfjs-dist`)                                                          | Apache-2.0                   | Reading dropped PDFs and drawing their thumbnails | When a PDF is added                                           |
+| [tesseract.js](https://github.com/naptha/tesseract.js) and tesseract.js-core                                        | Apache-2.0                   | OCR                                               | When "Make text searchable" is on, at export                  |
+| [English language data](https://github.com/naptha/tessdata) (`@tesseract.js-data/eng`, 4.0.0 best_int)              | Apache-2.0 data, MIT package | OCR                                               | With OCR                                                      |
+| [libheif](https://github.com/strukturag/libheif) via [libheif-js](https://github.com/catdad-experiments/libheif-js) | LGPL-3.0                     | Decoding HEIC photos where the browser can't      | When a HEIC file is added in a browser without native support |
 
 ## libheif (LGPL-3.0)
 

@@ -1,5 +1,6 @@
 import type { Compression } from '../core/compression'
 import type { DocState } from '../core/model'
+import type { OcrWord } from '../core/textLayer'
 import { assetStore } from '../import/assetStore'
 import type { ExportRequest, ExportResponse } from './protocol'
 
@@ -13,7 +14,11 @@ export interface Exported {
   fits: boolean
 }
 
-const request = (state: DocState, password?: string): ExportRequest => {
+const request = (
+  state: DocState,
+  password?: string,
+  text?: Record<string, OcrWord[]>,
+): ExportRequest => {
   const used = new Set(state.pages.map((p) => p.assetId))
   const assets = Object.fromEntries(Object.entries(state.assets).filter(([id]) => used.has(id)))
   // Pages of one PDF share its bytes: send each file once.
@@ -25,6 +30,7 @@ const request = (state: DocState, password?: string): ExportRequest => {
       pages: state.pages,
       assets,
       ...(password ? { password } : {}),
+      ...(text ? { text } : {}),
     },
     bytes,
   }
@@ -34,9 +40,9 @@ const request = (state: DocState, password?: string): ExportRequest => {
 export const exportPdf = (
   state: DocState,
   onProgress?: Progress,
-  options: { password?: string } = {},
+  options: { password?: string; text?: Record<string, OcrWord[]> } = {},
 ): Promise<Exported> => {
-  const message = request(state, options.password)
+  const message = request(state, options.password, options.text)
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./pdf.worker.ts', import.meta.url), {
       type: 'module',

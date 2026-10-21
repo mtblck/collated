@@ -32,6 +32,8 @@ export interface ExportState {
   total: number
   /** Above 1 when a size limit forced a retry at lower quality. */
   attempt?: number
+  /** Reading text before the build. */
+  phase?: 'ocr'
 }
 
 /**
@@ -257,9 +259,11 @@ export const DocumentBar = ({
           <Button variant="primary" disabled={pageCount === 0 || exporting.busy} onClick={onExport}>
             <DownloadIcon width={16} height={16} />
             {exporting.busy
-              ? (exporting.attempt ?? 1) > 1
-                ? `Shrinking, try ${exporting.attempt} · ${exporting.done}/${exporting.total}…`
-                : `Building ${exporting.done}/${exporting.total}…`
+              ? exporting.phase === 'ocr'
+                ? `Reading text ${exporting.done + 1}/${exporting.total}…`
+                : (exporting.attempt ?? 1) > 1
+                  ? `Shrinking, try ${exporting.attempt} · ${exporting.done}/${exporting.total}…`
+                  : `Building ${exporting.done}/${exporting.total}…`
               : `Export PDF · ${pageCount} ${pageCount === 1 ? 'page' : 'pages'}`}
           </Button>
         </div>

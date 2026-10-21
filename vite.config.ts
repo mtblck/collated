@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { ocrAssets } from './ocr-assets'
 
 export const SLUG = 'collated'
 const BASE = `/tools/${SLUG}/`
@@ -28,7 +29,7 @@ const productionHeaders = Object.fromEntries(
 
 export default defineConfig({
   base: BASE,
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), ocrAssets(BASE)],
   build: {
     outDir: `dist/tools/${SLUG}`,
     emptyOutDir: true,
