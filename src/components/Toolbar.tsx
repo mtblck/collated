@@ -40,6 +40,18 @@ export const Toolbar = ({
   const makeStop = (target: HTMLElement) => {
     const el = bar.current
     if (!el) return
+    // Moving off a popover's button closes its popover: it belongs to that
+    // button, and would otherwise cover the bar's other controls.
+    const leaving = document.activeElement
+    const panelId = leaving instanceof HTMLElement ? leaving.getAttribute('popovertarget') : null
+    if (leaving !== target && panelId) {
+      try {
+        const panel = document.getElementById(panelId)
+        if (panel?.matches(':popover-open')) panel.hidePopover()
+      } catch {
+        /* no popover support (jsdom) */
+      }
+    }
     for (const item of el.querySelectorAll<HTMLElement>('[data-toolbar-item]')) {
       item.tabIndex = item === target ? 0 : -1
       if (item === target) item.dataset.toolbarStop = ''

@@ -9,7 +9,7 @@ order: 6
 | --------------------------------- | ----------------------------------------------------------------------------- |
 | ⌘Z / Ctrl+Z                       | Undo                                                                          |
 | ⌘⇧Z / Ctrl+Shift+Z, Ctrl+Y        | Redo                                                                          |
-| Alt+T (Option+T)                  | Jump to the toolbar                                                           |
+| Alt+T (Option+T on a Mac)         | Jump to the toolbar                                                           |
 | ← → Home End                      | Move along the toolbar                                                        |
 | Space or Enter on a page's handle | Pick the page up; arrow keys move it; Space or Enter drops it; Escape cancels |
 | Arrow keys on a crop corner       | Move the corner; hold Shift for bigger steps                                  |

@@ -55,6 +55,17 @@ if (
 ) {
   problems.push(`Missing redirect /tools/${SLUG} -> ${BASE}.`)
 }
+// Docs pages are folders; a URL typed without the slash would otherwise get
+// the app from the fallback.
+if (
+  !(config.redirects ?? []).some(
+    (r) =>
+      r.source === `${BASE}:page(docs|docs/[^/.]+|privacy|terms)` &&
+      r.destination === `${BASE}:page/`,
+  )
+) {
+  problems.push('Missing redirect adding the slash to docs, privacy and terms URLs.')
+}
 for (const key of ['cleanUrls', 'trailingSlash', 'routes']) {
   if (key in config) problems.push(`"${key}" is set; it has silently disabled rewrites before.`)
 }

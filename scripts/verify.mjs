@@ -64,6 +64,11 @@ const server = createServer((req, res) => {
     res.writeHead(308, { Location: BASE }).end()
     return
   }
+  // As vercel.json: docs URLs typed without their slash go to the page.
+  if (/^\/tools\/collated\/(docs|docs\/[^/.]+|privacy|terms)$/.test(path)) {
+    res.writeHead(308, { Location: `${path}/` }).end()
+    return
+  }
   let file = join(dist, path)
   // As vercel.json: a missing file 404s; only extensionless paths get the app.
   if (path.startsWith(BASE) && extname(path) && !existsSync(file)) {
@@ -1362,12 +1367,37 @@ await context.close()
     'the inspector scrolls on its own and starts at the top for a new page',
     `scrolled ${railScrolled}`,
   )
+  // Duplicate selects the copy; its button stays in view (no jump to the top).
+  await rail.hover()
+  await p.mouse.wheel(0, 3000)
+  await p.waitForTimeout(200)
+  const duplicate = rail.getByRole('button', { name: 'Duplicate' })
+  await duplicate.focus()
+  await p.keyboard.press('Enter')
+  await p.waitForTimeout(200)
+  const dupBox = await duplicate.boundingBox()
+  check(
+    Boolean(dupBox && dupBox.y >= 0 && dupBox.y + dupBox.height <= 720),
+    'Duplicate keeps its button in view (WCAG 2.4.11)',
+    JSON.stringify(dupBox),
+  )
+  await p.keyboard.press('Control+z')
   // Toolbar: one Tab stop, arrow keys along it, Alt+T to reach it.
   await p.keyboard.press('Alt+t')
   check(
     /^Page setup/.test((await p.evaluate(() => document.activeElement?.textContent)) ?? ''),
     'Alt+T focuses the toolbar',
   )
+  // Arrowing away from an open popover's button closes the popover.
+  await p.keyboard.press('Enter')
+  await p.getByRole('dialog', { name: 'Page setup' }).waitFor()
+  await p.getByRole('button', { name: /^Page setup/ }).focus()
+  await p.keyboard.press('ArrowRight')
+  check(
+    !(await p.getByRole('dialog', { name: 'Page setup' }).isVisible()),
+    'arrowing off Page setup closes its popover',
+  )
+  await p.keyboard.press('Alt+t')
   await p.keyboard.press('End')
   check(
     (await p.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === 'More',
@@ -1443,6 +1473,13 @@ await context.close()
     const response = await p.request.get(`${ORIGIN}${href}`)
     check(response.status() === 200, `link ${href} resolves`)
   }
+  // Typed without the slash, a docs URL still reaches the page, not the app.
+  await p.goto(`${URL_ROOT}docs/keyboard`, { waitUntil: 'networkidle' })
+  check(
+    p.url().endsWith('/docs/keyboard/') && (await p.locator('h1').textContent()) === 'Keyboard',
+    'a docs URL without its slash goes to the page',
+    p.url(),
+  )
   // Dark mode follows the stored theme on docs pages too.
   await p.evaluate(() => localStorage.setItem('mb-theme', 'dark'))
   await p.goto(`${URL_ROOT}docs/`, { waitUntil: 'networkidle' })

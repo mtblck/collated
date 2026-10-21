@@ -15,9 +15,9 @@ The files you add, the pages you arrange and the PDFs you export are processed o
 
 ## What is stored on your device
 
-- **Your settings** (page setup, export quality, the searchable-text and page-number choices) are saved in your browser's local storage under `collated:settings`, so they're there next time. Your title and password are never saved.
+- **Your settings** (page setup, image dpi for Match image, export quality and size limit, the searchable-text and page-number choices) are saved in your browser's local storage under `collated:settings`, so they're there next time. Your title and password are never saved.
 - **Your light or dark theme choice** (`mb-theme`).
-- **Text-recognition data:** if you use searchable text, the English recognition data (about 3 MB) is cached in your browser's IndexedDB so it doesn't download again. It contains nothing about your documents.
+- **Text-recognition data:** if you use searchable text, the English recognition data (about 5 MB once unpacked) is cached in your browser's IndexedDB so it doesn't download again. It contains nothing about your documents.
 
 You can clear all of this in your browser's site settings. There are no cookies.
 

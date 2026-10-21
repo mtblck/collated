@@ -125,7 +125,10 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   // The inspector scrolls on its own; a newly selected page starts at its top.
   const rail = useRef<HTMLElement>(null)
   useLayoutEffect(() => {
-    if (rail.current) rail.current.scrollTop = 0
+    // Not while focus is in the inspector (Duplicate selects the copy, and its
+    // button must stay in view; WCAG 2.4.11).
+    const el = rail.current
+    if (el && !el.contains(document.activeElement)) el.scrollTop = 0
   }, [selectedId])
   const noticeId = useRef(0)
   /**
