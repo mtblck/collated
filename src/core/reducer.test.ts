@@ -77,6 +77,19 @@ describe('docReducer', () => {
     expect(low.pages[0]?.scale).toBe(0.1)
   })
 
+  it('transforms several pages in one step, clamping each', () => {
+    const next = docReducer(doc(3), {
+      type: 'transformPages',
+      patches: [
+        { id: 'p0', patch: { angle: 2.5 } },
+        { id: 'p2', patch: { angle: -99 } },
+      ],
+    })
+    expect(next.pages.map((p) => p.angle)).toEqual([2.5, 0, -45])
+    const same = doc(1)
+    expect(docReducer(same, { type: 'transformPages', patches: [] })).toBe(same)
+  })
+
   it('resets a page and copies one page’s transform to every page', () => {
     let state = docReducer(doc(3), {
       type: 'transformPage',

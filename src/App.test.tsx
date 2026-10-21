@@ -43,6 +43,10 @@ const setup = (overrides: Partial<AppDeps> = {}) => {
       }),
     ),
     download: vi.fn(),
+    // "blank" pages have no lines to go by; every other page is 2.5° out.
+    estimateSkew: vi.fn((a: { name: string }) =>
+      Promise.resolve(a.name.includes('blank') ? null : { angle: -2.5, confidence: 2 }),
+    ),
     ...overrides,
   }
   const user = userEvent.setup()
@@ -157,6 +161,36 @@ describe('App', () => {
     expect(panel.getByRole('radio', { name: 'B&W' })).toBeDisabled()
     expect(panel.getByRole('radio', { name: 'Original' })).toBeChecked()
     expect(panel.getByText('PDF pages keep their original vector content.')).toBeInTheDocument()
+  })
+
+  it('auto-straightens a page, or all of them in one undo step', async () => {
+    const { user, upload } = setup()
+    await upload('a.jpg', 'b.jpg', 'blank.jpg')
+    const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+    await user.click(panel.getByRole('button', { name: 'Auto-straighten' }))
+    expect(await panel.findByText('-2.5°')).toBeInTheDocument()
+    expect(status()).toHaveTextContent('Straightened by -2.5°.')
+
+    await user.click(panel.getByRole('button', { name: 'All pages' }))
+    await waitFor(() => {
+      expect(status()).toHaveTextContent(
+        'Straightened 2 of 3 pages. 1 page had no clear lines and was left as it is.',
+      )
+    })
+    // One undo returns every page to where the batch started.
+    await user.click(screen.getByRole('button', { name: /^Undo/ }))
+    expect(panel.getByText('-2.5°')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Undo/ }))
+    expect(panel.getByText('0.0°')).toBeInTheDocument()
+  })
+
+  it('says so when a page has no lines to straighten by', async () => {
+    const { user, upload } = setup()
+    await upload('blank.jpg')
+    const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+    await user.click(panel.getByRole('button', { name: 'Auto-straighten' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('No clear lines found')
+    expect(panel.getByText('0.0°')).toBeInTheDocument()
   })
 
   it('duplicates a page and selects the copy', async () => {

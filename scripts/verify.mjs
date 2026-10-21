@@ -796,7 +796,26 @@ await context.close()
   await ctx.close()
 }
 
-// 8. Phone-sized, dark. -------------------------------------------------------
+// 8. Auto-straighten a photo shot 4° off. -------------------------------------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'doc-skewed-4deg.jpg')])
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  const panel = p.locator('aside[aria-label="Selected page"]')
+  await panel.getByRole('button', { name: 'Auto-straighten' }).click()
+  await p.waitForFunction(() =>
+    /Straightened|No clear lines/.test(document.getElementById('status')?.textContent ?? ''),
+  )
+  const angle = Number(
+    ((await panel.locator('output').first().textContent()) ?? '').replace('°', ''),
+  )
+  check(Math.abs(angle + 4) <= 0.5, `auto-straighten levels a photo shot 4° off (set ${angle}°)`)
+  await p.screenshot({ path: join(shots, 'straightened.png'), fullPage: true })
+  await ctx.close()
+}
+
+// 9. Phone-sized, dark. -------------------------------------------------------
 {
   const { context: phone, page: p } = await open({
     viewport: { width: 390, height: 844 },
