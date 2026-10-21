@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PDFDocument, PDFName, PDFString, type PDFRawStream } from '@cantoo/pdf-lib'
+import { PDFArray, PDFDocument, PDFName, PDFString, type PDFRawStream } from '@cantoo/pdf-lib'
 import { describe, expect, it } from 'vitest'
 import { asset, fixture, page, settings } from '../../tests/helpers'
 import { buildPdf } from './pdf'
@@ -92,7 +92,11 @@ const scannerStyle = async () => {
 const exported = async (source: Uint8Array, pageIndex: number) => {
   const meta = asset('src', { format: 'pdf', pdfPage: pageIndex, width: 612, height: 792 })
   const pdf = await buildPdf(
-    { settings: settings(), pages: [page('p', 'src')], assets: { src: meta } },
+    {
+      settings: settings({ size: 'image', margin: 0 }),
+      pages: [page('p', 'src')],
+      assets: { src: meta },
+    },
     { getBytes: () => source },
   )
   const dir = mkdtempSync(join(tmpdir(), 'collated-sanitize-'))
@@ -166,3 +170,150 @@ describe.skipIf(!hasQpdf)('PDF pages are copied with only what they draw', () =>
     }
   })
 })
+
+/** Page 1 of a PDF as greyscale pixels (poppler draws annotations, as pdf.js does). */
+const greys = (pdf: Uint8Array) => {
+  const out = execFileSync('pdftoppm', ['-r', '24', '-gray', '-f', '1', '-l', '1', '-'], {
+    input: Buffer.from(pdf),
+  })
+  const header = out.subarray(0, 20).toString('latin1').split(/\s+/)
+  const width = Number(header[1])
+  const offset = out.indexOf('255\n', 0, 'latin1') + 4
+  return {
+    width,
+    at: (x: number, y: number) => out[offset + y * width + x] ?? 255,
+    all: out.subarray(offset),
+  }
+}
+
+const textOf = (pdf: Uint8Array) =>
+  execFileSync('pdftotext', ['-', '-'], { input: Buffer.from(pdf) }).toString()
+
+describe.skipIf(!hasQpdf)('what a PDF page shows comes with it', () => {
+  it('draws filled form fields and stamps; leaves hidden ones and comment text out (#31)', async () => {
+    const doc = await PDFDocument.create()
+    const p = doc.addPage([612, 792])
+    const form = doc.getForm()
+    const field = form.createTextField('name')
+    field.setText('FILLED-VALUE')
+    field.addToPage(p, { x: 72, y: 600, width: 300, height: 40 })
+    form.updateFieldAppearances()
+    const { context } = doc
+    const box = (rgb: string) =>
+      context.register(
+        context.stream(`${rgb} rg 0 0 100 100 re f`, {
+          Type: 'XObject',
+          Subtype: 'Form',
+          BBox: [0, 0, 100, 100],
+        }),
+      )
+    const annot = (extra: Record<string, unknown>) =>
+      context.register(context.obj({ Type: 'Annot', Rect: [72, 72, 172, 172], ...extra }))
+    const stamp = annot({ Subtype: 'Stamp', AP: { N: box('0 0 0') } })
+    const hidden = annot({
+      Subtype: 'Stamp',
+      F: 2,
+      Rect: [400, 72, 500, 172],
+      AP: { N: box('0 0 0') },
+    })
+    const note = annot({ Subtype: 'Popup', Contents: PDFString.of('PRIVATE-COMMENT') })
+    p.node.lookup(PDFName.of('Annots'), PDFArray).push(stamp)
+    p.node.lookup(PDFName.of('Annots'), PDFArray).push(hidden)
+    p.node.lookup(PDFName.of('Annots'), PDFArray).push(note)
+    const source = await doc.save()
+
+    const { pdf, text } = await exported(source, 0)
+    expect(textOf(pdf)).toContain('FILLED-VALUE')
+    expect(text).not.toContain('PRIVATE-COMMENT')
+    expect(text).not.toMatch(/\/Subtype \/Widget|\/AcroForm/)
+    const out = greys(pdf)
+    // 24 dpi: 1 px = 3 pt; y from the top.
+    expect(out.at(40, 264 - 40)).toBeLessThan(60) // the stamp, drawn
+    expect(out.at(150, 264 - 40)).toBeGreaterThan(200) // the hidden one, not
+    // And overall it matches what a viewer shows for the source.
+    const before = greys(source)
+    let differ = 0
+    for (let i = 0; i < out.all.length; i++) {
+      if (Math.abs((out.all[i] ?? 0) - (before.all[i] ?? 0)) > 60) differ++
+    }
+    expect(differ / out.all.length).toBeLessThan(0.002)
+  })
+
+  it('keeps hidden layers hidden and shown layers shown (#28)', async () => {
+    const doc = await PDFDocument.create()
+    const p = doc.addPage([612, 792])
+    const { context } = doc
+    const layer = (name: string) =>
+      context.register(context.obj({ Type: 'OCG', Name: PDFString.of(name) }))
+    const shown = layer('Shown')
+    const hiddenLayer = layer('Hidden')
+    doc.catalog.set(
+      PDFName.of('OCProperties'),
+      context.obj({ OCGs: [shown, hiddenLayer], D: { OFF: [hiddenLayer] } }),
+    )
+    p.node.set(PDFName.of('Resources'), context.obj({ Properties: { L1: shown, L2: hiddenLayer } }))
+    p.node.set(
+      PDFName.of('Contents'),
+      context.register(
+        context.stream(
+          '/OC /L1 BDC 0 g 72 72 100 100 re f EMC /OC /L2 BDC 0 g 400 72 100 100 re f EMC',
+        ),
+      ),
+    )
+    const source = await doc.save()
+    const before = greys(source)
+    expect(before.at(150, 264 - 40)).toBeGreaterThan(200) // hidden in the source
+    const { pdf } = await exported(source, 0)
+    const out = greys(pdf)
+    expect(out.at(40, 264 - 40)).toBeLessThan(60)
+    expect(out.at(150, 264 - 40)).toBeGreaterThan(200)
+  })
+
+  it('strips metadata from JPEGs written inline in a page or a form (#28)', async () => {
+    const jpeg = taggedJpeg('INLINE-GPS-SECRET')
+    const doc = await PDFDocument.create()
+    const p = doc.addPage([612, 792])
+    const { context } = doc
+    const inline = (at: string) =>
+      concatBytes(
+        new TextEncoder().encode(
+          `q 100 0 0 75 ${at} cm BI /W 240 /H 160 /CS /RGB /BPC 8 /F /DCT ID `,
+        ),
+        jpeg,
+        new TextEncoder().encode(' EI Q'),
+      )
+    const form = context.register(
+      context.flateStream(inline('0 0'), {
+        Type: 'XObject',
+        Subtype: 'Form',
+        BBox: [0, 0, 200, 200],
+      }),
+    )
+    p.node.set(PDFName.of('Resources'), context.obj({ XObject: { Fm: form } }))
+    p.node.set(
+      PDFName.of('Contents'),
+      context.register(
+        context.flateStream(
+          concatBytes(inline('72 600'), new TextEncoder().encode(' q 1 0 0 1 300 300 cm /Fm Do Q')),
+        ),
+      ),
+    )
+    const source = await doc.save()
+    const { pdf, text } = await exported(source, 0)
+    expect(text).not.toContain('INLINE-GPS-SECRET')
+    // Both images still draw.
+    const out = greys(pdf)
+    expect(out.at(40, 264 - 210)).toBeLessThan(200)
+    expect(out.at(110, 264 - 110)).toBeLessThan(200)
+  })
+})
+
+const concatBytes = (...parts: Uint8Array[]) => {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
+  let at = 0
+  for (const p of parts) {
+    out.set(p, at)
+    at += p.length
+  }
+  return out
+}

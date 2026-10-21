@@ -27,7 +27,7 @@ import { layoutPage, partLayout, snapPart, visiblePart, type Layout, type Part }
 import { compressionFor, targetPixels, type Compression } from './compression'
 import { contentSize, type Asset, type Filter, type Page, type Settings } from './model'
 import { FULL_IMAGE, apply, homography, type Quad } from './perspective'
-import { sanitizedPage } from './pdfSanitize'
+import { embedSanitized, sanitizedPage } from './pdfSanitize'
 import { stripJpegMetadata } from './jpegClean'
 import { placeWord, type OcrWord } from './textLayer'
 import { NUMBER_GREY, numberMark } from './pageNumbers'
@@ -306,7 +306,7 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
       const srcPage = sanitizedPage(src, src.getPage(asset.pdfPage ?? 0))
       content = {
         kind: 'page',
-        page: await doc.embedPage(srcPage, visibleBox(srcPage)),
+        page: await embedSanitized(doc, src, srcPage, visibleBox(srcPage)),
         turns: asset.storedTurns,
         cropped: false,
       }

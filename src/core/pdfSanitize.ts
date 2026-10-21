@@ -8,12 +8,13 @@ import {
   PDFRawStream,
   PDFRef,
   PDFStream,
+  PDFObjectCopier,
   decodePDFRawStream,
   type PDFContext,
   type PDFDocument,
   type PDFObject,
 } from '@cantoo/pdf-lib'
-import { stripJpegMetadata } from './jpegClean'
+import { jpegEnd, stripJpegMetadata } from './jpegClean'
 
 /**
  * A copy of a source page that carries only what draws it: its content and
@@ -30,7 +31,6 @@ export const sanitizedPage = (doc: PDFDocument, page: PDFPage): PDFPage => {
   const context = doc.context
   const source = page.node
   const resources = source.Resources()
-  // The reference, not the resolved stream: streams must stay indirect.
   const contents = source.get(PDFName.of('Contents'))
   const content = contents ? decodeContents(context, contents) : new Uint8Array()
   const scrub = new Scrubber(context)
@@ -41,12 +41,225 @@ export const sanitizedPage = (doc: PDFDocument, page: PDFPage): PDFPage => {
   if (crop) leaf.set(PDFName.of('CropBox'), crop)
   const rotate = source.Rotate()
   if (rotate) leaf.set(PDFName.of('Rotate'), rotate)
-  if (contents) leaf.set(PDFName.of('Contents'), contents)
   const pruned = resources ? scrub.prunedCopy(resources, content) : context.obj({})
   leaf.set(PDFName.of('Resources'), pruned)
+
+  // What the page shows on top of its content: filled form fields, stamps,
+  // signatures, highlights, note icons (as pdf.js draws them for the
+  // preview). Each annotation's own appearance is drawn into the page; the
+  // annotations themselves (comment text, form data, actions) stay behind.
+  const shown = annotationAppearances(context, source)
+  let overlay = ''
+  if (shown.length) {
+    let xobjects = pruned.lookupMaybe(PDFName.of('XObject'), PDFDict)
+    if (!xobjects) {
+      xobjects = context.obj({})
+      pruned.set(PDFName.of('XObject'), xobjects)
+    }
+    shown.forEach(({ ref, matrix }, i) => {
+      let name = `CollatedAnnot${String(i)}`
+      while (xobjects.has(PDFName.of(name))) name += '_'
+      xobjects.set(PDFName.of(name), ref)
+      overlay += `q ${matrix.map(fmt).join(' ')} cm /${name} Do Q\n`
+    })
+  }
+  // One new content stream: the page's own content (balanced, so the
+  // overlay starts from the page's initial state), then the overlay. JPEGs
+  // written inline in the content lose their metadata too.
+  const body = stripInlineJpegs(content)
+  const stream = concat([encode('q\n'), body, encode(`\nQ\n${overlay}`)])
+  leaf.set(PDFName.of('Contents'), context.register(context.flateStream(stream)))
   scrub.visit(pruned)
-  if (contents) scrub.visit(contents)
   return PDFPage.of(leaf, context.register(leaf), doc)
+}
+
+const fmt = (n: number) => String(Math.round(n * 1e6) / 1e6)
+const encode = (text: string) => new TextEncoder().encode(text)
+const concat = (parts: Uint8Array[]) => {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
+  let offset = 0
+  for (const part of parts) {
+    out.set(part, offset)
+    offset += part.length
+  }
+  return out
+}
+
+const numbers = (array: PDFArray | undefined) =>
+  array?.asArray().map((n) => (n instanceof PDFNumber ? n.asNumber() : NaN)) ?? []
+
+/** Annotation flags (PDF 32000-1, 12.5.3) that keep it off screen. */
+const HIDDEN = 1 << 1
+const NO_VIEW = 1 << 5
+
+/**
+ * The normal appearance of each visible annotation, with the matrix that
+ * places it on its rectangle (PDF 32000-1, 12.5.5, "Algorithm: appearance
+ * streams"): the form's bounding box, through its own matrix, mapped onto
+ * the annotation's rectangle.
+ */
+const annotationAppearances = (context: PDFContext, page: PDFPageLeaf) => {
+  const out: { ref: PDFRef; matrix: number[] }[] = []
+  const annots = page.lookupMaybe(PDFName.of('Annots'), PDFArray)
+  for (const entry of annots?.asArray() ?? []) {
+    const annot = context.lookupMaybe(entry, PDFDict)
+    if (!annot) continue
+    const subtype = annot.lookupMaybe(PDFName.of('Subtype'), PDFName)?.decodeText()
+    // Pop-ups are the open comment text; links draw nothing of their own.
+    if (subtype === 'Popup' || subtype === 'Link') continue
+    const flags = annot.lookupMaybe(PDFName.of('F'), PDFNumber)?.asNumber() ?? 0
+    if (flags & (HIDDEN | NO_VIEW)) continue
+    const ap = annot.lookupMaybe(PDFName.of('AP'), PDFDict)
+    let normal = ap?.get(PDFName.of('N'))
+    // Checkboxes and the like: a dictionary of states, picked by /AS.
+    const states = normal ? context.lookup(normal) : undefined
+    if (states instanceof PDFDict && !(states instanceof PDFStream)) {
+      const state = annot.lookupMaybe(PDFName.of('AS'), PDFName)
+      normal = state ? states.get(state) : undefined
+    }
+    if (!(normal instanceof PDFRef)) continue
+    const form = context.lookup(normal)
+    if (!(form instanceof PDFStream)) continue
+    const rect = numbers(annot.lookupMaybe(PDFName.of('Rect'), PDFArray))
+    const bbox = numbers(form.dict.lookupMaybe(PDFName.of('BBox'), PDFArray))
+    const m = numbers(form.dict.lookupMaybe(PDFName.of('Matrix'), PDFArray))
+    const [a = 1, b = 0, c = 0, d = 1, e = 0, f = 0] = m.length === 6 ? m : []
+    if (rect.length !== 4 || bbox.length !== 4 || [...rect, ...bbox].some(Number.isNaN)) continue
+    const [bx0 = 0, by0 = 0, bx1 = 0, by1 = 0] = bbox
+    const corners = [
+      [bx0, by0],
+      [bx1, by0],
+      [bx1, by1],
+      [bx0, by1],
+    ].map(([x = 0, y = 0]) => [a * x + c * y + e, b * x + d * y + f])
+    const xs = corners.map(([x = 0]) => x)
+    const ys = corners.map(([, y = 0]) => y)
+    const [minX, maxX, minY, maxY] = [
+      Math.min(...xs),
+      Math.max(...xs),
+      Math.min(...ys),
+      Math.max(...ys),
+    ]
+    const [rx0 = 0, ry0 = 0, rx1 = 0, ry1 = 0] = rect
+    const left = Math.min(rx0, rx1)
+    const bottom = Math.min(ry0, ry1)
+    const width = Math.abs(rx1 - rx0)
+    const height = Math.abs(ry1 - ry0)
+    if (maxX - minX <= 0 || maxY - minY <= 0 || width <= 0 || height <= 0) continue
+    const sx = width / (maxX - minX)
+    const sy = height / (maxY - minY)
+    out.push({ ref: normal, matrix: [sx, 0, 0, sy, left - minX * sx, bottom - minY * sy] })
+  }
+  return out
+}
+
+/**
+ * Inline images (BI … ID data EI) in a content stream that are JPEGs lose
+ * their metadata; everything else is copied as it is. Only a JPEG's own
+ * structure says where its data ends, so that's what's followed.
+ */
+export const stripInlineJpegs = (content: Uint8Array): Uint8Array => {
+  const text = latin1(content)
+  const parts: Uint8Array[] = []
+  let from = 0
+  const pattern = /(^|[\s\0])BI[\s\0]/g
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    const dictStart = match.index + match[0].length
+    const id = /[\s\0]ID[\s\0]/g
+    id.lastIndex = dictStart
+    const idMatch = id.exec(text)
+    if (!idMatch) break
+    const dict = text.slice(dictStart, idMatch.index)
+    const dataStart = idMatch.index + idMatch[0].length
+    if (/\/(F|Filter)\s*(\[\s*)?\/(DCT|DCTDecode)\b/.test(dict)) {
+      const end = jpegEnd(content, dataStart)
+      if (end !== null) {
+        parts.push(
+          content.subarray(from, dataStart),
+          stripJpegMetadata(content.subarray(dataStart, end)),
+        )
+        from = end
+        pattern.lastIndex = end
+        continue
+      }
+    }
+    pattern.lastIndex = dataStart
+  }
+  if (from === 0) return content
+  parts.push(content.subarray(from))
+  return concat(parts)
+}
+
+/**
+ * Embeds a sanitized page into `out`, carrying its optional content (layers)
+ * with the source's default visibility, so a layer hidden there stays hidden
+ * here instead of showing because the new file doesn't know about it.
+ */
+export const embedSanitized = async (
+  out: PDFDocument,
+  src: PDFDocument,
+  page: PDFPage,
+  box: { left: number; bottom: number; right: number; top: number },
+) => {
+  const copier = PDFObjectCopier.for(src.context, out.context)
+  const copied = copier.copy(page.node)
+  // Pair each source object with its copy, to find the layers it uses.
+  const layers: { from: PDFRef; to: PDFRef }[] = []
+  const seen = new Set<PDFRef>()
+  const walk = (a: PDFObject | undefined, b: PDFObject | undefined) => {
+    if (!a || !b) return
+    if (a instanceof PDFRef && b instanceof PDFRef) {
+      if (seen.has(a)) return
+      seen.add(a)
+      const target = src.context.lookup(a)
+      if (target instanceof PDFDict && !(target instanceof PDFStream)) {
+        if (target.lookupMaybe(PDFName.of('Type'), PDFName)?.decodeText() === 'OCG') {
+          layers.push({ from: a, to: b })
+        }
+      }
+      walk(target, out.context.lookup(b))
+      return
+    }
+    if (a instanceof PDFArray && b instanceof PDFArray) {
+      a.asArray().forEach((item, i) => {
+        walk(item, b.get(i))
+      })
+      return
+    }
+    const da = a instanceof PDFStream ? a.dict : a instanceof PDFDict ? a : undefined
+    const db = b instanceof PDFStream ? b.dict : b instanceof PDFDict ? b : undefined
+    if (!da || !db) return
+    for (const [key, value] of da.entries()) walk(value, db.get(key))
+  }
+  walk(page.node, copied)
+  if (layers.length) addLayers(out, src, layers)
+  const leaf = copied
+  const ref = out.context.register(leaf)
+  return out.embedPage(PDFPage.of(leaf, ref, out), box)
+}
+
+/** Lists the layers in `out`'s catalog, hidden where the source hides them. */
+const addLayers = (out: PDFDocument, src: PDFDocument, layers: { from: PDFRef; to: PDFRef }[]) => {
+  const config = src.catalog
+    .lookupMaybe(PDFName.of('OCProperties'), PDFDict)
+    ?.lookupMaybe(PDFName.of('D'), PDFDict)
+  const refsIn = (key: string) =>
+    new Set(config?.lookupMaybe(PDFName.of(key), PDFArray)?.asArray() ?? [])
+  const on = refsIn('ON')
+  const off = refsIn('OFF')
+  const baseOff = config?.lookupMaybe(PDFName.of('BaseState'), PDFName)?.decodeText() === 'OFF'
+  let props = out.catalog.lookupMaybe(PDFName.of('OCProperties'), PDFDict)
+  if (!props) {
+    props = out.context.obj({ OCGs: [], D: { OFF: [] } })
+    out.catalog.set(PDFName.of('OCProperties'), props)
+  }
+  const ocgs = props.lookup(PDFName.of('OCGs'), PDFArray)
+  const hidden = props.lookup(PDFName.of('D'), PDFDict).lookup(PDFName.of('OFF'), PDFArray)
+  for (const { from, to } of layers) {
+    if (ocgs.asArray().includes(to)) continue
+    ocgs.push(to)
+    if (off.has(from) || (baseOff && !on.has(from))) hidden.push(to)
+  }
 }
 
 const RESOURCE_KINDS = [
@@ -203,8 +416,8 @@ class Scrubber {
       for (const item of value.asArray()) this.visit(item)
       return
     }
-    const stream = value instanceof PDFStream ? value : undefined
-    const dict = stream ? stream.dict : value instanceof PDFDict ? value : undefined
+    let stream = value instanceof PDFStream ? value : undefined
+    let dict = stream ? stream.dict : value instanceof PDFDict ? value : undefined
     if (!dict) return
     for (const key of DROPPED_KEYS) dict.delete(PDFName.of(key))
 
@@ -213,6 +426,22 @@ class Scrubber {
       if (cleaned !== stream.contents) {
         dict.set(PDFName.of('Length'), PDFNumber.of(cleaned.length))
         this.context.assign(ref, PDFRawStream.of(dict, cleaned))
+      }
+    }
+
+    // A form or tiling pattern can carry inline JPEGs in its own content.
+    if (ref && stream && !isImage(dict)) {
+      const decoded = decodeStream(stream)
+      const cleaned = stripInlineJpegs(decoded)
+      if (cleaned !== decoded) {
+        const fresh = this.context.flateStream(cleaned)
+        for (const [key, value] of dict.entries()) {
+          if (!['Filter', 'DecodeParms', 'Length'].includes(key.decodeText()))
+            fresh.dict.set(key, value)
+        }
+        this.context.assign(ref, fresh)
+        stream = fresh
+        dict = fresh.dict
       }
     }
 

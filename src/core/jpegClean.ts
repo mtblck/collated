@@ -89,3 +89,38 @@ const concat = (parts: Uint8Array[]) => {
   }
   return out
 }
+
+/**
+ * Where the JPEG starting at `start` ends (just after its end-of-image
+ * marker), or null if it doesn't parse. For JPEGs inside other data, such as
+ * an inline image in a PDF content stream, where only the JPEG's own
+ * structure says where it stops.
+ */
+export const jpegEnd = (bytes: Uint8Array, start = 0): number | null => {
+  const at = (n: number) => bytes[n] ?? 0
+  if (at(start) !== 0xff || at(start + 1) !== 0xd8) return null
+  let i = start + 2
+  while (i < bytes.length) {
+    if (at(i) !== 0xff) return null
+    while (at(i + 1) === 0xff) i++
+    const marker = at(i + 1)
+    if (marker === 0xd9) return i + 2
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      i += 2
+      continue
+    }
+    const end = i + 2 + ((at(i + 2) << 8) | at(i + 3))
+    if (end > bytes.length || end <= i + 3) return null
+    i = end
+    if (marker === 0xda) {
+      while (i < bytes.length) {
+        if (at(i) === 0xff) {
+          const next = at(i + 1)
+          if (next !== 0x00 && !(next >= 0xd0 && next <= 0xd7) && next !== 0xff) break
+        }
+        i++
+      }
+    }
+  }
+  return null
+}
