@@ -77,6 +77,38 @@ const build = async (s: Settings, items: { file: string; page?: Partial<Page> }[
   return { bytes, assets, pages }
 }
 
+const hasTool = (tool: string) => {
+  try {
+    execFileSync(tool, ['--version'], { stdio: 'ignore' })
+    return true
+  } catch {
+    try {
+      execFileSync(tool, ['-v'], { stdio: 'ignore' })
+      return true
+    } catch {
+      return false
+    }
+  }
+}
+const hasQpdf = hasTool('qpdf')
+const hasPdftotext = hasTool('pdftotext')
+
+/** Page texts separated by form feeds, or null without poppler. */
+const extractText = (bytes: Uint8Array): string | null =>
+  hasPdftotext
+    ? execFileSync('pdftotext', ['-layout', '-', '-'], { input: Buffer.from(bytes) }).toString()
+    : null
+
+const buildWithPassword = async (password: string) => {
+  const { meta, bytes } = await fileAsset('quad-landscape.jpg')
+  return {
+    bytes: await buildPdf(
+      { settings: settings(), pages: [page('p', meta.id)], assets: { [meta.id]: meta }, password },
+      { getBytes: () => bytes },
+    ),
+  }
+}
+
 describe('buildPdf', () => {
   it('makes one page per page, at the laid-out size, with metadata', async () => {
     const { bytes } = await build(
@@ -181,6 +213,52 @@ describe('buildPdf', () => {
         { getBytes: () => bytes },
       ),
     ).rejects.toThrow(/re-encode/)
+  })
+
+  it('sizes "match image" pages from the image at its dpi, and PDF pages as they are', async () => {
+    const { bytes } = await build(settings({ size: 'image', imageDpi: 96 }), [
+      { file: 'quad-landscape.jpg' },
+      { file: 'quad-landscape.jpg', page: { turns: 1 } },
+      { file: 'quad-3pages.pdf#0' },
+    ])
+    const sizes = (await PDFDocument.load(bytes))
+      .getPages()
+      .map((p) => [p.getWidth(), p.getHeight()])
+    // 240 x 160 px at 96 dpi is 2.5 x 1.67 in = 180 x 120 pt; turned, 120 x 180.
+    expect(sizes).toEqual([
+      [180, 120],
+      [120, 180],
+      [300, 200],
+    ])
+  })
+
+  it('prints page numbers as real text, counting from the start number', async () => {
+    const { bytes } = await build(
+      settings({ pageNumbers: { show: true, position: 'bottom-right', start: 7 } }),
+      [{ file: 'quad-landscape.jpg' }, { file: 'quad-3pages.pdf#1' }],
+    )
+    const text = extractText(bytes)
+    if (text === null) return
+    expect(text.split('\f').map((t) => t.trim())).toEqual(['7', '8', ''])
+  })
+
+  it('encrypts with the password so the file only opens with it', async () => {
+    const plain = await build(settings(), [{ file: 'quad-landscape.jpg' }])
+    const { bytes } = await buildWithPassword('correct horse')
+    await expect(PDFDocument.load(bytes)).rejects.toThrow()
+    const opened = await PDFDocument.load(bytes, { password: 'correct horse' })
+    expect(opened.getPageCount()).toBe(1)
+    expect(plain.bytes.length).toBeGreaterThan(0)
+    if (hasQpdf) {
+      const path = join(work, 'locked.pdf')
+      writeFileSync(path, bytes)
+      const info = execFileSync('qpdf', [
+        '--password=correct horse',
+        '--show-encryption',
+        path,
+      ]).toString()
+      expect(info).toMatch(/AESv3|256/)
+    }
   })
 
   it('reports progress per page', async () => {

@@ -1,6 +1,7 @@
 import type { Asset, Page, Settings } from './model'
 import { pageRotation } from './model'
 import { pageSize } from './pageSizes'
+import { PAGE_MAX, PAGE_MIN } from './limits'
 import { PT_PER_IN } from './units'
 
 export interface Rect {
@@ -29,6 +30,11 @@ const toRadians = (degrees: number) => (degrees * Math.PI) / 180
 
 /** Axis-aligned bounding box of a w × h rectangle rotated by `degrees`. */
 export const rotatedBounds = (width: number, height: number, degrees: number) => {
+  // Quarter turns exactly: cos(90°) is 6e-17 in floating point, which leaks
+  // into page sizes ("120.00000000000001 pt").
+  if (degrees % 90 === 0) {
+    return Math.abs(degrees / 90) % 2 === 1 ? { width: height, height: width } : { width, height }
+  }
   const r = toRadians(degrees)
   const cos = Math.abs(Math.cos(r))
   const sin = Math.abs(Math.sin(r))
@@ -42,6 +48,22 @@ export const isLandscape = (asset: Pick<Asset, 'width' | 'height'>, page: Pick<P
 }
 
 /**
+ * A "match image" page: the content's rotated bounds at its natural size
+ * (images at `imageDpi`, PDF pages in their own points) plus the margins, so
+ * at scale 1 it fills the page exactly. Clamped to PDF's page-size limits.
+ */
+const matchedSize = (
+  settings: Pick<Settings, 'margin' | 'imageDpi'>,
+  asset: Pick<Asset, 'width' | 'height'> & Partial<Pick<Asset, 'format'>>,
+  rotation: number,
+) => {
+  const perUnit = asset.format === 'pdf' ? 1 : PT_PER_IN / settings.imageDpi
+  const bounds = rotatedBounds(asset.width * perUnit, asset.height * perUnit, rotation)
+  const fit = (n: number) => Math.min(PAGE_MAX, Math.max(PAGE_MIN, n + settings.margin * 2))
+  return { width: fit(bounds.width), height: fit(bounds.height) }
+}
+
+/**
  * Where an image goes on its page. The single source of truth for both the
  * on-screen preview and the PDF, so the export matches what you see.
  *
@@ -50,11 +72,14 @@ export const isLandscape = (asset: Pick<Asset, 'width' | 'height'>, page: Pick<P
  * scale, and always centred.
  */
 export const layoutPage = (
-  settings: Pick<Settings, 'size' | 'custom' | 'orientation' | 'margin'>,
-  asset: Pick<Asset, 'width' | 'height'>,
+  settings: Pick<Settings, 'size' | 'custom' | 'orientation' | 'margin' | 'imageDpi'>,
+  asset: Pick<Asset, 'width' | 'height'> & Partial<Pick<Asset, 'format'>>,
   page: Pick<Page, 'turns' | 'angle' | 'scale' | 'fit'>,
 ): Layout => {
-  const size = pageSize(settings, isLandscape(asset, page))
+  const size =
+    settings.size === 'image'
+      ? matchedSize(settings, asset, pageRotation(page))
+      : pageSize(settings, isLandscape(asset, page))
   // Margins can't eat the whole page; keep at least 10% of each side printable.
   const margin = Math.max(0, Math.min(settings.margin, size.width * 0.45, size.height * 0.45))
   const content: Rect = {

@@ -1,4 +1,5 @@
 import type { Layout } from '../core/geometry'
+import { NUMBER_GREY, type NumberMark } from '../core/pageNumbers'
 import { cx } from './cx'
 
 const pct = (part: number, whole: number) => `${(part / whole) * 100}%`
@@ -16,6 +17,7 @@ export const PagePreview = ({
   boxRatio,
   showMargins = false,
   selected = false,
+  mark = null,
   className,
 }: {
   layout: Layout
@@ -24,6 +26,8 @@ export const PagePreview = ({
   showMargins?: boolean
   /** Rings the sheet itself: the page, not its card, is what's selected. */
   selected?: boolean
+  /** The page number to draw, placed exactly as the export places it. */
+  mark?: NumberMark | null
   className?: string
 }) => {
   const { page, content, image } = layout
@@ -36,7 +40,7 @@ export const PagePreview = ({
           wide ? 'h-auto w-full' : 'h-full w-auto',
           selected ? 'outline-2 outline-offset-4 outline-accent' : 'outline-transparent',
         )}
-        style={{ aspectRatio: `${page.width} / ${page.height}` }}
+        style={{ aspectRatio: `${page.width} / ${page.height}`, containerType: 'size' }}
       >
         <div
           data-margin-guide={showMargins || undefined}
@@ -68,6 +72,25 @@ export const PagePreview = ({
             }}
           />
         </div>
+        {mark && (
+          <span
+            aria-hidden="true"
+            className="absolute leading-none whitespace-nowrap"
+            style={{
+              left: pct(mark.x, page.width),
+              top: pct(mark.baseline, page.height),
+              // Container-query height units: the type scales with the sheet
+              // exactly as the PDF's points scale with the page.
+              fontSize: `${(mark.size / page.height) * 100}cqh`,
+              fontFamily: 'Helvetica, Arial, sans-serif',
+              color: `rgb(${Math.round(NUMBER_GREY * 255)} ${Math.round(NUMBER_GREY * 255)} ${Math.round(NUMBER_GREY * 255)})`,
+              // Anchor on the baseline: shift up by the ascent (~0.72 em for Helvetica).
+              transform: `translate(${mark.align === 'center' ? '-50%' : '-100%'}, -0.72em)`,
+            }}
+          >
+            {mark.text}
+          </span>
+        )}
       </div>
     </div>
   )

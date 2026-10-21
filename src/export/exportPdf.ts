@@ -13,18 +13,30 @@ export interface Exported {
   fits: boolean
 }
 
-const request = (state: DocState): ExportRequest => {
+const request = (state: DocState, password?: string): ExportRequest => {
   const used = new Set(state.pages.map((p) => p.assetId))
   const assets = Object.fromEntries(Object.entries(state.assets).filter(([id]) => used.has(id)))
   // Pages of one PDF share its bytes: send each file once.
   const bytesIds = new Set(Object.values(assets).map((a) => a.bytesId))
   const bytes = Object.fromEntries([...bytesIds].map((id) => [id, assetStore.get(id)]))
-  return { input: { settings: state.settings, pages: state.pages, assets }, bytes }
+  return {
+    input: {
+      settings: state.settings,
+      pages: state.pages,
+      assets,
+      ...(password ? { password } : {}),
+    },
+    bytes,
+  }
 }
 
 /** Builds the PDF in a module worker; resolves with the file. */
-export const exportPdf = (state: DocState, onProgress?: Progress): Promise<Exported> => {
-  const message = request(state)
+export const exportPdf = (
+  state: DocState,
+  onProgress?: Progress,
+  options: { password?: string } = {},
+): Promise<Exported> => {
+  const message = request(state, options.password)
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./pdf.worker.ts', import.meta.url), {
       type: 'module',

@@ -8,6 +8,7 @@ import { DragDropProvider } from '@dnd-kit/react'
 import { isSortable, useSortable } from '@dnd-kit/react/sortable'
 import { memo, useMemo } from 'react'
 import { layoutPage } from '../core/geometry'
+import { numberMark } from '../core/pageNumbers'
 import type { Asset, Page, Settings } from '../core/model'
 import { IconButton } from './controls'
 import { cx } from './cx'
@@ -42,6 +43,7 @@ const PageCard = memo(function PageCard({
 }: CardProps) {
   const { ref, handleRef, isDragging } = useSortable({ id: page.id, index })
   const layout = useMemo(() => layoutPage(settings, asset, page), [settings, asset, page])
+  const mark = numberMark(settings.pageNumbers, index, layout.page, layout.content.x)
   const thumbUrl = useFilteredThumb(asset, page.filter)
   const n = pageNumber(index)
 
@@ -69,6 +71,7 @@ const PageCard = memo(function PageCard({
             thumbUrl={thumbUrl}
             boxRatio={CARD_RATIO}
             selected={selected}
+            mark={mark}
           />
         </button>
         <button

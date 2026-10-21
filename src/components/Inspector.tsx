@@ -1,5 +1,6 @@
 import { useId, useMemo, type ReactNode } from 'react'
 import { layoutPage } from '../core/geometry'
+import { numberMark } from '../core/pageNumbers'
 import type { Asset, Filter, FitMode, Page, PageTransform, Settings } from '../core/model'
 import { ANGLE_LIMIT, SCALE_MAX, SCALE_MIN, isVector } from '../core/model'
 import { formatBytes, formatLength } from '../core/units'
@@ -67,6 +68,7 @@ export const Inspector = ({
 }) => {
   const id = useId()
   const layout = useMemo(() => layoutPage(settings, asset, page), [settings, asset, page])
+  const mark = numberMark(settings.pageNumbers, index, layout.page, layout.content.x)
   const vector = isVector(asset)
   const thumbUrl = useFilteredThumb(asset, page.filter)
   const lowRes = !vector && layout.dpi < LOW_DPI
@@ -97,7 +99,13 @@ export const Inspector = ({
       </header>
 
       <div className="w-full rounded-[3px] bg-paper-sunk p-5" style={{ aspectRatio: boxRatio }}>
-        <PagePreview layout={layout} thumbUrl={thumbUrl} boxRatio={boxRatio} showMargins />
+        <PagePreview
+          layout={layout}
+          thumbUrl={thumbUrl}
+          boxRatio={boxRatio}
+          showMargins
+          mark={mark}
+        />
       </div>
 
       <div>

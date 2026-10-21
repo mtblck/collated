@@ -52,6 +52,8 @@ export const DocumentBar = ({
   onExport,
   estimate,
   lastExport,
+  password,
+  onPassword,
 }: {
   settings: Settings
   pageCount: number
@@ -66,6 +68,8 @@ export const DocumentBar = ({
   onExport: () => void
   estimate: number
   lastExport: { size: string; used: string; fits: boolean } | null
+  password: string
+  onPassword: (password: string) => void
 }) => {
   const id = useId()
   const { unit } = settings
@@ -94,8 +98,30 @@ export const DocumentBar = ({
               </option>
             ))}
             <option value="custom">Custom…</option>
+            <option value="image">Match image</option>
           </select>
         </div>
+
+        {settings.size === 'image' && (
+          <div className="w-28">
+            <FieldLabel htmlFor={`${id}-dpi`}>Image dpi</FieldLabel>
+            <NumberField
+              id={`${id}-dpi`}
+              value={settings.imageDpi}
+              min={36}
+              max={1200}
+              step={10}
+              suffix="dpi"
+              aria-describedby={`${id}-dpi-hint`}
+              onCommit={(imageDpi) => {
+                onSettings({ imageDpi })
+              }}
+            />
+            <p id={`${id}-dpi-hint`} className="sr-only">
+              Each page is sized to its image at this resolution. PDF pages keep their own size.
+            </p>
+          </div>
+        )}
 
         {settings.size === 'custom' && (
           <fieldset className="flex items-end gap-2">
@@ -132,8 +158,10 @@ export const DocumentBar = ({
 
         <Segmented
           legend="Orientation"
-          value={settings.orientation}
+          value={settings.size === 'image' ? 'auto' : settings.orientation}
           options={ORIENTATIONS}
+          disabled={settings.size === 'image'}
+          {...(settings.size === 'image' ? { describedBy: `${id}-dpi-hint` } : {})}
           onChange={(orientation) => {
             onSettings({ orientation })
           }}
@@ -223,6 +251,8 @@ export const DocumentBar = ({
             onSettings={onSettings}
             onExport={onExport}
             canExport={pageCount > 0 && !exporting.busy}
+            password={password}
+            onPassword={onPassword}
           />
           <Button variant="primary" disabled={pageCount === 0 || exporting.busy} onClick={onExport}>
             <DownloadIcon width={16} height={16} />

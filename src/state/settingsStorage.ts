@@ -16,6 +16,8 @@ export const defaultSettings = (locale: string): Settings => {
     title: '',
     quality: 'original',
     maxBytes: null,
+    imageDpi: 300,
+    pageNumbers: { show: false, position: 'bottom-center', start: 1 },
   }
 }
 
@@ -39,7 +41,9 @@ export const loadSettings = (
     const raw: unknown = JSON.parse(storage?.getItem(KEY) ?? 'null')
     if (!isRecord(raw)) return fallback
     const size =
-      PAGE_SIZES.some((p) => p.id === raw.size) || raw.size === 'custom' ? raw.size : fallback.size
+      PAGE_SIZES.some((p) => p.id === raw.size) || raw.size === 'custom' || raw.size === 'image'
+        ? raw.size
+        : fallback.size
     const custom = isRecord(raw.custom) ? raw.custom : {}
     return {
       size: size as Settings['size'],
@@ -64,6 +68,19 @@ export const loadSettings = (
         typeof raw.maxBytes === 'number' && Number.isFinite(raw.maxBytes) && raw.maxBytes > 0
           ? raw.maxBytes
           : null,
+      imageDpi: Math.min(1200, Math.max(36, finite(raw.imageDpi, fallback.imageDpi))),
+      pageNumbers: {
+        show: isRecord(raw.pageNumbers) && raw.pageNumbers.show === true,
+        position:
+          isRecord(raw.pageNumbers) &&
+          (raw.pageNumbers.position === 'bottom-right' || raw.pageNumbers.position === 'top-right')
+            ? raw.pageNumbers.position
+            : 'bottom-center',
+        start: Math.max(
+          0,
+          Math.round(finite(isRecord(raw.pageNumbers) ? raw.pageNumbers.start : 1, 1)),
+        ),
+      },
     }
   } catch {
     return fallback

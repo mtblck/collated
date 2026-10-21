@@ -24,6 +24,7 @@ export interface AppDeps {
   exportPdf: (
     doc: DocState,
     onProgress: (done: number, total: number, attempt: number) => void,
+    options?: { password?: string },
   ) => Promise<Exported>
   download: (blob: Blob, filename: string) => void
   newId: () => string
@@ -75,6 +76,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     pages?: { done: number; total: number }
   } | null>(null)
   const [exporting, setExporting] = useState<ExportState>({ busy: false, done: 0, total: 0 })
+  // In memory only: never in settings, storage or undo history.
+  const [password, setPassword] = useState('')
   const [lastExport, setLastExport] = useState<{
     size: string
     used: string
@@ -211,15 +214,19 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     setExporting({ busy: true, done: 0, total: pages.length })
     setStatus('Building PDF…')
     try {
-      const result = await deps.exportPdf(doc, (done, total, attempt) => {
-        setExporting({ busy: true, done, total, attempt })
-      })
+      const result = await deps.exportPdf(
+        doc,
+        (done, total, attempt) => {
+          setExporting({ busy: true, done, total, attempt })
+        },
+        password ? { password } : {},
+      )
       const filename = pdfFilename(settings.title)
       deps.download(result.blob, filename)
       const size = formatBytes(result.blob.size)
       const used = result.compression ? `${result.compression.dpi} dpi` : 'original images'
       setLastExport({ size, used, fits: result.fits })
-      setStatus(`Saved ${filename} (${size}, ${used}).`)
+      setStatus(`Saved ${filename} (${size}, ${used}${password ? ', password-protected' : ''}).`)
       if (!result.fits && settings.maxBytes !== null) {
         notify(
           `Couldn’t get under ${formatBytes(settings.maxBytes)}: the smallest version is ${size} at ${used}. It was saved anyway.`,
@@ -231,7 +238,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     } finally {
       setExporting({ busy: false, done: 0, total: 0 })
     }
-  }, [deps, doc, notify, pages.length, settings.title, settings.maxBytes])
+  }, [deps, doc, notify, pages.length, settings.title, settings.maxBytes, password])
 
   const onRotate = useCallback(
     (id: string, by: -1 | 1) => {
@@ -342,6 +349,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
               onExport={() => void onExport()}
               estimate={estimate}
               lastExport={lastExport}
+              password={password}
+              onPassword={setPassword}
             />
             <div className="mx-auto flex max-w-[1600px] flex-col gap-10 px-4 py-6 sm:px-6 lg:flex-row lg:items-start">
               <section aria-label="Pages" className="min-w-0 flex-1">
