@@ -193,6 +193,41 @@ describe('App', () => {
     expect(panel.getByText('0.0°')).toBeInTheDocument()
   })
 
+  it('crops to the paper with keyboard-movable corners, and removes the crop', async () => {
+    const { user, upload } = setup()
+    await upload('photo.jpg')
+    const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+    await user.click(panel.getByRole('button', { name: 'Crop to the page…' }))
+    const dialog = within(await screen.findByRole('dialog', { name: 'Crop to the page' }))
+    const corner = dialog.getByRole('button', { name: /^Top-left corner/ })
+    expect(corner).toHaveAccessibleName('Top-left corner, 0% across, 0% down')
+    corner.focus()
+    await user.keyboard('{Shift>}{ArrowRight}{ArrowDown}{/Shift}{ArrowRight}')
+    expect(corner).toHaveAccessibleName('Top-left corner, 5.5% across, 5% down')
+    await user.click(dialog.getByRole('button', { name: 'Apply crop' }))
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+    expect(panel.getByRole('button', { name: 'Adjust corners…' })).toBeInTheDocument()
+    expect(panel.getByRole('button', { name: 'Reset' })).toBeEnabled()
+    await user.click(panel.getByRole('button', { name: 'Remove crop' }))
+    expect(panel.getByRole('button', { name: 'Crop to the page…' })).toBeInTheDocument()
+  })
+
+  it('refuses crossed corners', async () => {
+    const { user, upload } = setup()
+    await upload('photo.jpg')
+    const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+    await user.click(panel.getByRole('button', { name: 'Crop to the page…' }))
+    const dialog = within(await screen.findByRole('dialog', { name: 'Crop to the page' }))
+    // Drag the top-left corner past the top-right one.
+    dialog.getByRole('button', { name: /^Top-left corner/ }).focus()
+    for (let i = 0; i < 21; i++) await user.keyboard('{Shift>}{ArrowRight}{/Shift}')
+    await user.keyboard('{Shift>}{ArrowDown}{/Shift}')
+    expect(dialog.getByRole('alert')).toHaveTextContent('cross over')
+    expect(dialog.getByRole('button', { name: 'Apply crop' })).toBeDisabled()
+  })
+
   it('duplicates a page and selects the copy', async () => {
     const { user, upload } = setup()
     await upload('a.jpg')

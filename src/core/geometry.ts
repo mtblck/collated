@@ -1,5 +1,5 @@
 import type { Asset, Page, Settings } from './model'
-import { pageRotation } from './model'
+import { contentSize, pageRotation } from './model'
 import { pageSize } from './pageSizes'
 import { PAGE_MAX, PAGE_MIN } from './limits'
 import { PT_PER_IN } from './units'
@@ -74,12 +74,14 @@ const matchedSize = (
 export const layoutPage = (
   settings: Pick<Settings, 'size' | 'custom' | 'orientation' | 'margin' | 'imageDpi'>,
   asset: Pick<Asset, 'width' | 'height'> & Partial<Pick<Asset, 'format'>>,
-  page: Pick<Page, 'turns' | 'angle' | 'scale' | 'fit'>,
+  page: Pick<Page, 'turns' | 'angle' | 'scale' | 'fit'> & Partial<Pick<Page, 'corners'>>,
 ): Layout => {
+  // What the page shows: the whole image, or the corrected crop.
+  const source = { ...asset, ...contentSize(asset, page) }
   const size =
     settings.size === 'image'
-      ? matchedSize(settings, asset, pageRotation(page))
-      : pageSize(settings, isLandscape(asset, page))
+      ? matchedSize(settings, source, pageRotation(page))
+      : pageSize(settings, isLandscape(source, page))
   // Margins can't eat the whole page; keep at least 10% of each side printable.
   const margin = Math.max(0, Math.min(settings.margin, size.width * 0.45, size.height * 0.45))
   const content: Rect = {
@@ -90,14 +92,14 @@ export const layoutPage = (
   }
 
   const rotation = pageRotation(page)
-  const bounds = rotatedBounds(asset.width, asset.height, rotation)
+  const bounds = rotatedBounds(source.width, source.height, rotation)
   const fitX = content.width / bounds.width
   const fitY = content.height / bounds.height
   const fitted = page.fit === 'cover' ? Math.max(fitX, fitY) : Math.min(fitX, fitY)
   const scale = fitted * page.scale
 
-  const width = asset.width * scale
-  const height = asset.height * scale
+  const width = source.width * scale
+  const height = source.height * scale
   return {
     page: size,
     content,
@@ -108,6 +110,6 @@ export const layoutPage = (
       height,
       rotation,
     },
-    dpi: asset.width / (width / PT_PER_IN),
+    dpi: source.width / (width / PT_PER_IN),
   }
 }

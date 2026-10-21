@@ -1,3 +1,5 @@
+import { toPixels, warpSize, type Quad } from './perspective'
+
 /**
  * The document model. Everything here is plain data so the reducer, the
  * preview and the PDF export can all be tested without a browser.
@@ -109,9 +111,15 @@ export interface Page {
   scale: number
   fit: FitMode
   filter: Filter
+  /**
+   * The paper's corners in the upright image, as fractions (0–1), in order
+   * top-left, top-right, bottom-right, bottom-left; null for the whole image.
+   * The page then shows that quadrilateral flattened to a rectangle.
+   */
+  corners: Quad | null
 }
 
-export type PageTransform = Pick<Page, 'turns' | 'angle' | 'scale' | 'fit' | 'filter'>
+export type PageTransform = Pick<Page, 'turns' | 'angle' | 'scale' | 'fit' | 'filter' | 'corners'>
 
 export const DEFAULT_TRANSFORM: PageTransform = {
   turns: 0,
@@ -119,7 +127,20 @@ export const DEFAULT_TRANSFORM: PageTransform = {
   scale: 1,
   fit: 'contain',
   filter: 'original',
+  corners: null,
 }
+
+/**
+ * The pixel size of what a page shows: the whole image, or the corrected
+ * rectangle when it has corners. PDF pages ignore corners (they're vector).
+ */
+export const contentSize = (
+  asset: Pick<Asset, 'width' | 'height'> & Partial<Pick<Asset, 'format'>>,
+  page: Partial<Pick<Page, 'corners'>>,
+) =>
+  page.corners && asset.format !== 'pdf'
+    ? warpSize(toPixels(page.corners, asset.width, asset.height))
+    : { width: asset.width, height: asset.height }
 
 export const ANGLE_LIMIT = 45
 export const SCALE_MIN = 0.1

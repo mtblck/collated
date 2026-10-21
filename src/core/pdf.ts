@@ -15,7 +15,8 @@ import {
 } from '@cantoo/pdf-lib'
 import { layoutPage, type Layout } from './geometry'
 import { compressionFor, targetPixels, type Compression } from './compression'
-import type { Asset, Filter, Page, Settings } from './model'
+import { contentSize, type Asset, type Filter, type Page, type Settings } from './model'
+import type { Quad } from './perspective'
 import { NUMBER_GREY, numberMark } from './pageNumbers'
 
 export interface BuildInput {
@@ -51,6 +52,8 @@ export interface BuildOptions {
 /** What to do to one image: the canvas side lives in lib/filterCanvas.ts. */
 export interface ImageJob {
   filter: Filter
+  /** Flatten this quadrilateral (fractions of the upright image) first. */
+  corners: Quad | null
   width: number
   height: number
   format: 'jpeg' | 'png'
@@ -65,14 +68,17 @@ export interface ImageJob {
  */
 export const imageJob = (
   asset: Pick<Asset, 'width' | 'height' | 'format'>,
-  filter: Filter,
+  page: Pick<Page, 'filter'> & Partial<Pick<Page, 'corners'>>,
   drawnWidthPt: number,
   compression: Compression | null,
 ): ImageJob | null => {
-  if (asset.format === 'pdf' || (filter === 'original' && !compression)) return null
-  const { width, height } = targetPixels(asset, drawnWidthPt, compression)
+  const { filter } = page
+  const corners = page.corners ?? null
+  if (asset.format === 'pdf' || (filter === 'original' && !compression && !corners)) return null
+  const { width, height } = targetPixels(contentSize(asset, page), drawnWidthPt, compression)
   return {
     filter,
+    corners,
     width,
     height,
     format: filter === 'bw' ? 'png' : 'jpeg',
@@ -169,7 +175,7 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
    */
   const embed = async (asset: BuildInput['assets'][string], job: ImageJob | null) => {
     const key = job
-      ? `${asset.id}:${job.filter}:${job.width}x${job.height}:${job.format}:${job.quality}`
+      ? `${asset.id}:${job.filter}:${job.width}x${job.height}:${job.format}:${job.quality}:${JSON.stringify(job.corners)}`
       : asset.id
     const cached = embedded.get(key)
     if (cached) return cached
@@ -190,7 +196,8 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
       if (job) {
         if (!options.processImage) throw new Error('This build can’t re-encode images.')
         const out = await options.processImage(original, job)
-        if (job.filter !== 'original' || out.byteLength < original.byteLength) {
+        // Filters and crops must apply; plain recompression only if it helps.
+        if (job.filter !== 'original' || job.corners || out.byteLength < original.byteLength) {
           bytes = out
           format = job.format
           turns = 0
@@ -208,10 +215,7 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     if (!asset) throw new Error(`Page ${index + 1} refers to missing content.`)
     const layout = layoutPage(settings, asset, page)
     const pdfPage = doc.addPage([layout.page.width, layout.page.height])
-    const content = await embed(
-      asset,
-      imageJob(asset, page.filter, layout.image.width, compression),
-    )
+    const content = await embed(asset, imageJob(asset, page, layout.image.width, compression))
     const box = layout.content
     const at = placement(layout, content.turns)
 

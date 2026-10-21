@@ -1,4 +1,5 @@
 import { PAGE_MAX, PAGE_MIN } from './limits'
+import { isConvex, type Point, type Quad } from './perspective'
 import type { Asset, DocState, Page, PageTransform, QuarterTurns, Settings } from './model'
 import { ANGLE_LIMIT, DEFAULT_TRANSFORM, SCALE_MAX, SCALE_MIN } from './model'
 
@@ -29,6 +30,14 @@ const cleanTransform = (patch: Partial<PageTransform>): Partial<PageTransform> =
   if (out.angle !== undefined) out.angle = clamp(out.angle, -ANGLE_LIMIT, ANGLE_LIMIT)
   if (out.scale !== undefined) out.scale = clamp(out.scale, SCALE_MIN, SCALE_MAX)
   if (out.turns !== undefined) out.turns = turn(0, Math.round(out.turns))
+  if (out.corners) {
+    const [a, b, c, d] = out.corners
+    const inside = (p: Point) => ({ x: clamp(p.x, 0, 1), y: clamp(p.y, 0, 1) })
+    const corners: Quad = [inside(a), inside(b), inside(c), inside(d)]
+    // A crossed or collapsed shape can't be flattened: ignore that edit.
+    if (isConvex(corners)) out.corners = corners
+    else delete out.corners
+  }
   return out
 }
 
