@@ -141,6 +141,16 @@ describe('headerSize', () => {
     expect(headerSize(encode(format, options))).toEqual({ width: 321, height: 123 })
   })
 
+  it('reads HEIC sizes from the header (Safari decodes it natively)', () => {
+    expect(headerSize(fixture('quad-landscape.heic'))).toEqual({ width: 240, height: 160 })
+  })
+
+  it('reads AVIF sizes, and a grid image by its full size', () => {
+    // Written by Pillow with pillow-heif (CI's Pillow can't write either).
+    expect(headerSize(fixture('blank-321x123.avif'))).toEqual({ width: 321, height: 123 })
+    expect(headerSize(fixture('grid-1100x700.heic'))).toEqual({ width: 1100, height: 700 })
+  })
+
   it('reads a forged huge size, so the import cap can refuse it', () => {
     // A 30-byte VP8X header claiming 16384 × 16384.
     const vp8x = new Uint8Array(30)

@@ -155,12 +155,15 @@ const checkSameOrigin = () => {
 }
 // ---------------------------------------------------------------------------
 
+let expectRevoked = false
 const open = async (options = {}) => {
   const context = await browser.newContext({ acceptDownloads: true, ...options })
   guard(context)
   const page = await context.newPage()
   page.on('console', (m) => {
-    if (m.type() === 'error') fails.push(`console: ${m.text()}`)
+    // A check that loads a revoked blob: URL on purpose expects this one.
+    if (m.type() === 'error' && !(expectRevoked && m.text().includes('ERR_FILE_NOT_FOUND')))
+      fails.push(`console: ${m.text()}`)
   })
   page.on('pageerror', (e) => fails.push(`pageerror: ${e.message}`))
   await page.addInitScript(() => {
@@ -1409,7 +1412,7 @@ await context.close()
   await axe(p, 'More menu open')
   check(
     (await more.getByRole('link', { name: /Support Collated/ }).getAttribute('href')) ===
-      'https://ko-fi.com/collated',
+      'https://ko-fi.com/mtblck',
     'More links to Support Collated',
   )
   await p.keyboard.press('Escape')
@@ -1501,7 +1504,7 @@ await context.close()
     (await footer.getByRole('link', { name: 'Privacy' }).getAttribute('href')) ===
       '/tools/collated/privacy/' &&
       (await footer.getByRole('link', { name: /Support Collated/ }).getAttribute('href')) ===
-        'https://ko-fi.com/collated',
+        'https://ko-fi.com/mtblck',
     'the landing footer links to privacy and support',
   )
   await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-landscape.jpg')])
@@ -1692,6 +1695,133 @@ await context.close()
       'View page 1 larger',
     'closing the viewer returns focus to the preview',
   )
+  await ctx.close()
+}
+
+// 19. Start over (#29): asks, then clears pages, history and blob URLs. ------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1280, height: 900 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [
+    join(fixtures, 'quad-landscape.jpg'),
+    join(fixtures, 'doc-skewed-4deg.jpg'),
+  ])
+  await p.waitForSelector('ol[aria-label="2 pages"]')
+  const thumb = await p.locator('ol img').first().getAttribute('src')
+  const openConfirm = async () => {
+    await p.getByRole('button', { name: 'More' }).click()
+    await p
+      .getByRole('dialog', { name: 'More' })
+      .getByRole('button', { name: 'Start over…' })
+      .click()
+    const confirm = p.getByRole('dialog', { name: 'Start over?' })
+    await confirm.waitFor()
+    return confirm
+  }
+  let confirm = await openConfirm()
+  check(
+    !(await p.getByRole('dialog', { name: 'More' }).isVisible()),
+    'Start over closes the More menu behind its confirmation',
+  )
+  check(
+    (await p.evaluate(() => document.activeElement?.textContent)) === 'Cancel',
+    'the Start over confirmation opens on Cancel',
+  )
+  await axe(p, 'Start over confirmation')
+  await p.keyboard.press('Escape')
+  await confirm.waitFor({ state: 'hidden' })
+  check(
+    (await p.locator('ol[aria-label="2 pages"]').count()) === 1 &&
+      (await p.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === 'More',
+    'Escape keeps the pages and returns focus to More',
+  )
+  confirm = await openConfirm()
+  await confirm.getByRole('button', { name: 'Start over', exact: true }).click()
+  await p.getByRole('button', { name: 'Choose files' }).waitFor()
+  check(
+    (await p.evaluate(() => document.activeElement?.textContent?.trim())) === 'Choose files',
+    'after Start over, focus is on Choose files',
+  )
+  check(
+    (await p.locator('#status').textContent())?.startsWith('Started over: removed 2 pages') ??
+      false,
+    'Start over is announced',
+  )
+  // The old thumbnail's object URL was revoked: it no longer loads.
+  expectRevoked = true
+  const revoked = await p.evaluate(
+    (src) =>
+      new Promise((resolve) => {
+        const img = new Image()
+        img.onload = () => resolve(false)
+        img.onerror = () => resolve(true)
+        img.src = src ?? ''
+      }),
+    thumb,
+  )
+  expectRevoked = false
+  check(
+    (thumb?.startsWith('blob:') ?? false) && revoked,
+    'Start over revokes the old thumbnails',
+    thumb ?? 'no thumbnail',
+  )
+  await p.keyboard.press('Control+z')
+  check(
+    (await p.locator('ol[aria-label$="page"], ol[aria-label$="pages"]').count()) === 0,
+    'Undo cannot bring the old document back',
+  )
+  await ctx.close()
+}
+
+// 20. A PDF page that hides a layer goes as the preview draws it. -----------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles(
+    '[data-testid="file-input"]',
+    ['quad-layers.pdf', 'quad-3pages.pdf'].map((f) => join(fixtures, f)),
+  )
+  await p.waitForSelector('ol[aria-label="4 pages"]', { timeout: 20_000 })
+  const [dl] = await Promise.all([
+    p.waitForEvent('download'),
+    p.getByRole('button', { name: /Export PDF/ }).click(),
+  ])
+  const outPath = join(mkdtempSync(join(tmpdir(), 'collated-verify-layers-')), 'layers.pdf')
+  await dl.saveAs(outPath)
+  const raw = readFileSync(outPath).toString('latin1')
+  const images = raw.match(/\/Subtype\s*\/Image/g) ?? []
+  check(
+    images.length === 1,
+    'only the page that hides a layer is drawn; the others stay vector',
+    `${images.length} images`,
+  )
+  if (hasPoppler) {
+    const text = execFileSync('pdftotext', [outPath, '-']).toString()
+    check(!text.includes('HIDDEN-LAYER-TEXT'), 'the hidden layer’s text is not in the export')
+    const prefix = outPath.replace(/\.pdf$/, '')
+    execFileSync('pdftoppm', [
+      '-png',
+      '-r',
+      '72',
+      '-f',
+      '1',
+      '-l',
+      '1',
+      '-singlefile',
+      outPath,
+      prefix,
+    ])
+    await p.getByRole('button', { name: /^Page 1: quad-layers\.pdf/ }).click()
+    const sheet = p.locator('aside[aria-label="Selected page"] .sheet').first()
+    const diff = await compareImages(
+      readFileSync(`${prefix}.png`).toString('base64'),
+      (await sheet.screenshot(sheetShot)).toString('base64'),
+    )
+    check(
+      diff.farShare < 0.03,
+      `the drawn page matches its preview (${(diff.farShare * 100).toFixed(2)}% of pixels differ)`,
+    )
+  }
   await ctx.close()
 }
 

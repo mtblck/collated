@@ -9,7 +9,15 @@
 import { execFileSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { PDFDocument, degrees, rgb } from '@cantoo/pdf-lib'
+import {
+  PDFDocument,
+  PDFName,
+  PDFOperator,
+  PDFString,
+  StandardFonts,
+  degrees,
+  rgb,
+} from '@cantoo/pdf-lib'
 
 const here = import.meta.dirname
 const C = {
@@ -95,3 +103,22 @@ execFileSync('qpdf', [
   join(here, 'quad-password.pdf'),
 ])
 console.log('PDF fixtures written')
+
+// A page with a layer that's off by default, drawing a black box and text
+// over the top-left quadrant: the preview doesn't show them, and nor may the
+// export (it goes as a drawing, without them).
+{
+  const doc = await PDFDocument.create()
+  const page = doc.addPage([300, 200])
+  quad(page, 0, 0, 300, 200)
+  const { context } = doc
+  const hidden = context.register(context.obj({ Type: 'OCG', Name: PDFString.of('Private') }))
+  doc.catalog.set(PDFName.of('OCProperties'), context.obj({ OCGs: [hidden], D: { OFF: [hidden] } }))
+  const font = await doc.embedFont(StandardFonts.Helvetica)
+  page.node.Resources().set(PDFName.of('Properties'), context.obj({ L: hidden }))
+  page.pushOperators(...[PDFOperator.of('BDC', [PDFName.of('OC'), PDFName.of('L')])])
+  page.drawRectangle({ x: 10, y: 110, width: 130, height: 80, color: rgb(0, 0, 0) })
+  page.drawText('HIDDEN-LAYER-TEXT', { x: 12, y: 150, size: 10, font, color: rgb(1, 1, 1) })
+  page.pushOperators(PDFOperator.of('EMC'))
+  await save(doc, 'quad-layers.pdf')
+}

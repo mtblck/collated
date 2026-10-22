@@ -88,6 +88,10 @@ describe('docReducer', () => {
     expect(next.pages.map((p) => p.angle)).toEqual([2.5, 0, -45])
     const same = doc(1)
     expect(docReducer(same, { type: 'transformPages', patches: [] })).toBe(same)
+    // Pages that are gone (the document was cleared meanwhile): no change, no undo step.
+    expect(
+      docReducer(same, { type: 'transformPages', patches: [{ id: 'gone', patch: { angle: 1 } }] }),
+    ).toBe(same)
   })
 
   it('resets a page and copies one page’s transform to every page', () => {

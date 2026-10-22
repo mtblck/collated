@@ -14,12 +14,14 @@ export interface History<S> {
   lastKey: string | null
 }
 
-export type HistoryAction<A> =
+export type HistoryAction<A, S = unknown> =
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'do'; action: A; coalesce?: string }
   /** Ends any coalescing run, so the next change starts a fresh undo step. */
   | { type: 'commit' }
+  /** Replaces everything, history included: nothing to undo back to. */
+  | { type: 'reset'; present: S }
 
 export const HISTORY_LIMIT = 100
 
@@ -32,7 +34,7 @@ export const initHistory = <S>(present: S): History<S> => ({
 
 export const withHistory =
   <S, A>(reducer: (state: S, action: A) => S) =>
-  (history: History<S>, action: HistoryAction<A>): History<S> => {
+  (history: History<S>, action: HistoryAction<A, S>): History<S> => {
     switch (action.type) {
       case 'undo': {
         const previous = history.past.at(-1)
@@ -49,6 +51,8 @@ export const withHistory =
         if (next === undefined) return history
         return { past: [...history.past, history.present], present: next, future, lastKey: null }
       }
+      case 'reset':
+        return initHistory(action.present)
       case 'commit':
         return history.lastKey === null ? history : { ...history, lastKey: null }
       case 'do': {

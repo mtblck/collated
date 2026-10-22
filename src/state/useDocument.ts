@@ -23,6 +23,10 @@ export const useDocument = (initialSettings: () => Settings) => {
   const endGesture = useCallback(() => {
     send({ type: 'commit' })
   }, [])
+  /** An empty document with `settings` and no undo history (Start over). */
+  const reset = useCallback((settings: Settings) => {
+    send({ type: 'reset', present: { settings, assets: {}, pages: [] } })
+  }, [])
 
   return useMemo(
     () => ({
@@ -36,7 +40,8 @@ export const useDocument = (initialSettings: () => Settings) => {
       undo,
       redo,
       endGesture,
+      reset,
     }),
-    [history, act, undo, redo, endGesture],
+    [history, act, undo, redo, endGesture, reset],
   )
 }

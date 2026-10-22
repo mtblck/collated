@@ -4,7 +4,9 @@ import { pdfFilename } from './core/filename'
 import { compressionFor, estimateBytes } from './core/compression'
 import type { Skew } from './core/deskew'
 import { skewOf } from './lib/skew'
-import { pageWords } from './lib/pageText'
+import { forgetPageWords, pageWords } from './lib/pageText'
+import { forgetPageThumbs } from './hooks/usePageThumb'
+import { forgetLayered } from './export/layered'
 import type { OcrWord } from './core/textLayer'
 import { layoutPage } from './core/geometry'
 import { formatBytes } from './core/units'
@@ -95,8 +97,8 @@ const isEditable = (target: EventTarget | null) =>
 
 export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const deps = useMemo(() => ({ ...defaultDeps(), ...injected }), [injected])
-  const { doc, previous, next, act, undo, redo, canUndo, canRedo, endGesture } = useDocument(() =>
-    loadSettings(deps.storage, deps.locale),
+  const { doc, previous, next, act, undo, redo, canUndo, canRedo, endGesture, reset } = useDocument(
+    () => loadSettings(deps.storage, deps.locale),
   )
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [importing, setImporting] = useState<{
@@ -131,6 +133,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     if (el && !el.contains(document.activeElement)) el.scrollTop = 0
   }, [selectedId])
   const noticeId = useRef(0)
+  /** Bumped by Start over, so work started before it doesn't land after it. */
+  const generation = useRef(0)
   /**
    * Where focus goes after a change that may remove the focused control:
    * a page's select button (else the add/choose button). `always` moves it
@@ -190,6 +194,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       setStatus(`Reading ${plural(files.length, 'file')}…`)
       const added: Asset[] = []
       const failed: string[] = []
+      const started = generation.current
       // One at a time: decoding several 12-megapixel photos at once can
       // exhaust memory on a phone.
       for (const [i, file] of files.entries()) {
@@ -198,6 +203,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           const imported = await deps.importFile(file, deps.newId, (done, total) => {
             setImporting({ file: i + 1, files: files.length, pages: { done, total } })
           })
+          if (generation.current !== started) break
           for (const { id, bytes } of imported.files) assetStore.putBytes(id, bytes)
           added.push(...imported.assets)
         } catch (error) {
@@ -215,6 +221,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         }
       }
       setImporting(null)
+      if (generation.current !== started) return
       if (added.length > 0) {
         const pageIds = added.map(() => deps.newId())
         act({ type: 'addPages', assets: added, pageIds })
@@ -255,11 +262,13 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       event.preventDefault()
       depth = 0
       setDragging(false)
+      // Not into a dialog (Start over's confirmation, the crop editor).
+      if (modalOpen()) return
       void addFiles(filesFrom(event.dataTransfer?.files))
     }
     const onPaste = (event: ClipboardEvent) => {
       const files = filesFrom(event.clipboardData?.files)
-      if (files.length === 0) return
+      if (files.length === 0 || modalOpen()) return
       event.preventDefault()
       void addFiles(files)
     }
@@ -465,6 +474,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     async (ids: string[]) => {
       setStraightening(true)
       setStatus('Looking for lines…')
+      const started = generation.current
       try {
         const patches: { id: string; patch: { angle: number } }[] = []
         let unclear = 0
@@ -478,6 +488,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           // Let the page paint between pages of a long document.
           await new Promise((resolve) => setTimeout(resolve, 0))
         }
+        if (generation.current !== started) return
         act({ type: 'transformPages', patches })
         const one = ids.length === 1
         // One page with no lines gets a visible notice, which is announced
@@ -556,6 +567,30 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     [assets, pages, settings],
   )
 
+  /**
+   * Start over (#29): an empty document with no undo history, and nothing
+   * kept for the old one: bytes, thumbnails, previews, recognised text, the
+   * password. Page setup is a preference and stays; the title is per
+   * document, so it goes back to the default with everything else unsaved.
+   */
+  const onStartOver = useCallback(() => {
+    const count = pages.length
+    generation.current += 1
+    reset(loadSettings(deps.storage, deps.locale))
+    assetStore.clear()
+    forgetPageThumbs()
+    forgetPageWords()
+    forgetLayered()
+    setSelectedId(null)
+    setPassword('')
+    setLastExport(null)
+    setNotices([])
+    requestFocus(null, true)
+    announce(
+      `Started over: removed ${plural(count, 'page')} and the undo history. Add files to begin again.`,
+    )
+  }, [announce, deps.locale, deps.storage, pages.length, requestFocus, reset])
+
   const workspace = pages.length > 0 || importing !== null
 
   return (
@@ -584,6 +619,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             onRotateAll={(by) => {
               act({ type: 'rotateAll', by })
             }}
+            onStartOver={onStartOver}
+            busy={importing !== null || straightening}
             onAdd={chooseFiles}
             onExport={() => void onExport()}
             estimate={estimate}

@@ -127,3 +127,14 @@ try:
     upright.save(HERE / "quad-landscape.heic", quality=90)
 except ImportError:
     print("pillow-heif not installed; keeping existing quad-landscape.heic")
+
+# Header-size fixtures for AVIF and a HEIF grid image (needs pillow-heif; CI's
+# Pillow can't write either, so the files are committed).
+try:
+    import pillow_heif
+
+    pillow_heif.register_heif_opener()
+    Image.new("RGB", (321, 123)).save(HERE / "blank-321x123.avif", "AVIF")
+    Image.new("RGB", (1100, 700)).save(HERE / "grid-1100x700.heic", "HEIF", quality=50)
+except ImportError:
+    print("pillow-heif not installed: skipped the AVIF and HEIF size fixtures")

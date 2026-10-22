@@ -30,6 +30,11 @@ const prune = () => {
   }
 }
 
+/** Forgets every page's words (Start over). */
+export const forgetPageWords = () => {
+  cache.clear()
+}
+
 export const pageWords = (
   asset: Asset,
   page: Pick<Page, 'corners' | 'turns' | 'angle'>,

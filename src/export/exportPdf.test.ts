@@ -95,4 +95,45 @@ describe('the export worker', () => {
     FakeWorker.all[0]?.reply({ type: 'error', message: 'Page 1 refers to missing content.' })
     await expect(exported).rejects.toThrow('Page 1 refers to missing content.')
   })
+
+  it('sends drawings for pages that hide a layer, and draws more if the worker asks', async () => {
+    const layeredImage = vi.fn((asset: { bytesId: string }, force?: boolean) =>
+      Promise.resolve(asset.bytesId === 'f1' || force ? new Uint8Array([0xff, 0xd8]) : null),
+    )
+    vi.doMock('./layered', () => ({ layeredImage, forgetLayered: vi.fn() }))
+    const { exportPdf } = await load()
+    const { assetStore } = await import('../import/assetStore')
+    assetStore.putBytes('f1', new Uint8Array([9]))
+    assetStore.putBytes('f2', new Uint8Array([8]))
+    const pdfDoc: DocState = {
+      settings: settings(),
+      assets: {
+        p1: asset('p1', { bytesId: 'f1', format: 'pdf', pdfPage: 0 }),
+        p2: asset('p2', { bytesId: 'f2', format: 'pdf', pdfPage: 0 }),
+      },
+      pages: [page('a', 'p1'), page('b', 'p2')],
+    }
+    const exported = exportPdf(pdfDoc)
+    await vi.waitFor(() => {
+      expect(FakeWorker.all[0]?.posted).toHaveLength(1)
+    })
+    const first = FakeWorker.all[0]?.posted[0] as {
+      input: { rendered?: Record<string, string> }
+      bytes: Record<string, Uint8Array>
+    }
+    // p1's file goes only as its drawing; p2's goes as it is.
+    expect(first.input.rendered).toEqual({ p1: 'drawn:p1' })
+    expect(Object.keys(first.bytes).sort()).toEqual(['drawn:p1', 'f2'])
+    FakeWorker.all[0]?.reply({ type: 'draw', assetIds: ['p2'] })
+    await vi.waitFor(() => {
+      expect(FakeWorker.all[0]?.posted).toHaveLength(2)
+    })
+    const second = FakeWorker.all[0]?.posted[1] as typeof first
+    expect(layeredImage).toHaveBeenLastCalledWith(expect.objectContaining({ bytesId: 'f2' }), true)
+    expect(second.input.rendered).toEqual({ p1: 'drawn:p1', p2: 'drawn:p2' })
+    expect(Object.keys(second.bytes).sort()).toEqual(['drawn:p1', 'drawn:p2'])
+    FakeWorker.all[0]?.reply(done)
+    await expect(exported).resolves.toMatchObject({ fits: true })
+    vi.doUnmock('./layered')
+  })
 })

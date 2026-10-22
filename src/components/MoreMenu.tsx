@@ -1,6 +1,7 @@
 import { useId, useRef, type ReactNode } from 'react'
 import { cx } from './cx'
-import { MoonIcon, MoreIcon, RotateLeftIcon, RotateRightIcon, SunIcon } from './Icons'
+import { Button } from './controls'
+import { MoonIcon, MoreIcon, RotateLeftIcon, RotateRightIcon, SunIcon, TrashIcon } from './Icons'
 import { DOCS_URL, PRIVACY_URL, SOURCE_URL, SUPPORT_URL } from './links'
 import { POPOVER_PANEL, closeOwnPopover, useCloseOnFocusOut } from './popover'
 import { useTheme } from './theme'
@@ -16,21 +17,28 @@ const Group = ({ label, children }: { label: string; children: ReactNode }) => (
 )
 
 /**
- * Everything the toolbar doesn't need on show: whole-document rotation, the
- * theme, and links out. A disclosure (a popover of ordinary buttons and
+ * Everything the toolbar doesn't need on show: whole-document rotation,
+ * Start over, the theme, and links out. A disclosure (a popover of ordinary buttons and
  * links, Tab to move), not an ARIA menu: menus promise arrow-key behaviour
  * and roles screen readers treat differently, for no gain here.
  */
 export const MoreMenu = ({
   pageCount,
   onRotateAll,
+  busy,
+  onStartOver,
 }: {
   pageCount: number
   onRotateAll: (by: -1 | 1) => void
+  /** Importing or exporting: Start over waits until that's done. */
+  busy: boolean
+  onStartOver: () => void
 }) => {
   const id = useId()
   const panelId = `${id}-more`
   const panel = useRef<HTMLDivElement>(null)
+  const opener = useRef<HTMLButtonElement>(null)
+  const confirm = useRef<HTMLDialogElement>(null)
   useCloseOnFocusOut(panel, panelId)
   const { theme, next, toggle } = useTheme()
 
@@ -38,6 +46,7 @@ export const MoreMenu = ({
     <>
       <button
         type="button"
+        ref={opener}
         popoverTarget={panelId}
         {...TOOLBAR_ITEM}
         aria-label="More"
@@ -55,7 +64,7 @@ export const MoreMenu = ({
         className={cx(POPOVER_PANEL, 'popover-end from-more w-[min(17rem,calc(100vw-1rem))] p-2')}
       >
         <div className="divide-y divide-rule-soft">
-          <Group label="All pages">
+          <Group label="Document">
             {(
               [
                 [-1, 'Rotate all pages left', RotateLeftIcon],
@@ -75,6 +84,19 @@ export const MoreMenu = ({
                 {label}
               </button>
             ))}
+            <button
+              type="button"
+              className={ITEM}
+              {...(busy ? { 'aria-disabled': true } : {})}
+              onClick={(event) => {
+                if (busy) return
+                closeOwnPopover(event.currentTarget)
+                confirm.current?.showModal()
+              }}
+            >
+              <TrashIcon width={18} height={18} className="text-ink-muted" />
+              Start over…
+            </button>
           </Group>
           <Group label="Appearance">
             <button
@@ -113,6 +135,54 @@ export const MoreMenu = ({
           </Group>
         </div>
       </div>
+      {/* Outside the popover, which is hidden once the dialog opens. */}
+      <dialog
+        ref={confirm}
+        aria-labelledby={`${id}-start-over`}
+        aria-describedby={`${id}-start-over-help`}
+        className="m-auto w-[min(26rem,calc(100vw-2rem))] border border-rule bg-paper p-0 text-ink shadow-2xl backdrop:bg-ink/50"
+        onClose={() => {
+          // The dialog would return focus into the closed popover. Starting
+          // over moves focus on its own (the toolbar goes away).
+          const d = confirm.current
+          if (d?.returnValue !== 'start-over') opener.current?.focus()
+          if (d) d.returnValue = ''
+        }}
+      >
+        <div className="flex flex-col gap-4 p-5 sm:p-6">
+          <h2 id={`${id}-start-over`} className="font-display text-2xl">
+            Start over?
+          </h2>
+          <p id={`${id}-start-over-help`} className="text-sm text-ink-muted">
+            This removes all {pageCount} {pageCount === 1 ? 'page' : 'pages'} and their undo
+            history, and clears the password. It can't be undone. Your page setup is kept.
+          </p>
+          <div className="flex justify-end gap-2">
+            {/* First, so the dialog opens on it: Enter or a stray tap keeps the work. */}
+            <Button
+              onClick={() => {
+                confirm.current?.close()
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                // Something may have started since the dialog opened.
+                if (busy) {
+                  confirm.current?.close()
+                  return
+                }
+                confirm.current?.close('start-over')
+                onStartOver()
+              }}
+            >
+              Start over
+            </Button>
+          </div>
+        </div>
+      </dialog>
     </>
   )
 }

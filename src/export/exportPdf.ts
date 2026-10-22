@@ -2,6 +2,7 @@ import type { Compression } from '../core/compression'
 import type { DocState } from '../core/model'
 import type { OcrWord } from '../core/textLayer'
 import { assetStore } from '../import/assetStore'
+import { layeredImage } from './layered'
 import type { ExportRequest, ExportResponse } from './protocol'
 
 export type Progress = (done: number, total: number, attempt: number) => void
@@ -14,16 +15,38 @@ export interface Exported {
   fits: boolean
 }
 
+/** Drawn JPEGs for the PDF pages that hide something, by asset id (see layered.ts). */
+const drawLayered = async (state: DocState) => {
+  const drawn: Record<string, Uint8Array> = {}
+  const used = new Set(state.pages.map((p) => p.assetId))
+  for (const asset of Object.values(state.assets)) {
+    if (asset.format !== 'pdf' || !used.has(asset.id)) continue
+    const jpeg = await layeredImage(asset)
+    if (jpeg) drawn[asset.id] = jpeg
+  }
+  return drawn
+}
+
 const request = (
   state: DocState,
   password?: string,
   text?: Record<string, OcrWord[]>,
+  drawn: Record<string, Uint8Array> = {},
 ): ExportRequest => {
   const used = new Set(state.pages.map((p) => p.assetId))
   const assets = Object.fromEntries(Object.entries(state.assets).filter(([id]) => used.has(id)))
-  // Pages of one PDF share its bytes: send each file once.
-  const bytesIds = new Set(Object.values(assets).map((a) => a.bytesId))
-  const bytes = Object.fromEntries([...bytesIds].map((id) => [id, assetStore.get(id)]))
+  const rendered = Object.fromEntries(Object.keys(drawn).map((id) => [id, `drawn:${id}`]))
+  // Pages of one PDF share its bytes: send each file once, and not at all
+  // when every page of it goes as a drawing.
+  const bytesIds = new Set(
+    Object.values(assets)
+      .filter((a) => !(a.id in drawn))
+      .map((a) => a.bytesId),
+  )
+  const bytes = {
+    ...Object.fromEntries([...bytesIds].map((id) => [id, assetStore.get(id)])),
+    ...Object.fromEntries(Object.entries(drawn).map(([id, jpeg]) => [`drawn:${id}`, jpeg])),
+  }
   return {
     input: {
       settings: state.settings,
@@ -31,6 +54,7 @@ const request = (
       assets,
       ...(password ? { password } : {}),
       ...(text ? { text } : {}),
+      ...(Object.keys(rendered).length ? { rendered } : {}),
     },
     bytes,
   }
@@ -82,7 +106,33 @@ export const exportPdf = (
   onProgress?: Progress,
   options: { password?: string; text?: Record<string, OcrWord[]> } = {},
 ): Promise<Exported> => {
-  const message = request(state, options.password, options.text)
+  const hasPdf = state.pages.some((p) => state.assets[p.assetId]?.format === 'pdf')
+  const finish = (result: Exported | { draw: string[] }) => {
+    if ('draw' in result) throw new Error('A PDF page that hides a layer could not be drawn.')
+    return result
+  }
+  // Without PDF pages there's nothing to draw first: post straight away.
+  if (!hasPdf) return send(request(state, options.password, options.text), onProgress).then(finish)
+  return (async () => {
+    const drawn = await drawLayered(state)
+    const first = await send(request(state, options.password, options.text, drawn), onProgress)
+    if (!('draw' in first)) return first
+    // The export's own check found pages that could hide something, which
+    // the preview's didn't flag: draw those too, and build once more.
+    for (const id of first.draw) {
+      const asset = state.assets[id]
+      const jpeg = asset && !(id in drawn) ? await layeredImage(asset, true) : null
+      if (!jpeg) throw new Error('A PDF page that hides a layer could not be drawn.')
+      drawn[id] = jpeg
+    }
+    return finish(await send(request(state, options.password, options.text, drawn), onProgress))
+  })()
+}
+
+const send = (
+  message: ExportRequest,
+  onProgress?: Progress,
+): Promise<Exported | { draw: string[] }> => {
   return new Promise((resolve, reject) => {
     const worker = takeWorker()
     let started = false
@@ -106,6 +156,9 @@ export const exportPdf = (
           compression: data.compression,
           fits: data.fits,
         })
+      } else if (data.type === 'draw') {
+        release()
+        resolve({ draw: data.assetIds })
       } else {
         release()
         reject(new Error(data.message))

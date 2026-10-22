@@ -112,6 +112,115 @@ describe('App', () => {
     expect(pageLabels()).toEqual(['Page 1: b.jpg'])
   })
 
+  describe('start over (#29)', () => {
+    const startOver = async (user: ReturnType<typeof userEvent.setup>) => {
+      await user.click(screen.getByRole('button', { name: 'More' }))
+      await user.click(screen.getByRole('button', { name: 'Start over…', hidden: true }))
+      return screen.getByRole('dialog', { name: 'Start over?' })
+    }
+
+    it('asks first, and Cancel keeps everything and returns focus to More', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'b.jpg')
+      const dialog = await startOver(user)
+      expect(dialog).toHaveAccessibleDescription(/removes all 2 pages .* can't be undone/)
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+      expect(screen.queryByRole('dialog', { name: 'Start over?' })).toBeNull()
+      expect(pageLabels()).toEqual(['Page 1: a.jpg', 'Page 2: b.jpg'])
+      expect(screen.getByRole('button', { name: 'More' })).toHaveFocus()
+    })
+
+    it('clears the pages, undo history, password, title and kept bytes, not page setup', async () => {
+      const { user, upload } = setup()
+      const { assetStore } = await import('./import/assetStore')
+      await upload('a.jpg')
+      await user.type(await screen.findByLabelText('Password to open'), 'hunter2')
+      await user.type(screen.getByLabelText('Title & filename'), 'Taxes')
+      await user.click(screen.getByRole('radio', { name: 'mm', hidden: true }))
+      // Removed and brought back: the bytes are kept for undo.
+      await user.click(screen.getByRole('button', { name: 'Remove page 1' }))
+      await user.keyboard('{Control>}z{/Control}')
+      expect(pageLabels()).toEqual(['Page 1: a.jpg'])
+      expect(assetStore.has('id1')).toBe(true)
+      const dialog = await startOver(user)
+      await user.click(within(dialog).getByRole('button', { name: 'Start over' }))
+
+      expect(screen.queryByRole('list', { name: /pages?$/ })).toBeNull()
+      expect(assetStore.has('id1')).toBe(false)
+      expect(status()).toHaveTextContent('Started over: removed 1 page and the undo history.')
+      expect(screen.getByRole('button', { name: 'Choose files' })).toHaveFocus()
+      // Nothing to undo back to.
+      await user.keyboard('{Control>}z{/Control}')
+      expect(screen.queryByRole('list', { name: /pages?$/ })).toBeNull()
+
+      await upload('b.jpg')
+      expect(await screen.findByLabelText('Password to open')).toHaveValue('')
+      expect(screen.getByLabelText('Title & filename')).toHaveValue('')
+      expect(screen.getByRole('radio', { name: 'mm', hidden: true })).toBeChecked()
+      expect(screen.getByRole('button', { name: /^Undo/ })).toBeEnabled()
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      // One undo empties it: the old document isn't underneath.
+      expect(screen.queryByRole('list', { name: /pages?$/ })).toBeNull()
+    })
+
+    it('ignores files pasted while it asks, and waits while straightening', async () => {
+      let finish: (skew: { angle: number; confidence: number }) => void = () => undefined
+      const { user, upload } = setup({
+        estimateSkew: () =>
+          new Promise((resolve) => {
+            finish = resolve
+          }),
+      })
+      await upload('a.jpg')
+      await startOver(user)
+      const paste = new Event('paste', { bubbles: true, cancelable: true }) as Event & {
+        clipboardData: { files: File[] }
+      }
+      Object.defineProperty(paste, 'clipboardData', { value: { files: [file('late.png')] } })
+      act(() => {
+        window.dispatchEvent(paste)
+      })
+      await user.keyboard('{Escape}')
+      expect(pageLabels()).toEqual(['Page 1: a.jpg'])
+
+      const panel = within(screen.getByRole('complementary', { name: 'Selected page' }))
+      await user.click(panel.getByRole('button', { name: 'Auto-straighten' }))
+      await user.click(screen.getByRole('button', { name: 'More' }))
+      expect(screen.getByRole('button', { name: 'Start over…', hidden: true })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      )
+      await act(async () => {
+        finish({ angle: 1, confidence: 2 })
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      })
+    })
+
+    it('waits while an export is running', async () => {
+      let finish: () => void = () => undefined
+      const exportPdf = vi.fn<AppDeps['exportPdf']>(
+        () =>
+          new Promise((resolve) => {
+            finish = () => {
+              resolve({ blob: new Blob(['%PDF']), compression: null, fits: true })
+            }
+          }),
+      )
+      const { user, upload } = setup({ exportPdf })
+      await upload('a.jpg')
+      await user.click(screen.getByRole('button', { name: /^Export PDF/ }))
+      await user.click(screen.getByRole('button', { name: 'More' }))
+      const item = screen.getByRole('button', { name: 'Start over…', hidden: true })
+      expect(item).toHaveAttribute('aria-disabled', 'true')
+      await user.click(item)
+      expect(screen.queryByRole('dialog', { name: 'Start over?' })).toBeNull()
+      await act(async () => {
+        finish()
+        await Promise.resolve()
+      })
+    })
+  })
+
   it('undoes with the keyboard shortcut, but not while typing in a field', async () => {
     const { user, upload } = setup()
     await upload('a.jpg', 'b.jpg')
@@ -814,7 +923,7 @@ describe('App', () => {
       expect(hrefs).toEqual([
         '/tools/collated/docs/',
         'https://github.com/mtblck/collated',
-        'https://ko-fi.com/collated',
+        'https://ko-fi.com/mtblck',
       ])
       for (const link of within(nav)
         .getAllByRole('link')
@@ -882,7 +991,7 @@ describe('App', () => {
       if (!more) throw new Error('no More panel')
       expect(
         within(more).getByRole('link', { name: /Support Collated/, hidden: true }),
-      ).toHaveAttribute('href', 'https://ko-fi.com/collated')
+      ).toHaveAttribute('href', 'https://ko-fi.com/mtblck')
     })
   })
 })

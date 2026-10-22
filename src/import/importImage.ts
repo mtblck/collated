@@ -116,11 +116,10 @@ export const importImage = async (
   original: Uint8Array,
   kind: SniffedType,
 ): Promise<Imported> => {
-  // Refuse an oversized image from its header (JPEG, PNG, WebP, GIF, BMP),
-  // before the browser allocates a full-size bitmap for it (and before the
-  // crop, filter, OCR and PNG-embedding paths would each decode it again).
-  // HEIC is checked in its worker; AVIF and Safari's own HEIC decode are
-  // checked after decoding (#26).
+  // Refuse an oversized image from its header (JPEG, PNG, WebP, GIF, BMP,
+  // HEIC, AVIF), before the browser allocates a full-size bitmap for it (and
+  // before the crop, filter, OCR and PNG-embedding paths would each decode it
+  // again). The libheif worker checks again; every decode is checked after.
   const declared = headerSize(original)
   if (declared) assertImportPixels(declared.width, declared.height)
   const bitmap = await decode(file, kind)
