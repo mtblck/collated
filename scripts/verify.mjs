@@ -1817,7 +1817,13 @@ await context.close()
       `the drawn page matches its preview (${(diff.farShare * 100).toFixed(2)}% of pixels differ)`,
     )
   }
-  // With OCR on, the drawn page gets a text layer read from the drawing (#52).
+  // With OCR on, the drawn page gets a text layer read from the drawing
+  // (#52), placed over the printed words; straightened 4°, so placement has
+  // a rotation to get right (a quarter turn would leave the text sideways,
+  // which OCR, reading the page as shown, can't read).
+  await p.getByRole('button', { name: /^Page 1: quad-layers\.pdf/ }).click()
+  await p.locator('aside[aria-label="Selected page"]').getByLabel('Straighten').focus()
+  for (let i = 0; i < 8; i++) await p.keyboard.press('ArrowRight')
   await exportMenu(p).click()
   const ocrDialog = p.getByRole('dialog', { name: 'Export options' })
   await ocrDialog.getByRole('checkbox', { name: 'Make text searchable (OCR)' }).check()
@@ -1830,7 +1836,53 @@ await context.close()
   if (hasPoppler) {
     const page1 = execFileSync('pdftotext', ['-f', '1', '-l', '1', ocrPath, '-']).toString()
     check(/Visible\s+words/i.test(page1), 'the drawn page is searchable with OCR on', page1.trim())
-    check(!page1.includes('HIDDEN-LAYER-TEXT'), 'OCR read nothing from the hidden layer')
+    // Each recognised word's box sits over ink on the page as exported.
+    const bbox = execFileSync('pdftotext', ['-f', '1', '-l', '1', '-bbox', ocrPath, '-']).toString()
+    const words = [
+      ...bbox.matchAll(
+        /<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">(Visible|words)<\/word>/gi,
+      ),
+    ]
+    const prefix = ocrPath.replace(/\.pdf$/, '')
+    execFileSync('pdftoppm', [
+      '-png',
+      '-r',
+      '72',
+      '-f',
+      '1',
+      '-l',
+      '1',
+      '-singlefile',
+      ocrPath,
+      prefix,
+    ])
+    const inks = await p.evaluate(
+      async ([src, boxes]) => {
+        const img = new Image()
+        img.src = `data:image/png;base64,${src}`
+        await img.decode()
+        const c = document.createElement('canvas')
+        c.width = img.width
+        c.height = img.height
+        const g = c.getContext('2d')
+        g.drawImage(img, 0, 0)
+        return boxes.map((box) => {
+          const [x0, y0, x1, y1] = box.map(Math.round)
+          const { data } = g.getImageData(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0))
+          let dark = 0
+          for (let i = 0; i < data.length; i += 4) if (data[i] < 128) dark += 1
+          return dark / (data.length / 4)
+        })
+      },
+      [
+        readFileSync(`${prefix}.png`).toString('base64'),
+        words.map((w) => w.slice(1, 5).map(Number)),
+      ],
+    )
+    check(
+      words.length >= 2 && inks.every((ink) => ink > 0.08),
+      `the drawn page's searchable words sit over the printed words (straightened; ${inks.map((i) => `${(i * 100).toFixed(0)}%`).join(', ')} ink)`,
+    )
   }
   await ctx.close()
 }

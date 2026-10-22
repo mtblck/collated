@@ -574,6 +574,20 @@ describe('App', () => {
     expect(status()).toHaveTextContent('searchable')
   })
 
+  it('asks nothing about drawn pages when OCR is off', async () => {
+    const exportPdf = vi.fn<AppDeps['exportPdf']>(() =>
+      Promise.resolve({ blob: new Blob(['%PDF']), compression: null, fits: true }),
+    )
+    const { user, deps, upload } = setup({ exportPdf })
+    await upload('layers.pdf')
+    await user.click(exportButton())
+    await waitFor(() => {
+      expect(exportPdf).toHaveBeenCalled()
+    })
+    expect(deps.drawnPage).not.toHaveBeenCalled()
+    expect(exportPdf.mock.calls[0]?.[2]?.readDrawn).toBeUndefined()
+  })
+
   it('reads text on PDF pages exported as drawings, from the drawing (#52)', async () => {
     const exportPdf = vi.fn<AppDeps['exportPdf']>(() =>
       Promise.resolve({ blob: new Blob(['%PDF']), compression: null, fits: true }),
@@ -599,8 +613,10 @@ describe('App', () => {
     )
     expect(readDrawn).toBeDefined()
     if (readDrawn && formAsset) {
-      const words = await readDrawn(formAsset.id, new Uint8Array([0xff, 0xd8]))
+      const words = await act(() => readDrawn(formAsset.id, new Uint8Array([0xff, 0xd8])))
       expect(Object.keys(words)).toHaveLength(1)
+      // Then back to building: the status doesn't stay on reading.
+      expect(status()).toHaveTextContent('Building PDF…')
     }
   })
 

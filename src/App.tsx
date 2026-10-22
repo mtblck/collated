@@ -410,10 +410,15 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             const words: Record<string, OcrWord[]> = {}
             const asset = assets[assetId]
             if (!asset) return words
-            for (const page of pages.filter((p) => p.assetId === assetId)) {
-              setStatus('Reading text on a drawn page…')
+            const reading = pages.filter((p) => p.assetId === assetId)
+            for (const [i, page] of reading.entries()) {
+              setStatus(`Reading text on drawn page ${i + 1} of ${reading.length}…`)
+              setExporting({ busy: true, done: i, total: reading.length, phase: 'ocr' })
               words[page.id] = await deps.recognizeText(asset, page, jpeg)
             }
+            // The build runs again next.
+            setStatus('Building PDF…')
+            setExporting({ busy: true, done: 0, total: pages.length })
             return words
           }
         : undefined
