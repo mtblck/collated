@@ -10,6 +10,14 @@ import { previewToBlob } from '../lib/filterCanvas'
  * released with the document's other thumbnails.
  */
 const cache = new Map<string, Promise<string>>()
+/** Bumped by `forgetPageThumbs`, so a preview still being made is dropped. */
+let generation = 0
+
+/** Forgets every preview (Start over; `assetStore.clear` revokes their URLs). */
+export const forgetPageThumbs = () => {
+  cache.clear()
+  generation += 1
+}
 
 type Look = Pick<Page, 'filter' | 'corners'>
 
@@ -21,8 +29,13 @@ const previewOf = (asset: Pick<Asset, 'id' | 'thumbUrl'>, look: Look) => {
   const cached = cache.get(key)
   if (cached) return cached
   const source = assetStore.thumbBlob(asset.thumbUrl)
+  const started = generation
   const made = source
-    ? previewToBlob(source, look.filter, look.corners).then((blob) => assetStore.thumbUrl(blob))
+    ? previewToBlob(source, look.filter, look.corners).then((blob) => {
+        // Started over meanwhile: don't make a URL nothing would revoke.
+        if (started !== generation) throw new Error('The document was cleared.')
+        return assetStore.thumbUrl(blob)
+      })
     : Promise.reject(new Error('Thumbnail is no longer available.'))
   // A failure shouldn't stick: drop it so the next render can retry.
   made.catch(() => cache.delete(key))

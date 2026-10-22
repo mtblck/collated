@@ -34,11 +34,11 @@ const dist = join(root, 'dist')
 const fixtures = join(root, 'tests', 'fixtures')
 const shots = join(root, process.env.SHOTS ?? 'shots')
 mkdirSync(shots, { recursive: true })
-const BASE = '/tools/collated/'
+const BASE = '/'
 const PORT = Number(process.env.VERIFY_PORT ?? 4175)
 const URL_ROOT = `http://localhost:${PORT}${BASE}`
 
-if (!existsSync(join(dist, 'tools', 'collated', 'index.html'))) {
+if (!existsSync(join(dist, 'index.html'))) {
   console.error('No build found. Run `npm run build` first.')
   process.exit(1)
 }
@@ -60,12 +60,13 @@ const types = {
 }
 const server = createServer((req, res) => {
   const path = decodeURIComponent((req.url ?? '/').split('?')[0])
-  if (path === '/tools/collated') {
-    res.writeHead(308, { Location: BASE }).end()
+  // As vercel.json: the old address under mattblack.space keeps working.
+  if (path === '/tools/collated' || path.startsWith('/tools/collated/')) {
+    res.writeHead(308, { Location: path.slice('/tools/collated'.length) || '/' }).end()
     return
   }
   // As vercel.json: docs URLs typed without their slash go to the page.
-  if (/^\/tools\/collated\/(docs|docs\/[^/.]+|privacy|terms)$/.test(path)) {
+  if (/^\/(docs|docs\/[^/.]+|privacy|terms)$/.test(path)) {
     res.writeHead(308, { Location: `${path}/` }).end()
     return
   }
@@ -78,7 +79,7 @@ const server = createServer((req, res) => {
   // A folder URL serves its index.html, as Vercel does (the docs pages).
   if (path.endsWith('/') && existsSync(join(file, 'index.html'))) file = join(file, 'index.html')
   if (!path.startsWith(BASE) || !existsSync(file) || !extname(file)) {
-    file = join(dist, 'tools', 'collated', 'index.html') // app fallback
+    file = join(dist, 'index.html') // app fallback
   }
   for (const h of headerBlock.headers) res.setHeader(h.key, h.value)
   res.setHeader('Content-Type', types[extname(file)] ?? 'application/octet-stream')
@@ -101,9 +102,19 @@ const pageSetup = async (p, act) => {
   await p.keyboard.press('Escape')
   await panel.waitFor({ state: 'hidden' })
 }
+/** The toolbar's export button, which opens the export popover. */
+const exportMenu = (p) => p.getByRole('button', { name: /, options$/ })
+/** Opens the export popover and clicks Export at its foot. */
+const exportNow = async (p) => {
+  await exportMenu(p).click()
+  await p
+    .getByRole('dialog', { name: 'Export options' })
+    .getByRole('button', { name: /^Export (locked )?PDF$/ })
+    .click()
+}
 /** Sets the title in the Export options popover. */
 const setTitle = async (p, title) => {
-  await p.getByRole('button', { name: /Export options/ }).click()
+  await exportMenu(p).click()
   const panel = p.getByRole('dialog', { name: 'Export options' })
   await panel.getByLabel('Title & filename').fill(title)
   await p.keyboard.press('Escape')
@@ -155,12 +166,15 @@ const checkSameOrigin = () => {
 }
 // ---------------------------------------------------------------------------
 
+let expectRevoked = false
 const open = async (options = {}) => {
   const context = await browser.newContext({ acceptDownloads: true, ...options })
   guard(context)
   const page = await context.newPage()
   page.on('console', (m) => {
-    if (m.type() === 'error') fails.push(`console: ${m.text()}`)
+    // A check that loads a revoked blob: URL on purpose expects this one.
+    if (m.type() === 'error' && !(expectRevoked && m.text().includes('ERR_FILE_NOT_FOUND')))
+      fails.push(`console: ${m.text()}`)
   })
   page.on('pageerror', (e) => fails.push(`pageerror: ${e.message}`))
   await page.addInitScript(() => {
@@ -377,10 +391,7 @@ await setTitle(page, 'Verify run')
 await page.screenshot({ path: join(shots, 'inspector.png'), fullPage: true })
 
 // Export and inspect the PDF.
-const [download] = await Promise.all([
-  page.waitForEvent('download'),
-  page.getByRole('button', { name: /Export PDF/ }).click(),
-])
+const [download] = await Promise.all([page.waitForEvent('download'), exportNow(page)])
 check(
   download.suggestedFilename() === 'Verify-run.pdf',
   'download is named from the title',
@@ -489,10 +500,7 @@ await context.close()
   await p.screenshot({ path: join(shots, 'pdf-merge.png'), fullPage: true })
   await axe(p, 'PDF pages')
 
-  const [dl] = await Promise.all([
-    p.waitForEvent('download'),
-    p.getByRole('button', { name: /Export PDF/ }).click(),
-  ])
+  const [dl] = await Promise.all([p.waitForEvent('download'), exportNow(p)])
   const outPath = join(mkdtempSync(join(tmpdir(), 'collated-verify-pdf-')), 'merged.pdf')
   await dl.saveAs(outPath)
   const merged = await PDFDocument.load(readFileSync(outPath))
@@ -573,10 +581,7 @@ await context.close()
   await panel.getByRole('radio', { name: 'B&W' }).check({ force: true })
   await p.screenshot({ path: join(shots, 'filters.png'), fullPage: true })
 
-  const [dl] = await Promise.all([
-    p.waitForEvent('download'),
-    p.getByRole('button', { name: /Export PDF/ }).click(),
-  ])
+  const [dl] = await Promise.all([p.waitForEvent('download'), exportNow(p)])
   const outPath = join(mkdtempSync(join(tmpdir(), 'collated-verify-filter-')), 'filtered.pdf')
   await dl.saveAs(outPath)
   const out = readFileSync(outPath)
@@ -653,26 +658,23 @@ await context.close()
   ])
   await p.waitForSelector('ol[aria-label="2 pages"]')
   const exportAndMeasure = async (name) => {
-    const [d] = await Promise.all([
-      p.waitForEvent('download'),
-      p.getByRole('button', { name: /Export PDF/ }).click(),
-    ])
+    const [d] = await Promise.all([p.waitForEvent('download'), exportNow(p)])
     const path = join(mkdtempSync(join(tmpdir(), 'collated-verify-size-')), name)
     await d.saveAs(path)
-    await p.getByRole('button', { name: /Export PDF/ }).waitFor({ state: 'visible' })
+    await exportMenu(p).waitFor({ state: 'visible' })
     await p.waitForFunction(() => !/Building|Shrinking/.test(document.body.innerText))
     return { path, bytes: readFileSync(path).byteLength }
   }
   const original = await exportAndMeasure('original.pdf')
 
   // The real popover: opened by its button, closed with Escape.
-  const optionsButton = p.getByRole('button', { name: /Export options/ })
+  const optionsButton = exportMenu(p)
   await optionsButton.click()
   const dialog = p.getByRole('dialog', { name: 'Export options' })
   check(await dialog.isVisible(), 'export options open in a popover')
   await axe(p, 'export options')
   await dialog.getByRole('radio', { name: /Small/ }).check()
-  const estimateLabel = (await optionsButton.textContent()) ?? ''
+  const estimateLabel = (await dialog.locator('dd').first().textContent()) ?? ''
   await p.screenshot({ path: join(shots, 'export-options.png') })
   await p.keyboard.press('Escape')
   check(!(await dialog.isVisible()), 'Escape closes the export options')
@@ -763,7 +765,7 @@ await context.close()
     await panel.getByLabel(/^Margin/).fill('0.5')
     await panel.getByLabel(/^Margin/).press('Tab')
   })
-  const optionsButton = p.getByRole('button', { name: /Export options/ })
+  const optionsButton = exportMenu(p)
   await optionsButton.click()
   const dialog = p.getByRole('dialog', { name: 'Export options' })
   await dialog.getByRole('checkbox', { name: 'Page numbers' }).check()
@@ -871,10 +873,7 @@ await context.close()
   ])
   await p.waitForSelector('ol[aria-label="2 pages"]', { timeout: 20_000 })
   ok('a HEIC photo imports where the browser has no HEIC decoder')
-  const [d] = await Promise.all([
-    p.waitForEvent('download'),
-    p.getByRole('button', { name: /Export PDF/ }).click(),
-  ])
+  const [d] = await Promise.all([p.waitForEvent('download'), exportNow(p)])
   const path = join(mkdtempSync(join(tmpdir(), 'collated-verify-heic-')), 'heic.pdf')
   await d.saveAs(path)
   if (hasPoppler) {
@@ -947,10 +946,7 @@ await context.close()
   await p.waitForTimeout(500) // cropped preview is made asynchronously
   const preview = (await panel.locator('.sheet').first().screenshot(sheetShot)).toString('base64')
 
-  const [d] = await Promise.all([
-    p.waitForEvent('download'),
-    p.getByRole('button', { name: /Export PDF/ }).click(),
-  ])
+  const [d] = await Promise.all([p.waitForEvent('download'), exportNow(p)])
   const path = join(mkdtempSync(join(tmpdir(), 'collated-verify-crop-')), 'crop.pdf')
   await d.saveAs(path)
   if (hasPoppler) {
@@ -1014,7 +1010,7 @@ await context.close()
   await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'text-page-sideways.jpg')])
   await p.waitForSelector('ol[aria-label="1 page"]')
   await p.getByRole('button', { name: 'Rotate page 1 right' }).click({ force: true })
-  await p.getByRole('button', { name: /Export options/ }).click()
+  await exportMenu(p).click()
   const dialog = p.getByRole('dialog', { name: 'Export options' })
   await dialog.getByRole('checkbox', { name: 'Make text searchable (OCR)' }).check()
   const started = Date.now()
@@ -1171,20 +1167,24 @@ await context.close()
   const undone = (await p.locator('#status').textContent()) ?? ''
   check(/^Undone: removed page 1\./.test(undone), 'undo is announced', undone)
 
-  // The export button keeps focus while it's busy and after.
-  const exportButton = p.getByRole('button', { name: /^Export PDF · / })
-  await exportButton.focus()
+  // Export from the keyboard: the menu opens on Enter, Export is the last
+  // control, and focus comes back to the menu button, which keeps it while busy.
+  await exportMenu(p).focus()
+  await p.keyboard.press('Enter')
+  const exportDialog = p.getByRole('dialog', { name: 'Export options' })
+  await exportDialog.waitFor()
+  await exportDialog.getByRole('button', { name: 'Export PDF' }).focus()
   const [dl] = await Promise.all([p.waitForEvent('download'), p.keyboard.press('Enter')])
   await dl.path()
   await p.waitForFunction(() => /Saved/.test(document.getElementById('status')?.textContent ?? ''))
   check(
-    /^Export PDF · /.test(await focused()),
-    'the export button keeps focus through the export',
+    /^Export · \d+ pages?, options$/.test(await focused()),
+    'focus returns to the export button and stays through the export',
     await focused(),
   )
 
   // Export options: a too-long password is refused inline; Tab out closes it.
-  await p.getByRole('button', { name: /Export options/ }).click()
+  await exportMenu(p).click()
   const dialog = p.getByRole('dialog', { name: 'Export options' })
   const password = dialog.getByLabel('Password to open')
   await password.fill('é'.repeat(64))
@@ -1200,10 +1200,12 @@ await context.close()
   await p.keyboard.press('Tab')
   check(!(await dialog.isVisible()), 'Tab out of export options closes them')
   check(
-    (await p.getByRole('button', { name: /^Export locked PDF · / }).count()) === 1,
-    'the main export button says the PDF will be locked',
+    (await p
+      .getByRole('button', { name: /^Export · .*, locked with a password, options$/ })
+      .count()) === 1,
+    'the export button says the PDF will be locked',
   )
-  await p.getByRole('button', { name: /Export options/ }).click()
+  await exportMenu(p).click()
   await password.fill('')
   await p.keyboard.press('Escape')
 
@@ -1316,7 +1318,7 @@ await context.close()
   try {
     const [saved] = await Promise.all([
       p.waitForEvent('download', { timeout: 15_000 }),
-      p.getByRole('button', { name: /Export PDF/ }).click(),
+      exportNow(p),
     ])
     check(
       (saved.suggestedFilename() ?? '').endsWith('.pdf'),
@@ -1409,7 +1411,7 @@ await context.close()
   await axe(p, 'More menu open')
   check(
     (await more.getByRole('link', { name: /Support Collated/ }).getAttribute('href')) ===
-      'https://ko-fi.com/collated',
+      'https://ko-fi.com/mtblck',
     'More links to Support Collated',
   )
   await p.keyboard.press('Escape')
@@ -1464,7 +1466,7 @@ await context.close()
     const font = await p.locator('h1').evaluate((h) => getComputedStyle(h).fontFamily)
     check(font.includes('Instrument Serif'), `${path} is styled`, font)
     for (const href of await p
-      .locator('a[href^="/tools/collated/"]')
+      .locator('a[href^="/"]:not([href^="//"])')
       .evaluateAll((as) => as.map((a) => a.getAttribute('href'))))
       internal.add(href)
     await axe(p, path)
@@ -1498,10 +1500,9 @@ await context.close()
   await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
   const footer = p.locator('footer')
   check(
-    (await footer.getByRole('link', { name: 'Privacy' }).getAttribute('href')) ===
-      '/tools/collated/privacy/' &&
+    (await footer.getByRole('link', { name: 'Privacy' }).getAttribute('href')) === '/privacy/' &&
       (await footer.getByRole('link', { name: /Support Collated/ }).getAttribute('href')) ===
-        'https://ko-fi.com/collated',
+        'https://ko-fi.com/mtblck',
     'the landing footer links to privacy and support',
   )
   await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-landscape.jpg')])
@@ -1695,12 +1696,314 @@ await context.close()
   await ctx.close()
 }
 
+// 19. Start over (#29): asks, then clears pages, history and blob URLs. ------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1280, height: 900 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [
+    join(fixtures, 'quad-landscape.jpg'),
+    join(fixtures, 'doc-skewed-4deg.jpg'),
+  ])
+  await p.waitForSelector('ol[aria-label="2 pages"]')
+  const thumb = await p.locator('ol img').first().getAttribute('src')
+  const openConfirm = async () => {
+    await p.getByRole('button', { name: 'More' }).click()
+    await p
+      .getByRole('dialog', { name: 'More' })
+      .getByRole('button', { name: 'Start over…' })
+      .click()
+    const confirm = p.getByRole('dialog', { name: 'Start over?' })
+    await confirm.waitFor()
+    return confirm
+  }
+  let confirm = await openConfirm()
+  check(
+    !(await p.getByRole('dialog', { name: 'More' }).isVisible()),
+    'Start over closes the More menu behind its confirmation',
+  )
+  check(
+    (await p.evaluate(() => document.activeElement?.textContent)) === 'Cancel',
+    'the Start over confirmation opens on Cancel',
+  )
+  await axe(p, 'Start over confirmation')
+  await p.keyboard.press('Escape')
+  await confirm.waitFor({ state: 'hidden' })
+  check(
+    (await p.locator('ol[aria-label="2 pages"]').count()) === 1 &&
+      (await p.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === 'More',
+    'Escape keeps the pages and returns focus to More',
+  )
+  confirm = await openConfirm()
+  await confirm.getByRole('button', { name: 'Start over', exact: true }).click()
+  await p.getByRole('button', { name: 'Choose files' }).waitFor()
+  check(
+    (await p.evaluate(() => document.activeElement?.textContent?.trim())) === 'Choose files',
+    'after Start over, focus is on Choose files',
+  )
+  check(
+    (await p.locator('#status').textContent())?.startsWith('Started over: removed 2 pages') ??
+      false,
+    'Start over is announced',
+  )
+  // The old thumbnail's object URL was revoked: it no longer loads.
+  expectRevoked = true
+  const revoked = await p.evaluate(
+    (src) =>
+      new Promise((resolve) => {
+        const img = new Image()
+        img.onload = () => resolve(false)
+        img.onerror = () => resolve(true)
+        img.src = src ?? ''
+      }),
+    thumb,
+  )
+  expectRevoked = false
+  check(
+    (thumb?.startsWith('blob:') ?? false) && revoked,
+    'Start over revokes the old thumbnails',
+    thumb ?? 'no thumbnail',
+  )
+  await p.keyboard.press('Control+z')
+  check(
+    (await p.locator('ol[aria-label$="page"], ol[aria-label$="pages"]').count()) === 0,
+    'Undo cannot bring the old document back',
+  )
+  await ctx.close()
+}
+
+// 20. A PDF page that hides a layer goes as the preview draws it. -----------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles(
+    '[data-testid="file-input"]',
+    ['quad-layers.pdf', 'quad-3pages.pdf'].map((f) => join(fixtures, f)),
+  )
+  await p.waitForSelector('ol[aria-label="4 pages"]', { timeout: 20_000 })
+  const [dl] = await Promise.all([p.waitForEvent('download'), exportNow(p)])
+  const outPath = join(mkdtempSync(join(tmpdir(), 'collated-verify-layers-')), 'layers.pdf')
+  await dl.saveAs(outPath)
+  const raw = readFileSync(outPath).toString('latin1')
+  const images = raw.match(/\/Subtype\s*\/Image/g) ?? []
+  check(
+    images.length === 1,
+    'only the page that hides a layer is drawn; the others stay vector',
+    `${images.length} images`,
+  )
+  if (hasPoppler) {
+    const text = execFileSync('pdftotext', [outPath, '-']).toString()
+    check(!text.includes('HIDDEN-LAYER-TEXT'), 'the hidden layer’s text is not in the export')
+    const prefix = outPath.replace(/\.pdf$/, '')
+    execFileSync('pdftoppm', [
+      '-png',
+      '-r',
+      '72',
+      '-f',
+      '1',
+      '-l',
+      '1',
+      '-singlefile',
+      outPath,
+      prefix,
+    ])
+    await p.getByRole('button', { name: /^Page 1: quad-layers\.pdf/ }).click()
+    const sheet = p.locator('aside[aria-label="Selected page"] .sheet').first()
+    const diff = await compareImages(
+      readFileSync(`${prefix}.png`).toString('base64'),
+      (await sheet.screenshot(sheetShot)).toString('base64'),
+    )
+    check(
+      diff.farShare < 0.03,
+      `the drawn page matches its preview (${(diff.farShare * 100).toFixed(2)}% of pixels differ)`,
+    )
+  }
+  // With OCR on, the drawn page gets a text layer read from the drawing
+  // (#52), placed over the printed words; straightened 4°, so placement has
+  // a rotation to get right (a quarter turn would leave the text sideways,
+  // which OCR, reading the page as shown, can't read).
+  await p.getByRole('button', { name: /^Page 1: quad-layers\.pdf/ }).click()
+  await p.locator('aside[aria-label="Selected page"]').getByLabel('Straighten').focus()
+  for (let i = 0; i < 8; i++) await p.keyboard.press('ArrowRight')
+  await exportMenu(p).click()
+  const ocrDialog = p.getByRole('dialog', { name: 'Export options' })
+  await ocrDialog.getByRole('checkbox', { name: 'Make text searchable (OCR)' }).check()
+  const [ocrDl] = await Promise.all([
+    p.waitForEvent('download', { timeout: 120_000 }),
+    ocrDialog.getByRole('button', { name: 'Export PDF' }).click(),
+  ])
+  const ocrPath = join(mkdtempSync(join(tmpdir(), 'collated-verify-layers-ocr-')), 'ocr.pdf')
+  await ocrDl.saveAs(ocrPath)
+  if (hasPoppler) {
+    const page1 = execFileSync('pdftotext', ['-f', '1', '-l', '1', ocrPath, '-']).toString()
+    check(/Visible\s+words/i.test(page1), 'the drawn page is searchable with OCR on', page1.trim())
+    // Each recognised word's box sits over ink on the page as exported.
+    const bbox = execFileSync('pdftotext', ['-f', '1', '-l', '1', '-bbox', ocrPath, '-']).toString()
+    const words = [
+      ...bbox.matchAll(
+        /<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">(Visible|words)<\/word>/gi,
+      ),
+    ]
+    const prefix = ocrPath.replace(/\.pdf$/, '')
+    execFileSync('pdftoppm', [
+      '-png',
+      '-r',
+      '72',
+      '-f',
+      '1',
+      '-l',
+      '1',
+      '-singlefile',
+      ocrPath,
+      prefix,
+    ])
+    const inks = await p.evaluate(
+      async ([src, boxes]) => {
+        const img = new Image()
+        img.src = `data:image/png;base64,${src}`
+        await img.decode()
+        const c = document.createElement('canvas')
+        c.width = img.width
+        c.height = img.height
+        const g = c.getContext('2d')
+        g.drawImage(img, 0, 0)
+        return boxes.map((box) => {
+          const [x0, y0, x1, y1] = box.map(Math.round)
+          const { data } = g.getImageData(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0))
+          let dark = 0
+          for (let i = 0; i < data.length; i += 4) if (data[i] < 128) dark += 1
+          return dark / (data.length / 4)
+        })
+      },
+      [
+        readFileSync(`${prefix}.png`).toString('base64'),
+        words.map((w) => w.slice(1, 5).map(Number)),
+      ],
+    )
+    check(
+      words.length >= 2 && inks.every((ink) => ink > 0.08),
+      `the drawn page's searchable words sit over the printed words (straightened; ${inks.map((i) => `${(i * 100).toFixed(0)}%`).join(', ')} ink)`,
+    )
+  }
+  await ctx.close()
+}
+
+// 21. Export lives in one button (#49); rail actions (#50); select arrows (#51).
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 390, height: 640 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-landscape.jpg')])
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  check(
+    (await p.getByRole('button', { name: /^Export PDF/ }).count()) === 0,
+    'no separate Export button in the toolbar',
+  )
+  check(
+    (await exportMenu(p).textContent())?.startsWith('Export · 1 page,') ?? false,
+    'the export button says "Export · 1 page"',
+  )
+  // On a short phone screen the options scroll and Export stays in view.
+  await exportMenu(p).click()
+  const dialog = p.getByRole('dialog', { name: 'Export options' })
+  await dialog.waitFor()
+  const exportButton = dialog.getByRole('button', { name: 'Export PDF' })
+  const inView = async () => {
+    const box = await exportButton.boundingBox()
+    return Boolean(box && box.y >= 0 && box.y + box.height <= 640)
+  }
+  const scroller = dialog.locator('.overflow-y-auto').first()
+  const scrolls = await scroller.evaluate((el) => el.scrollHeight > el.clientHeight + 1)
+  check(scrolls, 'the export options scroll on a short screen')
+  check(await inView(), 'Export is in view before scrolling')
+  await scroller.evaluate((el) => {
+    el.scrollTop = el.scrollHeight
+  })
+  check(await inView(), 'Export stays in view with the options scrolled to the end')
+  // The panel itself never scrolls, by wheel or touch: only the options do.
+  const panelScrolls = await dialog.evaluate((el) => el.scrollHeight > el.clientHeight + 1)
+  check(!panelScrolls, 'the export panel itself has nothing to scroll')
+  const box = await scroller.boundingBox()
+  if (box) await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  for (let i = 0; i < 5; i++) await p.mouse.wheel(0, 400)
+  check(
+    (await dialog.evaluate((el) => el.scrollTop)) === 0 && (await inView()),
+    'wheeling past the end of the options leaves Export in place',
+  )
+  await p.screenshot({ path: join(shots, 'export-phone.png') })
+  await axe(p, 'export options, phone')
+  await p.keyboard.press('Escape')
+  await ctx.close()
+}
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1280, height: 900 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [
+    join(fixtures, 'quad-landscape.jpg'),
+    join(fixtures, 'quad-portrait.jpg'),
+  ])
+  await p.waitForSelector('ol[aria-label="2 pages"]')
+  const rail = p.locator('aside[aria-label="Selected page"]')
+  const tops = await Promise.all(
+    ['Duplicate', 'Reset', 'Remove'].map(async (name) => {
+      const box = await rail.getByRole('button', { name, exact: true }).boundingBox()
+      return box ? Math.round(box.y) : -1
+    }),
+  )
+  check(
+    new Set(tops).size === 1 && tops[0] !== -1,
+    'Duplicate, Reset and Remove share a row',
+    tops.join(', '),
+  )
+  const removeBg = await rail
+    .getByRole('button', { name: 'Remove', exact: true })
+    .evaluate((el) => getComputedStyle(el).backgroundColor)
+  check(
+    !/rgba\(0, 0, 0, 0\)|transparent/.test(removeBg),
+    'Remove has a filled (accent) background',
+    removeBg,
+  )
+  const styleOf = (name) =>
+    rail.getByRole('button', { name, exact: true }).evaluate((el) => {
+      const cs = getComputedStyle(el)
+      return `${cs.borderTopColor} ${cs.backgroundColor}`
+    })
+  const duplicateStyle = await styleOf('Duplicate')
+  for (const name of ['All pages', 'Apply to all pages']) {
+    check((await styleOf(name)) === duplicateStyle, `${name} is styled like the other buttons`)
+  }
+  await rail.evaluate((el) => {
+    el.scrollTop = el.scrollHeight
+  })
+  await rail.screenshot({ path: join(shots, 'inspector-actions.png') })
+  await axe(p, 'inspector actions')
+  await p.getByRole('button', { name: /^Page setup/ }).click()
+  const select = p.getByRole('dialog', { name: 'Page setup' }).locator('select').first()
+  const padRight = await select.evaluate((el) => parseFloat(getComputedStyle(el).paddingRight))
+  check(padRight >= 24, `the page-size select leaves room for its arrow (${padRight}px)`)
+  await p.screenshot({ path: join(shots, 'page-setup-select.png') })
+  await p.keyboard.press('Escape')
+  // Switch without transitions: axe must see the settled colours, not a
+  // frame mid-fade (CI's slower runner caught one).
+  await p.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' })
+  await p.evaluate(async () => {
+    document.documentElement.dataset.theme = 'dark'
+    await Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined)))
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  })
+  await axe(p, 'inspector actions, dark')
+  await ctx.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()
 
 if (fails.length) {
   console.error(`\n${fails.length} problem(s):\n  - ${fails.join('\n  - ')}`)
+  // In GitHub Actions, each failure is also an annotation on the check, so
+  // it can be read without the job log.
+  if (process.env.GITHUB_ACTIONS) {
+    for (const f of fails) console.log(`::error title=verify::${f.replace(/\r?\n/g, ' ')}`)
+  }
   process.exit(1)
 }
 console.log(`\nAll checks passed. Screenshots in ${shots}`)

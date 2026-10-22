@@ -10,6 +10,21 @@ import type { Plugin } from 'vite'
  * installed packages, so they're the upstream files, not retyped.
  */
 const require = createRequire(import.meta.url)
+/** Vendored: the C libraries compiled into tesseract.js-core (see its README). */
+const vendored = (file: string) => join(import.meta.dirname, 'licenses', file)
+
+export const TESSERACT_CORE_LICENSES = [
+  'README.md',
+  'leptonica.txt',
+  'libtiff.txt',
+  'libpng.txt',
+  'zlib-README.txt',
+  'libjpeg-README.txt',
+  'libwebp.txt',
+  'libwebp-PATENTS.txt',
+  'giflib.txt',
+  'openlibm.txt',
+] as const
 const fromPackage = (pkg: string, file: string) =>
   join(dirname(require.resolve(`${pkg}/package.json`)), file)
 
@@ -21,6 +36,12 @@ export const LICENSE_FILES: Record<string, string> = {
   'idb-keyval-NOTICE.txt': fromPackage('idb-keyval', 'LICENCE'),
   'tesseract-worker-NOTICES.txt': fromPackage('tesseract.js', 'dist/worker.min.js.LICENSE.txt'),
   'THIRD-PARTY-NOTICES.md': join(import.meta.dirname, 'THIRD-PARTY-NOTICES.md'),
+  ...Object.fromEntries(
+    TESSERACT_CORE_LICENSES.map((name) => [
+      `tesseract-core/${name}`,
+      vendored(`tesseract-core/${name}`),
+    ]),
+  ),
 }
 
 export const licenseFiles = (): Plugin => ({

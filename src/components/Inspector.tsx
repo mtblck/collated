@@ -199,7 +199,6 @@ export const Inspector = ({
             </Button>
             {page.corners && (
               <Button
-                variant="quiet"
                 onClick={() => {
                   // This button goes away; keep focus on the crop control.
                   cropButton.current?.focus()
@@ -277,8 +276,8 @@ export const Inspector = ({
         <div className="mt-2 flex gap-2">
           {/* Inactive while running, rather than disabled, so focus stays put. */}
           <Button
-            size="md"
-            className="h-8 flex-1 text-xs"
+            size="sm"
+            className="flex-1"
             inactive={straightening}
             onClick={() => {
               actions.onAutoStraighten('page')
@@ -287,8 +286,7 @@ export const Inspector = ({
             {straightening ? 'Looking for lines…' : 'Auto-straighten'}
           </Button>
           <Button
-            variant="quiet"
-            className="h-8 text-xs"
+            size="sm"
             disabled={count < 2}
             inactive={straightening}
             onClick={() => {
@@ -386,44 +384,50 @@ export const Inspector = ({
         <Stat term={vector ? 'Source file' : 'Stored'}>{formatBytes(asset.byteLength)}</Stat>
       </dl>
 
-      <div className="flex flex-wrap gap-2">
-        <div className="flex" role="group" aria-label="Reorder">
-          <IconButton
-            ref={earlier}
-            variant="secondary"
-            label="Move page earlier"
-            disabled={index === 0}
-            onClick={() => {
-              move(-1)
-            }}
-          >
-            <ArrowLeftIcon width={16} height={16} />
-          </IconButton>
-          <IconButton
-            variant="secondary"
-            className="-ml-px"
-            ref={later}
-            label="Move page later"
-            disabled={index === count - 1}
-            onClick={() => {
-              move(1)
-            }}
-          >
-            <ArrowRightIcon width={16} height={16} />
-          </IconButton>
+      {/* The page's actions: order and copy-to-all, then a row of equal tiles
+          (#50), with Remove marked as the one that takes something away. */}
+      <div className="flex flex-col gap-2">
+        <div className="flex gap-2">
+          <div className="flex" role="group" aria-label="Reorder">
+            <IconButton
+              ref={earlier}
+              variant="secondary"
+              label="Move page earlier"
+              disabled={index === 0}
+              onClick={() => {
+                move(-1)
+              }}
+            >
+              <ArrowLeftIcon width={16} height={16} />
+            </IconButton>
+            <IconButton
+              variant="secondary"
+              className="-ml-px"
+              ref={later}
+              label="Move page later"
+              disabled={index === count - 1}
+              onClick={() => {
+                move(1)
+              }}
+            >
+              <ArrowRightIcon width={16} height={16} />
+            </IconButton>
+          </div>
+          <Button className="flex-1" disabled={count < 2} onClick={actions.onApplyToAll}>
+            Apply to all pages
+          </Button>
         </div>
-        <Button onClick={actions.onDuplicate}>
-          <CopyIcon width={16} height={16} /> Duplicate
-        </Button>
-        <Button inactive={!changed} onClick={actions.onReset}>
-          <ResetIcon width={16} height={16} /> Reset
-        </Button>
-        <Button variant="quiet" disabled={count < 2} onClick={actions.onApplyToAll}>
-          Apply to all pages
-        </Button>
-        <Button variant="quiet" className="ml-auto" onClick={actions.onRemove}>
-          <TrashIcon width={16} height={16} /> Remove
-        </Button>
+        <div className="grid grid-cols-3 gap-2">
+          <Button size="tile" onClick={actions.onDuplicate}>
+            <CopyIcon width={16} height={16} /> Duplicate
+          </Button>
+          <Button size="tile" inactive={!changed} onClick={actions.onReset}>
+            <ResetIcon width={16} height={16} /> Reset
+          </Button>
+          <Button size="tile" variant="danger" onClick={actions.onRemove}>
+            <TrashIcon width={16} height={16} /> Remove
+          </Button>
+        </div>
       </div>
     </section>
   )

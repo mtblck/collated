@@ -1,11 +1,11 @@
 /** Where Collated points, inside and outside itself. One place, so the app,
  * the docs pages (docs-site.ts) and verify all agree. */
-const BASE = '/tools/collated/'
+const BASE = '/'
 
 export const SOURCE_URL = 'https://github.com/mtblck/collated'
 export const ISSUES_URL = 'https://github.com/mtblck/collated/issues'
 /** Ko-fi page for donations (#36). */
-export const SUPPORT_URL = 'https://ko-fi.com/collated'
+export const SUPPORT_URL = 'https://ko-fi.com/mtblck'
 
 export const APP_URL = BASE
 export const DOCS_URL = `${BASE}docs/`

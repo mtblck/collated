@@ -2,12 +2,13 @@
 
 Collated is MIT-licensed. It ships these libraries in its built files. The
 licence texts that must travel with them are published with the site under
-[`licenses/`](https://mattblack.space/tools/collated/licenses/THIRD-PARTY-NOTICES.md)
+[`licenses/`](https://collatedpdf.com/licenses/THIRD-PARTY-NOTICES.md)
 (emitted by `licenses.ts` from the installed packages):
-[LGPL-3.0 and GPL-3.0](https://mattblack.space/tools/collated/licenses/LGPL-3.0-and-GPL-3.0.txt),
-[Apache-2.0](https://mattblack.space/tools/collated/licenses/Apache-2.0.txt),
-[idb-keyval's notice](https://mattblack.space/tools/collated/licenses/idb-keyval-NOTICE.txt) and
-[the OCR worker's bundled notices](https://mattblack.space/tools/collated/licenses/tesseract-worker-NOTICES.txt).
+[LGPL-3.0 and GPL-3.0](https://collatedpdf.com/licenses/LGPL-3.0-and-GPL-3.0.txt),
+[Apache-2.0](https://collatedpdf.com/licenses/Apache-2.0.txt),
+[idb-keyval's notice](https://collatedpdf.com/licenses/idb-keyval-NOTICE.txt) and
+[the OCR worker's bundled notices](https://collatedpdf.com/licenses/tesseract-worker-NOTICES.txt),
+and [the C libraries in the OCR engine](https://collatedpdf.com/licenses/tesseract-core/README.md).
 
 | Library                                                                                                                                                                                                                                                                   | Licence                      | Used for                                          | Loaded                                                        |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------- | ------------------------------------------------------------- |
@@ -37,10 +38,15 @@ libraries into each engine variant: [Tesseract](https://github.com/tesseract-ocr
 [libtiff](https://libtiff.gitlab.io/libtiff/) (libtiff licence, BSD-style),
 [libpng](http://www.libpng.org/pub/png/libpng.html) (libpng licence),
 [zlib](https://zlib.net) 1.2.12 (zlib licence), the
-[Independent JPEG Group's libjpeg](https://ijg.org) (IJG licence) and
-[libwebp](https://chromium.googlesource.com/webm/libwebp) (BSD-3-Clause). Their
-copyright notices are in each project's source; the licence texts are not yet
-reproduced in `licenses/`.
+[Independent JPEG Group's libjpeg](https://ijg.org) (IJG licence),
+[libwebp](https://chromium.googlesource.com/webm/libwebp) (BSD-3-Clause, with
+Google's patent grant), [giflib](https://giflib.sourceforge.net) (MIT) and
+[OpenLibm](https://openlibm.org) (MIT, ISC and BSD-style parts). Their licence
+files, copied from each project's source at the commits tesseract.js-core
+builds, are in
+[`licenses/tesseract-core/`](https://collatedpdf.com/licenses/tesseract-core/README.md),
+which lists the version of each. This software is based in part on the work of
+the Independent JPEG Group.
 
 ## libheif (LGPL-3.0)
 

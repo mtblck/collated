@@ -11,7 +11,7 @@ Collated is a free, open-source tool. It is built so that your documents never l
 
 ## Your documents
 
-The files you add, the pages you arrange and the PDFs you export are processed only in your web browser. They are never uploaded, and nobody, including the author, can see them. When you close the tab they're gone, unless you saved the PDF.
+The files you add, the pages you arrange and the PDFs you export are processed only in your web browser. They are never uploaded, and nobody, including the author, can see them. While the page is open they're kept in its memory, including pages you removed, so Undo can bring them back. **Start over** (in the toolbar's **More** menu) clears all of it straight away; otherwise it's gone when you close the tab. Either way, a PDF you saved stays where you saved it.
 
 ## What is stored on your device
 
@@ -23,7 +23,7 @@ You can clear all of this in your browser's site settings. There are no cookies.
 
 ## What the hosting sees
 
-Collated is a set of static files served by Vercel, at mattblack.space. Like any website, the host receives standard request information when your browser fetches those files: your IP address, your browser's user agent, the time, and which file was requested (for example, the text-recognition data when you first use searchable text). This is used for running and securing the service, not for tracking you, and Collated adds no analytics or tracking of its own. See [Vercel's privacy policy](https://vercel.com/legal/privacy-policy).
+Collated is a set of static files served by Vercel, at collatedpdf.com. Like any website, the host receives standard request information when your browser fetches those files: your IP address, your browser's user agent, the time, and which file was requested (for example, the text-recognition data when you first use searchable text). This is used for running and securing the service, not for tracking you, and Collated adds no analytics or tracking of its own. See [Vercel's privacy policy](https://vercel.com/legal/privacy-policy).
 
 ## Links out
 

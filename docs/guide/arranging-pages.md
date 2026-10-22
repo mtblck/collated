@@ -34,4 +34,4 @@ Without dragging: tap or click a corner to select it, then tap or click where it
 
 ## Duplicate, reset and remove
 
-**Duplicate** copies the page (it doesn't add to the file size). **Reset** undoes this page's changes. **Apply to all pages** copies this page's rotation, straightening, scale, placement and filter to every page. **Remove** takes the page out; **Undo** brings it back.
+**Duplicate** copies the page (it doesn't add to the file size). **Reset** undoes this page's changes. **Apply to all pages** copies this page's rotation, straightening, scale, placement and filter to every page. **Remove** takes the page out; **Undo** brings it back. To clear everything and begin a new document, use **Start over…** in the toolbar's **More** menu (this can't be undone).

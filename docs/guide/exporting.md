@@ -5,7 +5,7 @@ order: 5
 
 # Exporting
 
-**Export PDF** builds the file and saves it to your downloads. When a password is set, the button says **Export locked PDF**. **Export options**, next to it, shows the image quality and an estimate of the file size; open it for everything below.
+**Export** in the toolbar (it says how many pages there are) opens the export options: everything below. At the foot, always in view, are the estimated file size and **Export PDF**, which builds the file and saves it to your downloads. When a password is set, it says **Export locked PDF**. While a file is being built, the toolbar button shows its progress.
 
 ## Title and filename
 
@@ -20,7 +20,7 @@ The title is stored in the PDF (readers show it in their title bar) and names th
 
 ## Searchable text (OCR)
 
-**Make text searchable** recognises English text on image pages and adds it to the PDF invisibly, under the picture, so you can search the PDF and copy from it. It reads each page as you see it, crop and rotation included. Recognition runs on your device. The first time, it downloads about 4 MB of recognition data (from Collated's own site, not a third party); after that, it takes a few seconds per page. Anyone with the file can search and copy the text, and the recognised text may contain mistakes.
+**Make text searchable** recognises English text on image pages, and on PDF pages that go into the file as an image (ones with a hidden layer), and adds it to the PDF invisibly, under the picture, so you can search the PDF and copy from it. It reads each page as you see it, crop and rotation included. Recognition runs on your device. The first time, it downloads about 4 MB of recognition data (from Collated's own site, not a third party); after that, it takes a few seconds per page. Anyone with the file can search and copy the text, and the recognised text may contain mistakes.
 
 ## Page numbers
 

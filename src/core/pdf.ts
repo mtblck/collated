@@ -27,8 +27,9 @@ import { layoutPage, partLayout, snapPart, visiblePart, type Layout, type Part }
 import { compressionFor, targetPixels, type Compression } from './compression'
 import { contentSize, type Asset, type Filter, type Page, type Settings } from './model'
 import { FULL_IMAGE, apply, homography, type Quad } from './perspective'
-import { sanitizedPage } from './pdfSanitize'
+import { NeedsDrawing, embedSanitized, reachesHiddenLayer, sanitizedPage } from './pdfSanitize'
 import { stripJpegMetadata } from './jpegClean'
+import { headerSize } from './imageInfo'
 import { placeWord, type OcrWord } from './textLayer'
 import { NUMBER_GREY, numberMark } from './pageNumbers'
 
@@ -44,6 +45,11 @@ export interface BuildInput {
   password?: string
   /** Recognised words per page id, written as an invisible, searchable text layer. */
   text?: Record<string, OcrWord[]>
+  /**
+   * PDF pages to export as drawn instead of as vectors (ones that hide a
+   * layer): asset id → bytes id of a JPEG of the page as the preview shows it.
+   */
+  rendered?: Record<string, string>
   assets: Record<
     string,
     Pick<Asset, 'id' | 'width' | 'height' | 'format' | 'storedTurns' | 'bytesId' | 'pdfPage'>
@@ -304,9 +310,11 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     if (asset.format === 'pdf') {
       const src = await source(asset.bytesId)
       const srcPage = sanitizedPage(src, src.getPage(asset.pdfPage ?? 0))
+      // Fail closed: a page that could hide something is never copied.
+      if (reachesHiddenLayer(src, srcPage)) throw new NeedsDrawing([asset.id])
       content = {
         kind: 'page',
-        page: await doc.embedPage(srcPage, visibleBox(srcPage)),
+        page: await embedSanitized(doc, src, srcPage, visibleBox(srcPage)),
         turns: asset.storedTurns,
         cropped: false,
       }
@@ -337,16 +345,48 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     return content
   }
 
+  // PDF pages drawn as the preview shows them are JPEGs from here on: upright,
+  // compressed and cropped to what shows like any photo. Layout still goes by
+  // the page's own size.
+  const drawings = new Map<string, BuildInput['assets'][string]>()
+  for (const [assetId, bytesId] of Object.entries(input.rendered ?? {})) {
+    const original = assets[assetId]
+    const size = headerSize(await options.getBytes(bytesId))
+    if (!original || !size) throw new Error('A drawn PDF page could not be read.')
+    drawings.set(assetId, { ...original, ...size, format: 'jpeg', storedTurns: 0, bytesId })
+  }
+
+  // Every PDF page that must be drawn, found before anything is copied, so
+  // the export can draw them all and build again in one round.
+  const toDraw = Object.values(assets).filter((asset) => {
+    if (asset.format !== 'pdf' || drawings.has(asset.id)) return false
+    return pages.some((p) => p.assetId === asset.id)
+  })
+  const mustDraw: string[] = []
+  for (const asset of toDraw) {
+    const src = await source(asset.bytesId)
+    const srcPage = sanitizedPage(src, src.getPage(asset.pdfPage ?? 0))
+    if (reachesHiddenLayer(src, srcPage)) mustDraw.push(asset.id)
+  }
+  if (mustDraw.length) throw new NeedsDrawing(mustDraw)
+
   for (const [index, page] of pages.entries()) {
     const asset = assets[page.assetId]
     if (!asset) throw new Error(`Page ${index + 1} refers to missing content.`)
     const layout = layoutPage(settings, asset, page)
     const pdfPage = doc.addPage([layout.page.width, layout.page.height])
-    const visible = asset.format === 'pdf' ? null : visiblePart(layout)
+    const drawn = drawings.get(asset.id)
+    const stored = drawn ?? asset
+    // A drawn page is shown as it is: PDF pages take no crop and no filter.
+    const look = drawn ? { ...page, corners: null, filter: 'original' as const } : page
+    const visible = stored.format === 'pdf' ? null : visiblePart(layout)
     // Whole source pixels, unless corners resample anyway.
-    const source = contentSize(asset, page)
-    const part = visible && !page.corners ? snapPart(visible, source.width, source.height) : visible
-    const content = await embed(asset, imageJob(asset, page, layout.image.width, compression, part))
+    const source = contentSize(stored, look)
+    const part = visible && !look.corners ? snapPart(visible, source.width, source.height) : visible
+    const content = await embed(
+      stored,
+      imageJob(stored, look, layout.image.width, compression, part),
+    )
     const box = layout.content
     const at = placement(content.cropped && part ? partLayout(layout, part) : layout, content.turns)
 

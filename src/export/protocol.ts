@@ -11,3 +11,5 @@ export type ExportResponse =
   | { type: 'progress'; done: number; total: number; attempt: number }
   | { type: 'done'; pdf: Uint8Array; compression: Compression | null; fits: boolean }
   | { type: 'error'; message: string }
+  /** These PDF pages could hide something: draw them and ask again. */
+  | { type: 'draw'; assetIds: string[] }

@@ -106,7 +106,7 @@ export const docReducer = (state: DocState, action: Action): DocState => {
       return mapPage(state, action.id, (p) => ({ ...p, ...cleanTransform(action.patch) }))
 
     case 'transformPages': {
-      if (action.patches.length === 0) return state
+      if (!action.patches.some(({ id }) => state.pages.some((p) => p.id === id))) return state
       const byId = new Map(action.patches.map(({ id, patch }) => [id, cleanTransform(patch)]))
       return {
         ...state,

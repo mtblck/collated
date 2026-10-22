@@ -3,9 +3,10 @@
  * tens of megabytes and the undo history would otherwise hold references to
  * every version of the state. Bytes are keyed by `Asset.bytesId`, so every
  * page of an imported PDF shares one copy. Entries outlive their pages, so
- * undo can bring a removed page back, so nothing is released during a visit:
- * only tests call `clear()` (even the reducer's `clear` action is undoable,
- * so it must keep the bytes too). Reloading the page frees everything.
+ * undo can bring a removed page back, so nothing is released while the
+ * document can still reach it (even the reducer's `clear` action is undoable,
+ * so it keeps the bytes too). `clear()` frees everything, for Start over,
+ * which drops the undo history with it; so does reloading the page.
  */
 const bytes = new Map<string, Uint8Array>()
 /** Thumbnail object URLs and their blobs (filters read the blob back). */

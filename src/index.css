@@ -4,7 +4,7 @@
 
 /* ---------------------------------------------------------------------------
    Type: the portfolio's three faces, self-hosted. Relative URLs so Vite hashes
-   them under /tools/collated/assets/. Latin subsets only — this is a UI, not
+   them under /assets/. Latin subsets only — this is a UI, not
    a document renderer. `optional` + metric-matched fallbacks: a slow font keeps
    the fallback for the page load instead of swapping under the reader.
    --------------------------------------------------------------------------- */
@@ -64,8 +64,8 @@
 
 /* ---------------------------------------------------------------------------
    Palette, from mb-portfolio: warm paper, warm ink, one vermillion accent used
-   only for signal (focus, selection, the drop target, warnings) — never as a
-   fill behind text. `faint` is set to clear WCAG AA at small sizes.
+   only for signal (focus, selection, the drop target, warnings) — and as the
+   fill of destructive buttons (Remove), with paper-coloured text. `faint` is set to clear WCAG AA at small sizes.
 
    Pages themselves stay white in both themes, because that's what the PDF
    will be; in dark mode they're dimmed slightly so they don't glare.
@@ -270,6 +270,27 @@
     font-size: 0.875rem;
     color: var(--c-ink);
     font-variant-numeric: tabular-nums;
+  }
+  /* Our own arrow, inset like the text (#51): the native one sat on the
+     right border. Drawn with gradients so it follows the theme's colours. */
+  select.field {
+    appearance: none;
+    padding-inline-end: 2rem;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--c-ink-muted) 50%),
+      linear-gradient(135deg, var(--c-ink-muted) 50%, transparent 50%);
+    background-position:
+      calc(100% - 0.625rem - 5px) 55%,
+      calc(100% - 0.625rem) 55%;
+    background-size: 5px 5px;
+    background-repeat: no-repeat;
+    text-overflow: ellipsis;
+  }
+  @media (forced-colors: active) {
+    select.field {
+      appearance: auto;
+      padding-inline-end: 0.625rem;
+    }
   }
   .field:hover:not(:disabled) {
     border-color: var(--c-ink-muted);

@@ -5,30 +5,30 @@
   "outputDirectory": "dist",
   "redirects": [
     {
-      "source": "/",
-      "destination": "/tools/collated/",
-      "permanent": false
-    },
-    {
       "source": "/tools/collated",
-      "destination": "/tools/collated/",
+      "destination": "https://collatedpdf.com/",
       "permanent": true
     },
     {
-      "source": "/tools/collated/:page(docs|docs/[^/.]+|privacy|terms)",
-      "destination": "/tools/collated/:page/",
+      "source": "/tools/collated/(.*)",
+      "destination": "https://collatedpdf.com/$1",
+      "permanent": true
+    },
+    {
+      "source": "/:page(docs|docs/[^/.]+|privacy|terms)",
+      "destination": "/:page/",
       "permanent": true
     }
   ],
   "rewrites": [
     {
-      "source": "/tools/collated/((?:[^/]*/)*[^./]*)",
-      "destination": "/tools/collated/index.html"
+      "source": "/((?:[^/]*/)*[^./]*)",
+      "destination": "/index.html"
     }
   ],
   "headers": [
     {
-      "source": "/tools/collated/(.*)",
+      "source": "/(.*)",
       "headers": [
         {
           "key": "X-Content-Type-Options",
@@ -61,7 +61,7 @@
       ]
     },
     {
-      "source": "/tools/collated/assets/(.*)",
+      "source": "/assets/(.*)",
       "headers": [
         {
           "key": "Cache-Control",

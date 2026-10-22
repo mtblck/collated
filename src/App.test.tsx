@@ -47,6 +47,10 @@ const setup = (overrides: Partial<AppDeps> = {}) => {
     estimateSkew: vi.fn((a: { name: string }) =>
       Promise.resolve(a.name.includes('blank') ? null : { angle: -2.5, confidence: 2 }),
     ),
+    // PDF pages named "layers" hide a layer, so they'd be exported drawn.
+    drawnPage: vi.fn((a: { name: string }) =>
+      Promise.resolve(a.name.startsWith('layers') ? new Uint8Array([0xff, 0xd8, 7]) : null),
+    ),
     recognizeText: vi.fn(() =>
       Promise.resolve([{ text: 'Hello', x0: 0.1, y0: 0.1, x1: 0.3, y1: 0.15, baseline: 0.15 }]),
     ),
@@ -62,6 +66,12 @@ const setup = (overrides: Partial<AppDeps> = {}) => {
 
 /** The app's own live region (dnd-kit adds another for drag announcements). */
 const status = () => screen.getAllByRole('status').find((el) => el.id === 'status')
+
+/** The Export button at the foot of the export popover (jsdom can't open popovers). */
+const exportButton = () =>
+  screen.getByRole('button', { name: /^Export (locked )?PDF$/, hidden: true })
+/** The toolbar button that opens it. */
+const exportMenu = () => screen.getByRole('button', { name: /^Export · / })
 
 const pageLabels = () =>
   within(screen.getByRole('list', { name: /pages?$/ }))
@@ -110,6 +120,115 @@ describe('App', () => {
     expect(pageLabels()).toEqual(['Page 1: a.jpg', 'Page 2: b.jpg'])
     await user.click(screen.getByRole('button', { name: /^Redo/ }))
     expect(pageLabels()).toEqual(['Page 1: b.jpg'])
+  })
+
+  describe('start over (#29)', () => {
+    const startOver = async (user: ReturnType<typeof userEvent.setup>) => {
+      await user.click(screen.getByRole('button', { name: 'More' }))
+      await user.click(screen.getByRole('button', { name: 'Start over…', hidden: true }))
+      return screen.getByRole('dialog', { name: 'Start over?' })
+    }
+
+    it('asks first, and Cancel keeps everything and returns focus to More', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'b.jpg')
+      const dialog = await startOver(user)
+      expect(dialog).toHaveAccessibleDescription(/removes all 2 pages .* can't be undone/)
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+      expect(screen.queryByRole('dialog', { name: 'Start over?' })).toBeNull()
+      expect(pageLabels()).toEqual(['Page 1: a.jpg', 'Page 2: b.jpg'])
+      expect(screen.getByRole('button', { name: 'More' })).toHaveFocus()
+    })
+
+    it('clears the pages, undo history, password, title and kept bytes, not page setup', async () => {
+      const { user, upload } = setup()
+      const { assetStore } = await import('./import/assetStore')
+      await upload('a.jpg')
+      await user.type(await screen.findByLabelText('Password to open'), 'hunter2')
+      await user.type(screen.getByLabelText('Title & filename'), 'Taxes')
+      await user.click(screen.getByRole('radio', { name: 'mm', hidden: true }))
+      // Removed and brought back: the bytes are kept for undo.
+      await user.click(screen.getByRole('button', { name: 'Remove page 1' }))
+      await user.keyboard('{Control>}z{/Control}')
+      expect(pageLabels()).toEqual(['Page 1: a.jpg'])
+      expect(assetStore.has('id1')).toBe(true)
+      const dialog = await startOver(user)
+      await user.click(within(dialog).getByRole('button', { name: 'Start over' }))
+
+      expect(screen.queryByRole('list', { name: /pages?$/ })).toBeNull()
+      expect(assetStore.has('id1')).toBe(false)
+      expect(status()).toHaveTextContent('Started over: removed 1 page and the undo history.')
+      expect(screen.getByRole('button', { name: 'Choose files' })).toHaveFocus()
+      // Nothing to undo back to.
+      await user.keyboard('{Control>}z{/Control}')
+      expect(screen.queryByRole('list', { name: /pages?$/ })).toBeNull()
+
+      await upload('b.jpg')
+      expect(await screen.findByLabelText('Password to open')).toHaveValue('')
+      expect(screen.getByLabelText('Title & filename')).toHaveValue('')
+      expect(screen.getByRole('radio', { name: 'mm', hidden: true })).toBeChecked()
+      expect(screen.getByRole('button', { name: /^Undo/ })).toBeEnabled()
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      // One undo empties it: the old document isn't underneath.
+      expect(screen.queryByRole('list', { name: /pages?$/ })).toBeNull()
+    })
+
+    it('ignores files pasted while it asks, and waits while straightening', async () => {
+      let finish: (skew: { angle: number; confidence: number }) => void = () => undefined
+      const { user, upload } = setup({
+        estimateSkew: () =>
+          new Promise((resolve) => {
+            finish = resolve
+          }),
+      })
+      await upload('a.jpg')
+      await startOver(user)
+      const paste = new Event('paste', { bubbles: true, cancelable: true }) as Event & {
+        clipboardData: { files: File[] }
+      }
+      Object.defineProperty(paste, 'clipboardData', { value: { files: [file('late.png')] } })
+      act(() => {
+        window.dispatchEvent(paste)
+      })
+      await user.keyboard('{Escape}')
+      expect(pageLabels()).toEqual(['Page 1: a.jpg'])
+
+      const panel = within(screen.getByRole('complementary', { name: 'Selected page' }))
+      await user.click(panel.getByRole('button', { name: 'Auto-straighten' }))
+      await user.click(screen.getByRole('button', { name: 'More' }))
+      expect(screen.getByRole('button', { name: 'Start over…', hidden: true })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      )
+      await act(async () => {
+        finish({ angle: 1, confidence: 2 })
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      })
+    })
+
+    it('waits while an export is running', async () => {
+      let finish: () => void = () => undefined
+      const exportPdf = vi.fn<AppDeps['exportPdf']>(
+        () =>
+          new Promise((resolve) => {
+            finish = () => {
+              resolve({ blob: new Blob(['%PDF']), compression: null, fits: true })
+            }
+          }),
+      )
+      const { user, upload } = setup({ exportPdf })
+      await upload('a.jpg')
+      await user.click(exportButton())
+      await user.click(screen.getByRole('button', { name: 'More' }))
+      const item = screen.getByRole('button', { name: 'Start over…', hidden: true })
+      expect(item).toHaveAttribute('aria-disabled', 'true')
+      await user.click(item)
+      expect(screen.queryByRole('dialog', { name: 'Start over?' })).toBeNull()
+      await act(async () => {
+        finish()
+        await Promise.resolve()
+      })
+    })
   })
 
   it('undoes with the keyboard shortcut, but not while typing in a field', async () => {
@@ -245,7 +364,7 @@ describe('App', () => {
       '0% across, 5% down',
     )
     await user.click(dialog.getByRole('button', { name: 'Apply crop' }))
-    await user.click(screen.getByRole('button', { name: /^Export PDF/ }))
+    await user.click(exportButton())
     const exported = deps.exportPdf ? vi.mocked(deps.exportPdf).mock.calls[0]?.[0] : undefined
     // Turned clockwise once, the top you see is the photo's left side.
     const corners = exported?.pages[0]?.corners
@@ -335,7 +454,8 @@ describe('App', () => {
     const { user, deps, upload } = setup({ exportPdf })
     await upload('a.jpg')
     await user.type(await screen.findByLabelText('Title & filename'), 'Lease 2026')
-    await user.click(screen.getByRole('button', { name: /Export PDF · 1 page/ }))
+    expect(exportMenu()).toHaveAccessibleName('Export · 1 page, options')
+    await user.click(exportButton())
     await waitFor(() => {
       expect(deps.download).toHaveBeenCalledWith(expect.any(Blob), 'Lease-2026.pdf')
     })
@@ -356,17 +476,18 @@ describe('App', () => {
       },
     })
     await upload('photo.jpg')
-    const options = await screen.findByRole('button', { name: /Export options:\s*Original/ })
-    expect(options).toHaveAccessibleName(/≈\s*3\.8 MB/)
+    await screen.findByRole('list', { name: '1 page' })
+    const estimate = () =>
+      screen.getByText('Estimated size', { selector: 'dt' }).parentElement?.querySelector('dd')
+        ?.textContent
+    expect(estimate()).toMatch(/≈\s*3\.8 MB/)
     // jsdom hides popover content but doesn't implement popovertarget, so the
     // panel can't be opened here; its controls are queried directly. The
     // browser verify opens the real popover.
     await user.click(screen.getByRole('radio', { name: /Small/, hidden: true }))
     // 4000 px across 11 in is ~364 dpi; capping at 150 dpi leaves ~17% of
     // the pixels, so the estimate drops from megabytes to kilobytes.
-    expect(screen.getByRole('button', { name: /Export options:\s*Small/ })).toHaveAccessibleName(
-      /≈\s*\d+ KB/,
-    )
+    expect(estimate()).toMatch(/≈\s*\d+ KB/)
     expect(JSON.parse(store.get('collated:settings') ?? '{}')).toMatchObject({ quality: 'small' })
   })
 
@@ -383,7 +504,7 @@ describe('App', () => {
     const limit = await screen.findByLabelText(/^Keep the file under/)
     expect(limit).toHaveAccessibleName('Keep the file under (megabytes)')
     await user.type(limit, '1{Enter}')
-    await user.click(screen.getByRole('button', { name: /Export PDF/ }))
+    await user.click(exportButton())
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Couldn’t get under 1.0 MB: the smallest version is 3.0 MB at 96 dpi. It was saved anyway.',
     )
@@ -397,8 +518,9 @@ describe('App', () => {
     const { user, store, upload } = setup({ exportPdf })
     await upload('a.jpg')
     await user.type(await screen.findByLabelText('Password to open'), 'hunter2')
-    // The main button says the PDF will be locked.
-    await user.click(screen.getByRole('button', { name: /^Export locked PDF · 1 page/ }))
+    // Both buttons say the PDF will be locked.
+    expect(exportMenu()).toHaveAccessibleName('Export · 1 page, locked with a password, options')
+    await user.click(screen.getByRole('button', { name: 'Export locked PDF', hidden: true }))
     await waitFor(() => {
       expect(exportPdf).toHaveBeenCalled()
     })
@@ -441,7 +563,8 @@ describe('App', () => {
     await user.click(
       await screen.findByRole('checkbox', { name: 'Make text searchable (OCR)', hidden: true }),
     )
-    await user.click(screen.getByRole('button', { name: /Export PDF · 4 pages/ }))
+    expect(exportMenu()).toHaveAccessibleName('Export · 4 pages, options')
+    await user.click(exportButton())
     await waitFor(() => {
       expect(exportPdf).toHaveBeenCalled()
     })
@@ -451,12 +574,59 @@ describe('App', () => {
     expect(status()).toHaveTextContent('searchable')
   })
 
+  it('asks nothing about drawn pages when OCR is off', async () => {
+    const exportPdf = vi.fn<AppDeps['exportPdf']>(() =>
+      Promise.resolve({ blob: new Blob(['%PDF']), compression: null, fits: true }),
+    )
+    const { user, deps, upload } = setup({ exportPdf })
+    await upload('layers.pdf')
+    await user.click(exportButton())
+    await waitFor(() => {
+      expect(exportPdf).toHaveBeenCalled()
+    })
+    expect(deps.drawnPage).not.toHaveBeenCalled()
+    expect(exportPdf.mock.calls[0]?.[2]?.readDrawn).toBeUndefined()
+  })
+
+  it('reads text on PDF pages exported as drawings, from the drawing (#52)', async () => {
+    const exportPdf = vi.fn<AppDeps['exportPdf']>(() =>
+      Promise.resolve({ blob: new Blob(['%PDF']), compression: null, fits: true }),
+    )
+    const { user, deps, upload } = setup({ exportPdf })
+    await upload('scan.jpg', 'layers.pdf', 'form.pdf')
+    await user.click(
+      await screen.findByRole('checkbox', { name: 'Make text searchable (OCR)', hidden: true }),
+    )
+    await user.click(exportButton())
+    await waitFor(() => {
+      expect(exportPdf).toHaveBeenCalled()
+    })
+    // The image page and the three drawn pages; not form.pdf's vector pages.
+    const calls = vi.mocked(deps.recognizeText ?? vi.fn()).mock.calls
+    expect(calls).toHaveLength(4)
+    expect(calls.filter(([, , drawn]) => drawn instanceof Uint8Array)).toHaveLength(3)
+    expect(Object.keys(exportPdf.mock.calls[0]?.[2]?.text ?? {})).toHaveLength(4)
+    // And pages drawn only because the export asks are read too.
+    const readDrawn = exportPdf.mock.calls[0]?.[2]?.readDrawn
+    const formAsset = Object.values(vi.mocked(exportPdf).mock.calls[0]?.[0].assets ?? {}).find(
+      (a) => a.name.startsWith('form.pdf'),
+    )
+    expect(readDrawn).toBeDefined()
+    if (readDrawn && formAsset) {
+      const words = await act(() => readDrawn(formAsset.id, new Uint8Array([0xff, 0xd8])))
+      expect(Object.keys(words)).toHaveLength(1)
+      // Then back to building: the status doesn't stay on reading.
+      expect(status()).toHaveTextContent('Building PDF…')
+    }
+  })
+
   it('shows an error if the export fails and stays usable', async () => {
     const { user, upload } = setup({ exportPdf: () => Promise.reject(new Error('disk full')) })
     await upload('a.jpg')
-    await user.click(await screen.findByRole('button', { name: /Export PDF/ }))
+    await screen.findByRole('list', { name: '1 page' })
+    await user.click(exportButton())
     expect(await screen.findByRole('alert')).toHaveTextContent('disk full')
-    expect(screen.getByRole('button', { name: /Export PDF/ })).toBeEnabled()
+    expect(exportButton()).toBeEnabled()
   })
 
   it('remembers page setup (not the title) between visits', async () => {
@@ -573,7 +743,7 @@ describe('App', () => {
       expect(dialog).toBeInTheDocument()
     })
 
-    it('keeps the export button focusable and inactive while busy', async () => {
+    it('shows progress on the export menu button, which keeps focus, while busy', async () => {
       let finish: (value: Awaited<ReturnType<AppDeps['exportPdf']>>) => void = () => undefined
       const exportPdf = vi.fn<AppDeps['exportPdf']>(
         () =>
@@ -582,22 +752,27 @@ describe('App', () => {
           }),
       )
       const { user, upload } = setup({ exportPdf })
-      await upload('a.jpg')
-      const button = await screen.findByRole('button', { name: /Export PDF · 1 page/ })
-      await user.click(button)
-      expect(button).toHaveFocus()
-      expect(button).toHaveAttribute('aria-disabled', 'true')
-      expect(button).toBeEnabled()
-      await user.click(button) // ignored while busy
+      await upload('a.jpg', 'b.jpg')
+      const menu = exportMenu()
+      expect(menu).toHaveAccessibleName('Export · 2 pages, options')
+      menu.focus()
+      await user.click(exportButton())
+      menu.focus()
+      expect(menu).toHaveAccessibleName(/^Building \d\/2…/)
+      // Still a working button, so focus on it isn't dropped.
+      expect(menu).toBeEnabled()
+      expect(menu).toHaveFocus()
+      // While it runs, Export can't start another (but stays reachable).
+      expect(exportButton()).toHaveAttribute('aria-disabled', 'true')
+      await user.click(exportButton())
       expect(exportPdf).toHaveBeenCalledTimes(1)
       await act(async () => {
         finish({ blob: new Blob(['%PDF']), compression: null, fits: true })
         await Promise.resolve()
       })
       await waitFor(() => {
-        expect(button).not.toHaveAttribute('aria-disabled')
+        expect(menu).toHaveAccessibleName('Export · 2 pages, options')
       })
-      expect(button).toHaveFocus()
     })
 
     it('keeps auto-straighten focusable and inactive while it runs', async () => {
@@ -721,7 +896,7 @@ describe('App', () => {
       fireEvent.change(await screen.findByLabelText('Password to open'), {
         target: { value: 'caféＡ' },
       })
-      await user.click(screen.getByRole('button', { name: /Export locked PDF/ }))
+      await user.click(exportButton())
       await waitFor(() => {
         expect(exportPdf).toHaveBeenCalled()
       })
@@ -737,7 +912,9 @@ describe('App', () => {
       fireEvent.change(field, { target: { value: 'é'.repeat(64) } })
       expect(field).toHaveAttribute('aria-invalid', 'true')
       expect(field).toHaveAccessibleDescription(/Too long: a PDF password can use at most 127/)
-      await user.click(screen.getByRole('button', { name: /Export locked PDF/ }))
+      // Export says why it waits, and takes you to the field.
+      expect(exportButton()).toHaveAccessibleDescription(/Too long/)
+      await user.click(exportButton())
       expect(exportPdf).not.toHaveBeenCalled()
       expect(field).toHaveFocus()
       fireEvent.change(field, { target: { value: 'é'.repeat(63) } })
@@ -812,9 +989,9 @@ describe('App', () => {
         .getAllByRole('link')
         .map((a) => a.getAttribute('href'))
       expect(hrefs).toEqual([
-        '/tools/collated/docs/',
+        '/docs/',
         'https://github.com/mtblck/collated',
-        'https://ko-fi.com/collated',
+        'https://ko-fi.com/mtblck',
       ])
       for (const link of within(nav)
         .getAllByRole('link')
@@ -882,7 +1059,7 @@ describe('App', () => {
       if (!more) throw new Error('no More panel')
       expect(
         within(more).getByRole('link', { name: /Support Collated/, hidden: true }),
-      ).toHaveAttribute('href', 'https://ko-fi.com/collated')
+      ).toHaveAttribute('href', 'https://ko-fi.com/mtblck')
     })
   })
 })

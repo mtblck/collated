@@ -2,8 +2,8 @@
  * Runs before first paint (a blocking script in <head>) so the right palette is
  * on <html> before anything renders; doing it in React would flash light for
  * anyone on the dark theme. A file, not inline: the CSP is script-src 'self'.
- * Shares the `mb-theme` key with mattblack.space, which is the same origin in
- * production, so a choice made on the portfolio carries over.
+ * The `mb-theme` key is the one mattblack.space uses; Collated has its own
+ * origin now, so the choice is its own.
  */
 ;(function () {
   try {
