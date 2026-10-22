@@ -8,7 +8,7 @@ import { SOURCE_URL } from '../src/components/links'
 const docs = join(import.meta.dirname, '..', 'docs')
 const rendered = PAGES.map((page) => ({
   page,
-  ...renderPage(page, '/tools/collated/assets/x.css'),
+  ...renderPage(page, '/assets/x.css'),
 }))
 
 describe('docs site', () => {
@@ -38,7 +38,7 @@ describe('docs site', () => {
   it('needs nothing the CSP forbids: no inline scripts, styles or event handlers', () => {
     for (const { page, html } of rendered) {
       for (const tag of html.match(/<script\b[^>]*>/g) ?? []) {
-        expect(tag, page.source).toMatch(/\ssrc="\/tools\/collated\/theme\.js"/)
+        expect(tag, page.source).toMatch(/\ssrc="\/theme\.js"/)
       }
       expect(html, page.source).not.toMatch(/\son[a-z]+=|<style|\sstyle=/i)
     }

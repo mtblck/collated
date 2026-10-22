@@ -5,7 +5,7 @@ export type Theme = 'light' | 'dark'
 const currentTheme = (): Theme =>
   document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
 
-/** Same storage key as mattblack.space, which shares this origin in production. */
+/** The theme choice, kept in this origin's storage (the key is shared with mattblack.space's apps). */
 export const useTheme = () => {
   const [theme, setTheme] = useState<Theme>(currentTheme)
   useEffect(() => {

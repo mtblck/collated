@@ -921,7 +921,7 @@ describe('App', () => {
         .getAllByRole('link')
         .map((a) => a.getAttribute('href'))
       expect(hrefs).toEqual([
-        '/tools/collated/docs/',
+        '/docs/',
         'https://github.com/mtblck/collated',
         'https://ko-fi.com/mtblck',
       ])

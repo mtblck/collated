@@ -145,7 +145,7 @@ export const renderPage = (spec: PageSpec, css: string): RenderedPage => {
     <title>${escape(title)} · Collated</title>
     <meta name="description" content="${escape(description)}" />
     <link rel="icon" href="${APP_URL}favicon.svg" type="image/svg+xml" />
-    <link rel="canonical" href="https://mattblack.space${spec.url}" />
+    <link rel="canonical" href="https://collatedpdf.com${spec.url}" />
     <script src="${APP_URL}theme.js"></script>
     <link rel="stylesheet" href="${css}" />
   </head>

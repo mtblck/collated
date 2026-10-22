@@ -7,8 +7,8 @@ import { docsSite } from './docs-site'
 import { licenseFiles } from './licenses'
 import { ocrAssets } from './ocr-assets'
 
-export const SLUG = 'collated'
-const BASE = `/tools/${SLUG}/`
+/** Collated has its own origin (collatedpdf.com, #25): served from the root. */
+const BASE = '/'
 
 interface VercelHeaderBlock {
   source: string
@@ -24,7 +24,7 @@ const productionHeaders = Object.fromEntries(
       headers: VercelHeaderBlock[]
     }
   ).headers
-    .filter((block) => block.source.startsWith(`/tools/${SLUG}/(`))
+    .filter((block) => block.source === '/(.*)')
     .flatMap((block) => block.headers)
     .map((h) => [h.key, h.value]),
 )
@@ -33,7 +33,7 @@ export default defineConfig({
   base: BASE,
   plugins: [react(), tailwindcss(), ocrAssets(BASE), licenseFiles(), docsSite(BASE)],
   build: {
-    outDir: `dist/tools/${SLUG}`,
+    outDir: 'dist',
     emptyOutDir: true,
     sourcemap: true,
     // The export worker carries pdf-lib (~570 kB, ~200 kB gzip) and loads only

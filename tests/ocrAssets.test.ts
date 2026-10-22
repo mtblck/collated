@@ -4,7 +4,7 @@ import type { Connect, ViteDevServer } from 'vite'
 import { describe, expect, it, vi } from 'vitest'
 import { ocrAssets } from '../ocr-assets'
 
-const BASE = '/tools/collated/'
+const BASE = '/'
 
 const middleware = () => {
   let handler: Connect.NextHandleFunction | undefined

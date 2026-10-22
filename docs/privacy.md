@@ -23,7 +23,7 @@ You can clear all of this in your browser's site settings. There are no cookies.
 
 ## What the hosting sees
 
-Collated is a set of static files served by Vercel, at mattblack.space. Like any website, the host receives standard request information when your browser fetches those files: your IP address, your browser's user agent, the time, and which file was requested (for example, the text-recognition data when you first use searchable text). This is used for running and securing the service, not for tracking you, and Collated adds no analytics or tracking of its own. See [Vercel's privacy policy](https://vercel.com/legal/privacy-policy).
+Collated is a set of static files served by Vercel, at collatedpdf.com. Like any website, the host receives standard request information when your browser fetches those files: your IP address, your browser's user agent, the time, and which file was requested (for example, the text-recognition data when you first use searchable text). This is used for running and securing the service, not for tracking you, and Collated adds no analytics or tracking of its own. See [Vercel's privacy policy](https://vercel.com/legal/privacy-policy).
 
 ## Links out
 
