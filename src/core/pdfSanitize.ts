@@ -15,8 +15,8 @@ import {
   type PDFDocument,
   type PDFObject,
 } from '@cantoo/pdf-lib'
-import { stripJpegMetadata } from './jpegClean'
-import { cleanContent, concat } from './pdfContent'
+import { stripJp2Metadata, stripJpegMetadata } from './jpegClean'
+import { cleanContent, concat, namesIn, type Operand } from './pdfContent'
 
 /**
  * A copy of a source page that carries only what draws it: its content and
@@ -356,28 +356,6 @@ const RESOURCE_KINDS = [
   'Properties',
 ] as const
 
-/** Every /Name token in a content stream, decoded. Over-inclusive is safe. */
-export const namesIn = (content: Uint8Array) => {
-  const text = latin1(content)
-  const names = new Set<string>()
-  for (const match of text.matchAll(/\/([^\s\0/[\]()<>{}%]*)/g)) {
-    names.add(
-      (match[1] ?? '').replace(/#([0-9a-fA-F]{2})/g, (_, hex: string) =>
-        String.fromCharCode(parseInt(hex, 16)),
-      ),
-    )
-  }
-  return names
-}
-
-const latin1 = (bytes: Uint8Array) => {
-  let out = ''
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    out += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-  }
-  return out
-}
-
 const decodeStream = (stream: PDFStream) =>
   stream instanceof PDFRawStream ? decodePDFRawStream(stream).decode() : stream.getContents()
 
@@ -447,13 +425,32 @@ class Scrubber {
     readonly visible: (oc: PDFObject | undefined) => boolean,
   ) {}
 
-  /** Whether `/OC /name BDC` content is hidden, by the Properties in `resources`. */
+  /**
+   * Whether `/OC <props> BDC` content is hidden: a name looked up in the
+   * Properties of `resources`, or a dictionary written in the content.
+   */
   hiddenIn(resources: PDFDict | undefined) {
     const properties = resources ? get(this.context, resources, 'Properties', PDFDict) : undefined
-    return (name: string) => {
-      const entry = properties?.get(PDFName.of(name))
+    return (props: Operand) => {
+      if (props instanceof Map) return !this.visible(this.toObject(props))
+      if (Array.isArray(props) || !('name' in props)) return false
+      const entry = properties?.get(PDFName.of(props.name))
       return entry !== undefined && !this.visible(entry)
     }
+  }
+
+  /** An operand written in content, as the PDF object it stands for. */
+  private toObject(operand: Operand): PDFObject {
+    if (operand instanceof Map) {
+      const dict = this.context.obj({})
+      for (const [key, value] of operand) dict.set(PDFName.of(key), this.toObject(value))
+      return dict
+    }
+    if (Array.isArray(operand)) return this.context.obj(operand.map((o) => this.toObject(o)))
+    if ('name' in operand) return PDFName.of(operand.name)
+    if ('number' in operand) return PDFNumber.of(operand.number)
+    if ('ref' in operand) return PDFRef.of(operand.ref[0], operand.ref[1])
+    return PDFNull
   }
 
   /** A content stream's bytes as kept (see `cleanContent`), once per stream. */
@@ -473,12 +470,14 @@ class Scrubber {
   }
 
   /**
-   * A new resource dictionary holding only entries `content` names. Forms
-   * without their own resources use the page's, so their names count too.
+   * A new resource dictionary holding only entries `content` names. A form,
+   * tiling pattern or Type 3 font without resources of its own uses these
+   * (the nearest enclosing ones), so it's given a copy that names them
+   * explicitly: what it shows can then be cleaned, and pruned, for exactly
+   * the resources it draws with, wherever else it's used.
    */
   prunedCopy(resources: PDFDict, content: Uint8Array): PDFDict {
     const used = namesIn(content)
-    this.inheritedNames(resources, used)
     const out = this.context.obj({})
     for (const [key, value] of resources.entries()) {
       const kind = key.decodeText()
@@ -491,43 +490,45 @@ class Scrubber {
       if (!dict) continue
       const kept = this.context.obj({})
       for (const [name, entry] of dict.entries()) {
-        if (used.has(name.decodeText())) kept.set(name, entry)
+        if (used.has(name.decodeText())) kept.set(name, this.withResources(entry, resources))
       }
       if (kept.keys().length) out.set(key, kept)
     }
     return out
   }
 
-  /**
-   * Adds names used by forms that have no resources of their own: viewers
-   * look those up in the page's resources, however deeply the form is nested
-   * inside other forms. Over-including is safe; missing one blanks content.
-   */
-  private inheritedNames(resources: PDFDict, used: Set<string>) {
-    const pageXObjects = get(this.context, resources, 'XObject', PDFDict)
-    const visited = new Set<PDFObject>()
-    // Forms reached from `xobjects` by the names in `names`.
-    const walk = (xobjects: PDFDict | undefined, names: Set<string>) => {
-      if (!xobjects) return
-      for (const [name, ref] of xobjects.entries()) {
-        if (!names.has(name.decodeText()) || visited.has(ref)) continue
-        visited.add(ref)
-        const form = this.context.lookup(ref)
-        if (!(form instanceof PDFStream) || !isForm(form)) continue
-        const own = get(this.context, form.dict, 'Resources', PDFDict)
-        const inner = namesIn(this.contentBytes(form, own ?? resources).bytes)
-        if (own) {
-          walk(get(this.context, own, 'XObject', PDFDict), inner)
-        } else {
-          const before = used.size
-          for (const n of inner) used.add(n)
-          // New page-level names may name more forms.
-          if (used.size > before) walk(pageXObjects, used)
-          walk(pageXObjects, inner)
-        }
-      }
+  private readonly adopted = new Map<PDFRef, Map<PDFDict, PDFRef>>()
+
+  /** `entry`, or a copy of it that names `resources` if it draws with inherited ones. */
+  private withResources(entry: PDFObject, resources: PDFDict): PDFObject {
+    if (!(entry instanceof PDFRef)) return entry
+    const target = this.context.lookup(entry)
+    const dict =
+      target instanceof PDFStream ? target.dict : target instanceof PDFDict ? target : undefined
+    if (!dict || dict.has(PDFName.of('Resources'))) return entry
+    const inherits =
+      target instanceof PDFStream
+        ? isForm(target) || isTilingPattern(dict)
+        : isType3(this.context, dict)
+    if (!inherits) return entry
+    let copies = this.adopted.get(entry)
+    if (!copies) {
+      copies = new Map()
+      this.adopted.set(entry, copies)
     }
-    walk(pageXObjects, used)
+    const known = copies.get(resources)
+    if (known) return known
+    const copyDict = dict.clone(this.context)
+    copyDict.set(PDFName.of('Resources'), resources)
+    const copy =
+      target instanceof PDFRawStream
+        ? PDFRawStream.of(copyDict, target.contents)
+        : target instanceof PDFStream
+          ? PDFRawStream.of(copyDict, target.getContents())
+          : copyDict
+    const ref = this.context.register(copy)
+    copies.set(resources, ref)
+    return ref
   }
 
   /** Cleans `object` and everything it reaches. */
@@ -619,9 +620,9 @@ class Scrubber {
   }
 
   /**
-   * A JPEG image without its metadata. One wrapped in other filters (Flate
-   * around DCT, say) is unwrapped and stored as a plain JPEG; one that can't
-   * be read is drawn as nothing rather than carried with its metadata.
+   * A JPEG or JPEG 2000 image without its metadata. One wrapped in other
+   * filters (Flate around DCT, say) is unwrapped and stored plain; one that
+   * can't be read is drawn as nothing rather than carried with its metadata.
    */
   private cleanImage(ref: PDFRef, stream: PDFRawStream): PDFStream | undefined {
     const { dict } = stream
@@ -629,34 +630,32 @@ class Scrubber {
     const resolved = filter ? this.context.lookup(filter) : undefined
     const filters = resolved instanceof PDFArray ? resolved.asArray() : resolved ? [resolved] : []
     const names = filters.map((f) => (f instanceof PDFName ? f.decodeText() : ''))
-    if (!names.includes('DCTDecode')) return undefined
-    if (names.length === 1) {
-      const cleaned = stripJpegMetadata(stream.contents)
-      if (cleaned === stream.contents) return undefined
-      dict.set(PDFName.of('Length'), PDFNumber.of(cleaned.length))
-      const fresh = PDFRawStream.of(dict, cleaned)
-      this.context.assign(ref, fresh)
-      return fresh
-    }
+    const codec = names.find((n) => n in CODECS)
+    if (!codec) return undefined
+    const strip = CODECS[codec as keyof typeof CODECS]
     try {
-      if (names.at(-1) !== 'DCTDecode') throw new Error('DCT is not the innermost filter')
+      if (names.at(-1) !== codec) throw new Error('the image codec is not the innermost filter')
+      let data = stream.contents
+      let innerParms: PDFObject | undefined
       const parms = dict.get(PDFName.of('DecodeParms'))
       const parmsList = parms ? this.context.lookup(parms) : undefined
-      const outer = dict.clone(this.context)
-      outer.set(
-        PDFName.of('Filter'),
-        this.context.obj(names.slice(0, -1).map((n) => PDFName.of(n))),
-      )
-      const innerParms =
-        parmsList instanceof PDFArray ? parmsList.get(parmsList.size() - 1) : undefined
-      if (parmsList instanceof PDFArray) {
-        outer.set(PDFName.of('DecodeParms'), this.context.obj(parmsList.asArray().slice(0, -1)))
-      } else outer.delete(PDFName.of('DecodeParms'))
-      const jpeg = decodePDFRawStream(PDFRawStream.of(outer, stream.contents)).decode()
-      if (jpeg[0] !== 0xff || jpeg[1] !== 0xd8) throw new Error('not a JPEG')
-      const cleaned = stripJpegMetadata(jpeg)
+      if (names.length > 1) {
+        const outer = dict.clone(this.context)
+        outer.set(
+          PDFName.of('Filter'),
+          this.context.obj(names.slice(0, -1).map((n) => PDFName.of(n))),
+        )
+        if (parmsList instanceof PDFArray) {
+          innerParms = parmsList.get(parmsList.size() - 1)
+          outer.set(PDFName.of('DecodeParms'), this.context.obj(parmsList.asArray().slice(0, -1)))
+        } else outer.delete(PDFName.of('DecodeParms'))
+        data = decodePDFRawStream(PDFRawStream.of(outer, stream.contents)).decode()
+      } else innerParms = parms
+      const cleaned = strip(data)
+      if (!cleaned) throw new Error(`unreadable ${codec} image`)
+      if (cleaned === stream.contents) return undefined
       const plain = dict.clone(this.context)
-      plain.set(PDFName.of('Filter'), PDFName.of('DCTDecode'))
+      plain.set(PDFName.of('Filter'), PDFName.of(codec))
       if (innerParms && innerParms !== PDFNull) plain.set(PDFName.of('DecodeParms'), innerParms)
       else plain.delete(PDFName.of('DecodeParms'))
       plain.set(PDFName.of('Length'), PDFNumber.of(cleaned.length))
@@ -668,6 +667,13 @@ class Scrubber {
       return undefined
     }
   }
+}
+
+/** Image codecs whose data can carry metadata, and how to remove it (null: unreadable). */
+const CODECS = {
+  DCTDecode: (data: Uint8Array) =>
+    data[0] === 0xff && data[1] === 0xd8 ? stripJpegMetadata(data) : null,
+  JPXDecode: (data: Uint8Array) => stripJp2Metadata(data),
 }
 
 const emptyForm = (context: PDFContext) =>

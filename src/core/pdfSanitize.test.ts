@@ -15,7 +15,7 @@ import {
 import { describe, expect, it } from 'vitest'
 import { asset, fixture, page, settings } from '../../tests/helpers'
 import { buildPdf } from './pdf'
-import { namesIn } from './pdfSanitize'
+import { namesIn } from './pdfContent'
 
 const hasQpdf = (() => {
   try {
@@ -123,6 +123,15 @@ describe('namesIn', () => {
   it('finds every name, decoding #xx escapes', () => {
     const names = namesIn(new TextEncoder().encode('/F1 12 Tf /Im#201 Do /GS0 gs [/a/b]'))
     expect([...names]).toEqual(expect.arrayContaining(['F1', 'Im 1', 'GS0', 'a', 'b']))
+  })
+
+  it('ignores names inside strings and inline image data, but not inline images’ colour spaces', () => {
+    const names = namesIn(
+      new TextEncoder().encode('(see p2/ImB) Tj BI /W 1 /H 1 /CS /CS0 ID /Fake EI'),
+    )
+    expect(names).not.toContain('ImB')
+    expect(names).not.toContain('Fake')
+    expect(names).toContain('CS0')
   })
 })
 
@@ -512,6 +521,101 @@ describe.skipIf(!hasQpdf)('what a PDF page shows comes with it', () => {
     expect(text).not.toContain('WRAPPED-EXIF')
     expect(text.match(/\/FontName \/Big/g)).toHaveLength(1)
     expect(greys(pdf).at(30, 264 - 30)).toBeLessThan(250) // the image still draws
+  })
+
+  it('cleans a form without resources by the ones it inherits, wherever it is used', async () => {
+    const doc = await PDFDocument.create()
+    const { context } = doc
+    const layer = (name: string) =>
+      context.register(context.obj({ Type: 'OCG', Name: PDFString.of(name) }))
+    const shown = layer('Shown')
+    const hiddenLayer = layer('Hidden')
+    doc.catalog.set(
+      PDFName.of('OCProperties'),
+      context.obj({ OCGs: [shown, hiddenLayer], D: { OFF: [hiddenLayer] } }),
+    )
+    const form = (content: string, extra: Record<string, unknown> = {}) =>
+      context.register(
+        context.stream(content, {
+          Type: 'XObject',
+          Subtype: 'Form',
+          BBox: [0, 0, 612, 792],
+          ...extra,
+        }),
+      )
+    // Nested: the inner form inherits the outer form's Properties, not the page's.
+    const inner = form('/OC /L2 BDC BT /F1 12 Tf (NESTED-SECRET) Tj ET EMC')
+    const outer = form('/In Do', {
+      Resources: { XObject: { In: inner }, Properties: { L2: hiddenLayer } },
+    })
+    // Shared: one form, a shown layer on one page and a hidden one on the other.
+    const shared = form('/OC /L BDC 0 g 72 72 100 100 re f EMC')
+    const pageWith = (resources: Record<string, Record<string, PDFObject>>, content: string) => {
+      const p = doc.addPage([612, 792])
+      p.node.set(PDFName.of('Resources'), context.obj(resources))
+      p.node.set(PDFName.of('Contents'), context.register(context.stream(content)))
+    }
+    pageWith({ XObject: { Out: outer } }, '/Out Do')
+    pageWith({ XObject: { S: shared }, Properties: { L: shown } }, '/S Do')
+    pageWith({ XObject: { S: shared }, Properties: { L: hiddenLayer } }, '/S Do')
+    const source = await doc.save()
+
+    expect((await exported(source, 0)).text).not.toContain('NESTED-SECRET')
+    // Hidden on page 3 first, then shown on page 2: page 2 still draws it.
+    const pages = [page('p3', 'a2'), page('p2', 'a1')]
+    const assets = {
+      a1: asset('a1', { bytesId: 'src', format: 'pdf', pdfPage: 1, width: 612, height: 792 }),
+      a2: asset('a2', { bytesId: 'src', format: 'pdf', pdfPage: 2, width: 612, height: 792 }),
+    }
+    const pdf = await buildPdf(
+      { settings: settings({ size: 'image', margin: 0 }), pages, assets },
+      { getBytes: () => source },
+    )
+    const second = execFileSync('pdftoppm', ['-r', '24', '-gray', '-f', '2', '-l', '2', '-'], {
+      input: Buffer.from(pdf),
+    })
+    const width = Number(second.subarray(0, 20).toString('latin1').split(/\s+/)[1])
+    const offset = second.indexOf('255\n', 0, 'latin1') + 4
+    expect(second[offset + (264 - 40) * width + 40]).toBeLessThan(60)
+    expect(greys(pdf).at(40, 264 - 40)).toBeGreaterThan(200) // page 3's copy, hidden
+  })
+
+  it('strips metadata boxes from JPEG 2000 images', async () => {
+    const doc = await PDFDocument.create()
+    const p = doc.addPage([612, 792])
+    const { context } = doc
+    const box = (type: string, body: Uint8Array) => {
+      const out = new Uint8Array(8 + body.length)
+      new DataView(out.buffer).setUint32(0, out.length)
+      out.set(new TextEncoder().encode(type), 4)
+      out.set(body, 8)
+      return out
+    }
+    const jp2 = concatBytes(
+      box('jP  ', new Uint8Array([0x0d, 0x0a, 0x87, 0x0a])),
+      box('ftyp', new TextEncoder().encode('jp2 \0\0\0\0jp2 ')),
+      box('xml ', new TextEncoder().encode('<x:xmpmeta>JPX-GPS-SECRET</x:xmpmeta>')),
+      box('jp2c', new Uint8Array([0xff, 0x4f, 0xff, 0xd9])),
+    )
+    const image = context.register(
+      context.stream(jp2, {
+        Type: 'XObject',
+        Subtype: 'Image',
+        Width: 1,
+        Height: 1,
+        ColorSpace: 'DeviceGray',
+        BitsPerComponent: 8,
+        Filter: 'JPXDecode',
+      }),
+    )
+    p.node.set(PDFName.of('Resources'), context.obj({ XObject: { Im: image } }))
+    p.node.set(
+      PDFName.of('Contents'),
+      context.register(context.stream('q 10 0 0 10 0 0 cm /Im Do Q')),
+    )
+    const { text } = await exported(await doc.save(), 0)
+    expect(text).not.toContain('JPX-GPS-SECRET')
+    expect(text).toContain('/JPXDecode')
   })
 
   it('strips metadata from JPEGs written inline in a page or a form (#28)', async () => {

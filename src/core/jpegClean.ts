@@ -124,3 +124,38 @@ export const jpegEnd = (bytes: Uint8Array, start = 0): number | null => {
   }
   return null
 }
+
+/** JPEG 2000 boxes that hold only metadata (ISO 15444-1 I.7, 15444-2 M.11). */
+const JP2_METADATA = new Set(['xml ', 'uuid', 'uinf', 'ipr '])
+
+/**
+ * A JPEG 2000 file (JP2/JPX boxes) without its metadata boxes: XMP and other
+ * XML, UUID boxes (where EXIF and XMP live), URLs and rights statements. A
+ * bare codestream has no boxes and comes back as it is. Anything else, or a
+ * box that runs past the end, gives null: it can't be checked.
+ */
+export const stripJp2Metadata = (bytes: Uint8Array): Uint8Array | null => {
+  if (bytes[0] === 0xff && bytes[1] === 0x4f) return bytes // codestream (SOC)
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const signature =
+    bytes.length >= 12 && view.getUint32(0) === 12 && view.getUint32(4) === 0x6a502020
+  if (!signature) return null
+  const kept: Uint8Array[] = []
+  let dropped = false
+  for (let i = 0; i < bytes.length;) {
+    if (i + 8 > bytes.length) return null
+    let size = view.getUint32(i)
+    let header = 8
+    if (size === 1) {
+      if (i + 16 > bytes.length) return null
+      size = Number(view.getBigUint64(i + 8))
+      header = 16
+    } else if (size === 0) size = bytes.length - i
+    if (size < header || i + size > bytes.length) return null
+    const type = String.fromCharCode(...bytes.subarray(i + 4, i + 8))
+    if (JP2_METADATA.has(type)) dropped = true
+    else kept.push(bytes.subarray(i, i + size))
+    i += size
+  }
+  return dropped ? concat(kept) : bytes
+}

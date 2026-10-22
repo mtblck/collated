@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { fixture } from '../../tests/helpers'
-import { cleanContent, concat } from './pdfContent'
+import { cleanContent, concat, type Operand } from './pdfContent'
 
 const enc = (s: string) => new TextEncoder().encode(s)
 const dec = (b: Uint8Array) => new TextDecoder('latin1').decode(b)
 const hiddenNames =
   (...names: string[]) =>
-  (name: string) =>
-    names.includes(name)
+  (props: Operand) =>
+    !(props instanceof Map) &&
+    !Array.isArray(props) &&
+    'name' in props &&
+    names.includes(props.name)
 
 /** A JPEG with `tag` in an EXIF segment. */
 const tagged = (tag: string) => {
@@ -29,15 +32,52 @@ describe('cleanContent', () => {
       '0 g /OC /Secret BDC (EMC in a string) Tj /Span <</MCID 1>> BDC 1 0 0 1 0 0 cm EMC 9 9 m EMC 1 g /OC /Shown BDC 5 5 m EMC',
     )
     const { bytes } = cleanContent(content, hiddenNames('Secret'))
-    expect(dec(bytes)).toBe('0 g  1 g /OC /Shown BDC 5 5 m EMC')
+    // The drawing goes; the state change inside stays, so what follows looks the same.
+    expect(dec(bytes)).toBe('0 g 1 0 0 1 0 0 cm\n 1 g /OC /Shown BDC 5 5 m EMC')
   })
 
   it('removes a hidden section left open to the end, and only /OC sections', () => {
-    expect(dec(cleanContent(enc('1 g /OC /Secret BDC 9 9 m'), hiddenNames('Secret')).bytes)).toBe(
-      '1 g ',
-    )
+    expect(
+      dec(
+        cleanContent(enc('1 g /OC /Secret BDC 0 g 9 9 m (SECRET) Tj'), hiddenNames('Secret')).bytes,
+      ),
+    ).toBe('1 g 0 g\n')
     const other = enc('/Artifact /Secret BDC 9 9 m EMC')
     expect(cleanContent(other, hiddenNames('Secret')).bytes).toBe(other)
+  })
+
+  it('takes the last two operands of BDC, as viewers do, and reads written-in dictionaries', () => {
+    const hidden = (props: Operand) =>
+      props instanceof Map
+        ? props.get('Type') !== undefined
+        : !Array.isArray(props) && 'name' in props && props.name === 'L2'
+    expect(dec(cleanContent(enc('0 /OC /L2 BDC (SECRET) Tj EMC'), hidden).bytes)).toBe('')
+    expect(
+      dec(
+        cleanContent(enc('/OC <</Type /OCMD /OCGs 5 0 R>> BDC (SECRET) Tj EMC 1 g'), hidden).bytes,
+      ),
+    ).toBe(' 1 g')
+  })
+
+  it('keeps text-line moves from removed text, so later lines stay put', () => {
+    const out = cleanContent(enc('BT /OC /L BDC (a) \' 1 2 (b) " EMC (c) Tj ET'), hiddenNames('L'))
+    expect(dec(out.bytes)).toBe('BT T*\n1 Tw 2 Tc T*\n (c) Tj ET')
+  })
+
+  it('does not lose its place on "ID" run into the data, or an unfinished image', () => {
+    const run = enc('BI /W 1 /H 1 /F /AHx ID00> EI /OC /L BDC (SECRET) Tj EMC')
+    expect(dec(cleanContent(run, hiddenNames('L')).bytes)).toBe('BI /W 1 /H 1 /F /AHx ID00> EI ')
+    expect(dec(cleanContent(enc('0 g BI /W 1 /H 1 /F'), () => false).bytes)).toBe('0 g ')
+    expect(dec(cleanContent(enc('0 g (unterminated SECRET'), () => false).bytes)).toBe('0 g ')
+  })
+
+  it('reads an inline image’s filter as a key, not a value', () => {
+    const content = concat([
+      enc('BI /W 240 /H 160 /CS /F /BPC 8 /F /DCT ID '),
+      tagged('VALUE-F-EXIF'),
+      enc(' EI'),
+    ])
+    expect(dec(cleanContent(content, () => false).bytes)).not.toContain('VALUE-F-EXIF')
   })
 
   it('counts the graphics states and sections the content leaves open', () => {
