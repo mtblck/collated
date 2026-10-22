@@ -2,6 +2,7 @@ import type { Compression } from '../core/compression'
 import type { DocState } from '../core/model'
 import type { OcrWord } from '../core/textLayer'
 import { assetStore } from '../import/assetStore'
+import { layeredImage } from './layered'
 import type { ExportRequest, ExportResponse } from './protocol'
 
 export type Progress = (done: number, total: number, attempt: number) => void
@@ -14,16 +15,38 @@ export interface Exported {
   fits: boolean
 }
 
+/** Drawn JPEGs for the PDF pages that hide something, by asset id (see layered.ts). */
+const drawLayered = async (state: DocState) => {
+  const drawn: Record<string, Uint8Array> = {}
+  const used = new Set(state.pages.map((p) => p.assetId))
+  for (const asset of Object.values(state.assets)) {
+    if (asset.format !== 'pdf' || !used.has(asset.id)) continue
+    const jpeg = await layeredImage(asset)
+    if (jpeg) drawn[asset.id] = jpeg
+  }
+  return drawn
+}
+
 const request = (
   state: DocState,
   password?: string,
   text?: Record<string, OcrWord[]>,
+  drawn: Record<string, Uint8Array> = {},
 ): ExportRequest => {
   const used = new Set(state.pages.map((p) => p.assetId))
   const assets = Object.fromEntries(Object.entries(state.assets).filter(([id]) => used.has(id)))
-  // Pages of one PDF share its bytes: send each file once.
-  const bytesIds = new Set(Object.values(assets).map((a) => a.bytesId))
-  const bytes = Object.fromEntries([...bytesIds].map((id) => [id, assetStore.get(id)]))
+  const rendered = Object.fromEntries(Object.keys(drawn).map((id) => [id, `drawn:${id}`]))
+  // Pages of one PDF share its bytes: send each file once, and not at all
+  // when every page of it goes as a drawing.
+  const bytesIds = new Set(
+    Object.values(assets)
+      .filter((a) => !(a.id in drawn))
+      .map((a) => a.bytesId),
+  )
+  const bytes = {
+    ...Object.fromEntries([...bytesIds].map((id) => [id, assetStore.get(id)])),
+    ...Object.fromEntries(Object.entries(drawn).map(([id, jpeg]) => [`drawn:${id}`, jpeg])),
+  }
   return {
     input: {
       settings: state.settings,
@@ -31,6 +54,7 @@ const request = (
       assets,
       ...(password ? { password } : {}),
       ...(text ? { text } : {}),
+      ...(Object.keys(rendered).length ? { rendered } : {}),
     },
     bytes,
   }
@@ -82,7 +106,15 @@ export const exportPdf = (
   onProgress?: Progress,
   options: { password?: string; text?: Record<string, OcrWord[]> } = {},
 ): Promise<Exported> => {
-  const message = request(state, options.password, options.text)
+  const hasPdf = state.pages.some((p) => state.assets[p.assetId]?.format === 'pdf')
+  // Without PDF pages there's nothing to draw first: post straight away.
+  if (!hasPdf) return send(request(state, options.password, options.text), onProgress)
+  return drawLayered(state).then((drawn) =>
+    send(request(state, options.password, options.text, drawn), onProgress),
+  )
+}
+
+const send = (message: ExportRequest, onProgress?: Progress): Promise<Exported> => {
   return new Promise((resolve, reject) => {
     const worker = takeWorker()
     let started = false

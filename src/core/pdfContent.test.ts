@@ -1,16 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { fixture } from '../../tests/helpers'
-import { cleanContent, concat, type Operand } from './pdfContent'
+import { cleanContent, concat, namesIn } from './pdfContent'
 
 const enc = (s: string) => new TextEncoder().encode(s)
 const dec = (b: Uint8Array) => new TextDecoder('latin1').decode(b)
-const hiddenNames =
-  (...names: string[]) =>
-  (props: Operand) =>
-    !(props instanceof Map) &&
-    !Array.isArray(props) &&
-    'name' in props &&
-    names.includes(props.name)
+const clean = (s: string | Uint8Array) =>
+  dec(cleanContent(typeof s === 'string' ? enc(s) : s).bytes)
 
 /** A JPEG with `tag` in an EXIF segment. */
 const tagged = (tag: string) => {
@@ -27,48 +22,44 @@ const tagged = (tag: string) => {
 }
 
 describe('cleanContent', () => {
-  it('removes hidden marked-content sections whole, nested ones included', () => {
-    const content = enc(
-      '0 g /OC /Secret BDC (EMC in a string) Tj /Span <</MCID 1>> BDC 1 0 0 1 0 0 cm EMC 9 9 m EMC 1 g /OC /Shown BDC 5 5 m EMC',
+  it('copies ordinary content byte for byte', () => {
+    const content = enc('q 1 0 0 1 0 0 cm /OC /L BDC (a \\) EI) Tj EMC <</MCID 1>> BDC EMC Q')
+    expect(cleanContent(content).bytes).toBe(content)
+  })
+
+  it('counts the graphics states and sections the content leaves open', () => {
+    expect(cleanContent(enc('q q (Q) Tj /P BMC /OC /A BDC q Q'))).toMatchObject({
+      openStates: 2,
+      openSections: 2,
+    })
+  })
+
+  it('leaves inline images that are not JPEGs alone, even with "EMC" or "EI" in their data', () => {
+    const content = enc('BI /W 2 /H 1 /BPC 8 /CS /G ID EMC\nEI\x01\x02 EI Q')
+    expect(cleanContent(content).bytes).toBe(content)
+    expect(cleanContent(content).openSections).toBe(0)
+  })
+
+  it('finds an inline image’s end as pdf.js does: "xEI" counts, "EI/" does not', () => {
+    expect(namesIn(enc('BI /W 1 /H 1 /BPC 8 /CS /G ID\nxEI Q /Im1 Do'))).toContain('Im1')
+    expect(namesIn(enc('BI /W 1 /H 1 /BPC 8 /CS /G ID \x00 EI/ junk\nEI\n/Im2 Do'))).toContain(
+      'Im2',
     )
-    const { bytes } = cleanContent(content, hiddenNames('Secret'))
-    // The drawing goes; the state change inside stays, so what follows looks the same.
-    expect(dec(bytes)).toBe('0 g 1 0 0 1 0 0 cm\n 1 g /OC /Shown BDC 5 5 m EMC')
   })
 
-  it('removes a hidden section left open to the end, and only /OC sections', () => {
-    expect(
-      dec(
-        cleanContent(enc('1 g /OC /Secret BDC 0 g 9 9 m (SECRET) Tj'), hiddenNames('Secret')).bytes,
-      ),
-    ).toBe('1 g 0 g\n')
-    const other = enc('/Artifact /Secret BDC 9 9 m EMC')
-    expect(cleanContent(other, hiddenNames('Secret')).bytes).toBe(other)
-  })
-
-  it('takes the last two operands of BDC, as viewers do, and reads written-in dictionaries', () => {
-    const hidden = (props: Operand) =>
-      props instanceof Map
-        ? props.get('Type') !== undefined
-        : !Array.isArray(props) && 'name' in props && props.name === 'L2'
-    expect(dec(cleanContent(enc('0 /OC /L2 BDC (SECRET) Tj EMC'), hidden).bytes)).toBe('')
-    expect(
-      dec(
-        cleanContent(enc('/OC <</Type /OCMD /OCGs 5 0 R>> BDC (SECRET) Tj EMC 1 g'), hidden).bytes,
-      ),
-    ).toBe(' 1 g')
-  })
-
-  it('keeps text-line moves from removed text, so later lines stay put', () => {
-    const out = cleanContent(enc('BT /OC /L BDC (a) \' 1 2 (b) " EMC (c) Tj ET'), hiddenNames('L'))
-    expect(dec(out.bytes)).toBe('BT T*\n1 Tw 2 Tc T*\n (c) Tj ET')
-  })
-
-  it('does not lose its place on "ID" run into the data, or an unfinished image', () => {
-    const run = enc('BI /W 1 /H 1 /F /AHx ID00> EI /OC /L BDC (SECRET) Tj EMC')
-    expect(dec(cleanContent(run, hiddenNames('L')).bytes)).toBe('BI /W 1 /H 1 /F /AHx ID00> EI ')
-    expect(dec(cleanContent(enc('0 g BI /W 1 /H 1 /F'), () => false).bytes)).toBe('0 g ')
-    expect(dec(cleanContent(enc('0 g (unterminated SECRET'), () => false).bytes)).toBe('0 g ')
+  it('strips inline JPEG metadata and anything stored after the image', () => {
+    const out = clean(
+      concat([
+        enc('q BI /W 240 /H 160 /CS /RGB /BPC 8 /F /DCT ID\r\n'),
+        tagged('FIRST-EXIF'),
+        tagged('APPENDED-SECRET'),
+        enc(' EI Q'),
+      ]),
+    )
+    expect(out).not.toContain('FIRST-EXIF')
+    expect(out).not.toContain('APPENDED-SECRET')
+    expect(out).toMatch(/^q BI .* ID\r\n\xff\xd8/s)
+    expect(out).toMatch(/\xff\xd9\nEI Q$/)
   })
 
   it('reads an inline image’s filter as a key, not a value', () => {
@@ -77,42 +68,29 @@ describe('cleanContent', () => {
       tagged('VALUE-F-EXIF'),
       enc(' EI'),
     ])
-    expect(dec(cleanContent(content, () => false).bytes)).not.toContain('VALUE-F-EXIF')
+    expect(clean(content)).not.toContain('VALUE-F-EXIF')
   })
 
-  it('counts the graphics states and sections the content leaves open', () => {
-    const result = cleanContent(enc('q q (Q) Tj /P BMC /OC /A BDC q Q'), () => false)
-    expect(result).toMatchObject({ openStates: 2, openSections: 2 })
-  })
-
-  it('leaves inline images that are not JPEGs alone, even with "EMC" in their data', () => {
-    const content = enc('/OC /Shown BDC BI /W 2 /H 1 /BPC 8 /CS /G ID \x45MC\n EI EMC')
-    const result = cleanContent(content, () => false)
-    expect(result.bytes).toBe(content)
-    expect(result.openSections).toBe(0)
-  })
-
-  it('strips inline JPEG metadata and anything stored after the image', () => {
-    const content = concat([
-      enc('q BI /W 240 /H 160 /CS /RGB /BPC 8 /F /DCT ID\r\n'),
-      tagged('FIRST-EXIF'),
-      tagged('APPENDED-SECRET'),
-      enc(' EI Q'),
-    ])
-    const out = dec(cleanContent(content, () => false).bytes)
-    expect(out).not.toContain('FIRST-EXIF')
-    expect(out).not.toContain('APPENDED-SECRET')
-    expect(out).toMatch(/^q BI .* ID\r\n\xff\xd8/s)
-    expect(out).toMatch(/\xff\xd9\nEI Q$/)
-  })
-
-  it('removes inline JPEGs it cannot clean: wrapped in another filter, escaped names, broken', () => {
+  it('removes inline JPEGs it cannot clean: wrapped in another filter, broken', () => {
     const hex = Array.from(tagged('HEX-EXIF'), (b) => b.toString(16).padStart(2, '0')).join('')
-    const wrapped = enc(`q BI /W 1 /H 1 /F [/AHx /DCT] ID ${hex}> EI Q`)
-    expect(dec(cleanContent(wrapped, () => false).bytes)).toBe('q  Q')
+    expect(clean(`q BI /W 1 /H 1 /F [/AHx /DCT] ID ${hex}> EI Q`)).toBe('q  Q')
     const escaped = concat([enc('BI /W 1 /H 1 /F /D#43T ID '), tagged('ESC-EXIF'), enc(' EI')])
-    expect(dec(cleanContent(escaped, () => false).bytes)).not.toContain('ESC-EXIF')
-    const broken = enc('BI /W 1 /H 1 /F /DCT ID notajpeg EXIF-HERE EI 0 g')
-    expect(dec(cleanContent(broken, () => false).bytes)).toBe(' 0 g')
+    expect(clean(escaped)).not.toContain('ESC-EXIF')
+    expect(clean('BI /W 1 /H 1 /F /DCT ID notajpeg EXIF-HERE EI 0 g')).toBe(' 0 g')
+  })
+
+  it('does not lose its place on "ID" run into the data, and drops what nothing draws', () => {
+    expect(clean('BI /W 1 /H 1 /F /AHx ID00> EI 0 g')).toBe('BI /W 1 /H 1 /F /AHx ID00> EI 0 g')
+    expect(clean('0 g BI /W 1 /H 1 /F')).toBe('0 g ')
+    expect(clean('0 g (unterminated SECRET')).toBe('0 g ')
+  })
+})
+
+describe('namesIn', () => {
+  it('ignores names inside strings and inline image data, but not inline images’ colour spaces', () => {
+    const names = namesIn(enc('(see p2/ImB) Tj BI /W 1 /H 1 /CS /CS0 ID /Fake EI'))
+    expect(names).not.toContain('ImB')
+    expect(names).not.toContain('Fake')
+    expect(names).toContain('CS0')
   })
 })

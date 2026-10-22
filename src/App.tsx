@@ -6,6 +6,7 @@ import type { Skew } from './core/deskew'
 import { skewOf } from './lib/skew'
 import { forgetPageWords, pageWords } from './lib/pageText'
 import { forgetPageThumbs } from './hooks/usePageThumb'
+import { forgetLayered } from './export/layered'
 import type { OcrWord } from './core/textLayer'
 import { layoutPage } from './core/geometry'
 import { formatBytes } from './core/units'
@@ -579,6 +580,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     assetStore.clear()
     forgetPageThumbs()
     forgetPageWords()
+    forgetLayered()
     setSelectedId(null)
     setPassword('')
     setLastExport(null)

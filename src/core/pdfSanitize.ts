@@ -16,7 +16,7 @@ import {
   type PDFObject,
 } from '@cantoo/pdf-lib'
 import { stripJp2Metadata, stripJpegMetadata } from './jpegClean'
-import { cleanContent, concat, namesIn, type Operand } from './pdfContent'
+import { cleanContent, concat, namesIn } from './pdfContent'
 
 /**
  * A copy of a source page that carries only what draws it: its content and
@@ -37,7 +37,7 @@ export const sanitizedPage = (doc: PDFDocument, page: PDFPage): PDFPage => {
   const contents = source.get(PDFName.of('Contents'))
   const scrub = scrubberFor(doc)
   const raw = contents ? decodeContents(context, contents) : new Uint8Array()
-  const content = cleanContent(raw, scrub.hiddenIn(resources))
+  const content = cleanContent(raw)
   const leaf = PDFPageLeaf.fromMapWithContext(new Map(), context, false)
   leaf.set(PDFName.of('Type'), PDFName.of('Page'))
   leaf.set(PDFName.of('MediaBox'), source.MediaBox())
@@ -45,7 +45,6 @@ export const sanitizedPage = (doc: PDFDocument, page: PDFPage): PDFPage => {
   if (crop) leaf.set(PDFName.of('CropBox'), crop)
   const rotate = source.Rotate()
   if (rotate) leaf.set(PDFName.of('Rotate'), rotate)
-  scrub.page = resources
   const pruned = resources ? scrub.prunedCopy(resources, content.bytes) : context.obj({})
   leaf.set(PDFName.of('Resources'), pruned)
 
@@ -53,7 +52,7 @@ export const sanitizedPage = (doc: PDFDocument, page: PDFPage): PDFPage => {
   // signatures, highlights, note icons (as pdf.js draws them for the
   // preview). Each annotation's own appearance is drawn into the page; the
   // annotations themselves (comment text, form data, actions) stay behind.
-  const shown = annotationAppearances(doc, source, scrub.visible)
+  const shown = annotationAppearances(doc, source)
   let overlay = ''
   if (shown.length) {
     let xobjects = pruned.lookupMaybe(PDFName.of('XObject'), PDFDict)
@@ -109,17 +108,13 @@ const NO_VIEW = 1 << 5
  * streams"): the form's bounding box, through its own matrix, mapped onto
  * the annotation's rectangle. Anything malformed is left out, not an error.
  */
-const annotationAppearances = (
-  doc: PDFDocument,
-  page: PDFPageLeaf,
-  visible: (oc: PDFObject | undefined) => boolean,
-) => {
+const annotationAppearances = (doc: PDFDocument, page: PDFPageLeaf) => {
   const { context } = doc
   const out: { ref: PDFRef; matrix: number[] }[] = []
   const annots = get(context, page, 'Annots', PDFArray)
   for (const entry of annots?.asArray() ?? []) {
     try {
-      const shown = appearanceOf(doc, page, context.lookup(entry), visible)
+      const shown = appearanceOf(doc, page, context.lookup(entry))
       if (shown) out.push(shown)
     } catch {
       // A damaged annotation draws nothing, as in most viewers.
@@ -128,12 +123,7 @@ const annotationAppearances = (
   return out
 }
 
-const appearanceOf = (
-  doc: PDFDocument,
-  page: PDFPageLeaf,
-  annot: PDFObject | undefined,
-  visible: (oc: PDFObject | undefined) => boolean,
-) => {
+const appearanceOf = (doc: PDFDocument, page: PDFPageLeaf, annot: PDFObject | undefined) => {
   const { context } = doc
   if (!(annot instanceof PDFDict) || annot instanceof PDFStream) return null
   const subtype = get(context, annot, 'Subtype', PDFName)?.decodeText()
@@ -141,8 +131,6 @@ const appearanceOf = (
   if (subtype === 'Popup' || subtype === 'Link') return null
   const flags = get(context, annot, 'F', PDFNumber)?.asNumber() ?? 0
   if (flags & (HIDDEN | NO_VIEW)) return null
-  // In a layer the source hides: not shown, so not drawn.
-  if (!visible(annot.get(PDFName.of('OC')))) return null
   const ap = get(context, annot, 'AP', PDFDict)
   let normal = ap?.get(PDFName.of('N'))
   // Checkboxes and the like: a dictionary of states, picked by /AS.
@@ -185,14 +173,20 @@ const appearanceOf = (
   const matrix = [sx, 0, 0, sy, left - minX * sx, bottom - minY * sy]
   if (!matrix.every((n) => Number.isFinite(n) && Math.abs(n) < 1e7)) return null
   // An appearance without resources of its own: viewers use the form's
-  // default resources (fonts for field text) or the page's.
-  if (!form.dict.has(PDFName.of('Resources'))) {
+  // default resources (fonts for field text) or the page's. It's drawn from
+  // a copy that names them, so the same appearance on another page (or
+  // drawn elsewhere) keeps its own.
+  if (!form.dict.has(PDFName.of('Resources')) && form instanceof PDFRawStream) {
     const dr =
       subtype === 'Widget'
         ? get(context, doc.catalog, 'AcroForm', PDFDict)?.get(PDFName.of('DR'))
         : undefined
     const fallback = dr ?? page.get(PDFName.of('Resources'))
-    if (fallback) form.dict.set(PDFName.of('Resources'), fallback)
+    if (fallback) {
+      const dict = form.dict.clone(context)
+      dict.set(PDFName.of('Resources'), fallback)
+      return { ref: context.register(PDFRawStream.of(dict, form.contents)), matrix }
+    }
   }
   return { ref: normal, matrix }
 }
@@ -276,59 +270,6 @@ const layerConfig = (src: PDFDocument) => {
   return (layer: PDFObject) => !off.has(layer) && (on.has(layer) || !baseOff)
 }
 
-/**
- * Whether content marked with optional-content object `oc` shows by
- * default: a layer (OCG) by the configuration, a membership dictionary
- * (OCMD) by its visibility expression or policy. Missing or unreadable
- * entries show, as the spec says.
- */
-const visibilityOf = (src: PDFDocument) => {
-  const { context } = src
-  const isOn = layerConfig(src)
-  const visible = (oc: PDFObject | undefined, depth = 0): boolean => {
-    if (!oc || depth > 8) return true
-    const value = context.lookup(oc)
-    if (!(value instanceof PDFDict) || value instanceof PDFStream) return true
-    const type = get(context, value, 'Type', PDFName)?.decodeText()
-    if (type === 'OCG') return oc instanceof PDFRef ? isOn(oc) : true
-    if (type !== 'OCMD') return true
-    const expression = get(context, value, 'VE', PDFArray)
-    if (expression) return evaluate(expression, depth)
-    const listed = value.get(PDFName.of('OCGs'))
-    const resolved = listed ? context.lookup(listed) : undefined
-    const groups =
-      resolved instanceof PDFArray ? resolved.asArray() : listed instanceof PDFRef ? [listed] : []
-    const states = groups
-      .filter((g) => context.lookup(g) instanceof PDFDict)
-      .map((g) => visible(g, depth + 1))
-    if (!states.length) return true
-    switch (get(context, value, 'P', PDFName)?.decodeText()) {
-      case 'AllOn':
-        return states.every(Boolean)
-      case 'AnyOff':
-        return states.some((on) => !on)
-      case 'AllOff':
-        return states.every((on) => !on)
-      default:
-        return states.some(Boolean)
-    }
-  }
-  const evaluate = (expression: PDFArray, depth: number): boolean => {
-    if (depth > 8) return true
-    const [op, ...args] = expression.asArray()
-    const values = args.map((arg) => {
-      const resolved = context.lookup(arg)
-      return resolved instanceof PDFArray ? evaluate(resolved, depth + 1) : visible(arg, depth + 1)
-    })
-    const name = op instanceof PDFName ? op.decodeText() : ''
-    if (name === 'Not') return !(values[0] ?? false)
-    if (name === 'And') return values.every(Boolean)
-    if (name === 'Or') return values.some(Boolean)
-    return true
-  }
-  return (oc: PDFObject | undefined) => visible(oc)
-}
-
 /** Lists the layers in `out`'s catalog, hidden where the source hides them. */
 const addLayers = (out: PDFDocument, src: PDFDocument, layers: { from: PDFRef; to: PDFRef }[]) => {
   const isOn = layerConfig(src)
@@ -399,7 +340,7 @@ const scrubbers = new WeakMap<PDFDocument, Scrubber>()
 const scrubberFor = (doc: PDFDocument) => {
   let scrubber = scrubbers.get(doc)
   if (!scrubber) {
-    scrubber = new Scrubber(doc.context, visibilityOf(doc))
+    scrubber = new Scrubber(doc.context)
     scrubbers.set(doc, scrubber)
   }
   return scrubber
@@ -410,74 +351,35 @@ const scrubberFor = (doc: PDFDocument) => {
  * appears (forms, tiling patterns, Type 3 fonts, soft-mask groups, anything)
  * it is replaced with a copy holding only what that object's own content
  * names, so a shared dictionary can't carry the rest of the file along.
- * Content streams lose what hidden layers draw and inline JPEGs' metadata;
- * images lose theirs. Only content and images are decoded: fonts, colour
- * profiles and the like are copied as they are.
+ * Content streams lose inline JPEGs' metadata; images lose theirs. Only
+ * content and images are decoded: fonts, colour profiles and the like are
+ * copied as they are.
  */
 class Scrubber {
   private readonly seen = new Set<PDFRef>()
   private readonly cleaned = new Map<PDFStream, { bytes: Uint8Array; changed: boolean }>()
-  /** The resources of the page being cleaned: forms without their own use them. */
-  page: PDFDict | undefined
 
-  constructor(
-    private readonly context: PDFContext,
-    readonly visible: (oc: PDFObject | undefined) => boolean,
-  ) {}
-
-  /**
-   * Whether `/OC <props> BDC` content is hidden: a name looked up in the
-   * Properties of `resources`, or a dictionary written in the content.
-   */
-  hiddenIn(resources: PDFDict | undefined) {
-    const properties = resources ? get(this.context, resources, 'Properties', PDFDict) : undefined
-    return (props: Operand) => {
-      if (props instanceof Map) return !this.visible(this.toObject(props))
-      if (Array.isArray(props) || !('name' in props)) return false
-      const entry = properties?.get(PDFName.of(props.name))
-      return entry !== undefined && !this.visible(entry)
-    }
-  }
-
-  /** An operand written in content, as the PDF object it stands for. */
-  private toObject(operand: Operand): PDFObject {
-    if (operand instanceof Map) {
-      const dict = this.context.obj({})
-      for (const [key, value] of operand) dict.set(PDFName.of(key), this.toObject(value))
-      return dict
-    }
-    if (Array.isArray(operand)) return this.context.obj(operand.map((o) => this.toObject(o)))
-    if ('name' in operand) return PDFName.of(operand.name)
-    if ('number' in operand) return PDFNumber.of(operand.number)
-    if ('ref' in operand) return PDFRef.of(operand.ref[0], operand.ref[1])
-    return PDFNull
-  }
+  constructor(private readonly context: PDFContext) {}
 
   /** A content stream's bytes as kept (see `cleanContent`), once per stream. */
-  private contentBytes(stream: PDFStream, resources: PDFDict | undefined) {
+  private contentBytes(stream: PDFStream) {
     let done = this.cleaned.get(stream)
     if (!done) {
       const decoded = decodeStream(stream)
-      const { bytes } = cleanContent(decoded, this.hiddenIn(resources))
+      const { bytes } = cleanContent(decoded)
       done = { bytes, changed: bytes !== decoded }
       this.cleaned.set(stream, done)
     }
     return done
   }
 
-  private resourcesOf(dict: PDFDict) {
-    return get(this.context, dict, 'Resources', PDFDict) ?? this.page
-  }
-
   /**
-   * A new resource dictionary holding only entries `content` names. A form,
-   * tiling pattern or Type 3 font without resources of its own uses these
-   * (the nearest enclosing ones), so it's given a copy that names them
-   * explicitly: what it shows can then be cleaned, and pruned, for exactly
-   * the resources it draws with, wherever else it's used.
+   * A new resource dictionary holding only entries `content` names, and the
+   * names used by what draws with these resources without its own.
    */
   prunedCopy(resources: PDFDict, content: Uint8Array): PDFDict {
     const used = namesIn(content)
+    this.inheritedNames(resources, used)
     const out = this.context.obj({})
     for (const [key, value] of resources.entries()) {
       const kind = key.decodeText()
@@ -490,45 +392,62 @@ class Scrubber {
       if (!dict) continue
       const kept = this.context.obj({})
       for (const [name, entry] of dict.entries()) {
-        if (used.has(name.decodeText())) kept.set(name, this.withResources(entry, resources))
+        if (used.has(name.decodeText())) kept.set(name, entry)
       }
       if (kept.keys().length) out.set(key, kept)
     }
     return out
   }
 
-  private readonly adopted = new Map<PDFRef, Map<PDFDict, PDFRef>>()
-
-  /** `entry`, or a copy of it that names `resources` if it draws with inherited ones. */
-  private withResources(entry: PDFObject, resources: PDFDict): PDFObject {
-    if (!(entry instanceof PDFRef)) return entry
-    const target = this.context.lookup(entry)
-    const dict =
-      target instanceof PDFStream ? target.dict : target instanceof PDFDict ? target : undefined
-    if (!dict || dict.has(PDFName.of('Resources'))) return entry
-    const inherits =
-      target instanceof PDFStream
-        ? isForm(target) || isTilingPattern(dict)
-        : isType3(this.context, dict)
-    if (!inherits) return entry
-    let copies = this.adopted.get(entry)
-    if (!copies) {
-      copies = new Map()
-      this.adopted.set(entry, copies)
+  /**
+   * Adds the names used by forms, tiling patterns, Type 3 glyphs and soft
+   * masks that have no resources of their own: viewers look those up in the
+   * enclosing resources (these), however deeply they nest. Over-including is
+   * safe; missing one blanks content.
+   */
+  private inheritedNames(resources: PDFDict, used: Set<string>) {
+    const visited = new Set<PDFObject>()
+    for (let grew = true; grew;) {
+      grew = false
+      for (const kind of ['XObject', 'Pattern', 'Font', 'ExtGState']) {
+        const dict = get(this.context, resources, kind, PDFDict)
+        for (const [name, entry] of dict?.entries() ?? []) {
+          if (!used.has(name.decodeText()) || visited.has(entry)) continue
+          visited.add(entry)
+          for (const content of this.inheritingContent(entry)) {
+            for (const n of namesIn(content)) {
+              if (!used.has(n)) {
+                used.add(n)
+                grew = true
+              }
+            }
+          }
+        }
+      }
     }
-    const known = copies.get(resources)
-    if (known) return known
-    const copyDict = dict.clone(this.context)
-    copyDict.set(PDFName.of('Resources'), resources)
-    const copy =
-      target instanceof PDFRawStream
-        ? PDFRawStream.of(copyDict, target.contents)
-        : target instanceof PDFStream
-          ? PDFRawStream.of(copyDict, target.getContents())
-          : copyDict
-    const ref = this.context.register(copy)
-    copies.set(resources, ref)
-    return ref
+  }
+
+  /** The content of `entry` that draws with its user's resources, if any. */
+  private inheritingContent(entry: PDFObject): Uint8Array[] {
+    const target = this.context.lookup(entry)
+    if (target instanceof PDFStream) {
+      const own = target.dict.has(PDFName.of('Resources'))
+      return !own && (isForm(target) || isTilingPattern(target.dict))
+        ? [this.contentBytes(target).bytes]
+        : []
+    }
+    if (!(target instanceof PDFDict) || target.has(PDFName.of('Resources'))) return []
+    if (isType3(this.context, target)) {
+      const procs = get(this.context, target, 'CharProcs', PDFDict)
+      return (procs?.entries() ?? []).flatMap(([, proc]) => {
+        const glyph = this.context.lookup(proc)
+        return glyph instanceof PDFStream ? [this.contentBytes(glyph).bytes] : []
+      })
+    }
+    // A graphics state whose soft mask draws a group without resources.
+    const mask = get(this.context, target, 'SMask', PDFDict)
+    const group = mask ? mask.get(PDFName.of('G')) : undefined
+    return group ? this.inheritingContent(group) : []
   }
 
   /** Cleans `object` and everything it reaches. */
@@ -551,17 +470,6 @@ class Scrubber {
     if (!dict) return
     for (const key of DROPPED_KEYS) dict.delete(PDFName.of(key))
 
-    // An image or form in a hidden layer: drawn as nothing.
-    if (
-      ref &&
-      stream &&
-      (isImage(dict) || isForm(stream)) &&
-      !this.visible(dict.get(PDFName.of('OC')))
-    ) {
-      this.context.assign(ref, emptyForm(this.context))
-      return
-    }
-
     if (ref && stream instanceof PDFRawStream && isImage(dict)) {
       const replaced = this.cleanImage(ref, stream)
       if (replaced) {
@@ -570,15 +478,15 @@ class Scrubber {
       }
     }
 
-    // Forms and tiling patterns are content: hidden layers and inline JPEGs
-    // come out of them like out of the page.
+    // Forms and tiling patterns are content: inline JPEGs come out of them
+    // like out of the page.
     if (ref && stream && (isForm(stream) || isTilingPattern(dict))) {
-      const { bytes, changed } = this.contentBytes(stream, this.resourcesOf(dict))
+      const { bytes, changed } = this.contentBytes(stream)
       if (changed) stream = this.replaceContent(ref, stream, bytes)
       dict = stream.dict
     }
 
-    // Type 3 glyphs are content too, with the font's resources.
+    // Type 3 glyphs are content too.
     const procs = isType3(this.context, dict)
       ? get(this.context, dict, 'CharProcs', PDFDict)
       : undefined
@@ -586,7 +494,7 @@ class Scrubber {
     for (const [, proc] of procs?.entries() ?? []) {
       const glyph = this.context.lookup(proc)
       if (!(glyph instanceof PDFStream) || !(proc instanceof PDFRef)) continue
-      const { bytes, changed } = this.contentBytes(glyph, this.resourcesOf(dict))
+      const { bytes, changed } = this.contentBytes(glyph)
       if (changed) this.replaceContent(proc, glyph, bytes)
       glyphs.push(bytes, new Uint8Array([0x0a]))
     }
@@ -596,7 +504,7 @@ class Scrubber {
     const own = get(this.context, dict, 'Resources', PDFDict)
     if (own) {
       const content = stream
-        ? this.contentBytes(stream, own).bytes
+        ? this.contentBytes(stream).bytes
         : procs
           ? concat(glyphs)
           : new Uint8Array()
@@ -630,7 +538,7 @@ class Scrubber {
     const resolved = filter ? this.context.lookup(filter) : undefined
     const filters = resolved instanceof PDFArray ? resolved.asArray() : resolved ? [resolved] : []
     const names = filters.map((f) => (f instanceof PDFName ? f.decodeText() : ''))
-    const codec = names.find((n) => n in CODECS)
+    const codec = names.find((n) => Object.hasOwn(CODECS, n))
     if (!codec) return undefined
     const strip = CODECS[codec as keyof typeof CODECS]
     try {

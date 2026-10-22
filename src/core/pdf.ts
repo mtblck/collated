@@ -44,6 +44,11 @@ export interface BuildInput {
   password?: string
   /** Recognised words per page id, written as an invisible, searchable text layer. */
   text?: Record<string, OcrWord[]>
+  /**
+   * PDF pages to export as drawn (a JPEG of the page as the preview shows
+   * it, by bytes id) instead of as vectors: ones that hide a layer.
+   */
+  rendered?: Record<string, string>
   assets: Record<
     string,
     Pick<Asset, 'id' | 'width' | 'height' | 'format' | 'storedTurns' | 'bytesId' | 'pdfPage'>
@@ -301,7 +306,12 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     const cached = embedded.get(key)
     if (cached) return cached
     let content: Embedded
-    if (asset.format === 'pdf') {
+    const drawing = asset.format === 'pdf' ? input.rendered?.[asset.id] : undefined
+    if (drawing) {
+      // Drawn upright, as displayed: no turns left to apply.
+      const image = await doc.embedJpg(stripJpegMetadata(await options.getBytes(drawing)))
+      content = { kind: 'image', image, turns: 0, cropped: false }
+    } else if (asset.format === 'pdf') {
       const src = await source(asset.bytesId)
       const srcPage = sanitizedPage(src, src.getPage(asset.pdfPage ?? 0))
       content = {

@@ -304,73 +304,6 @@ describe.skipIf(!hasQpdf)('what a PDF page shows comes with it', () => {
     expect(out.at(150, 264 - 40)).toBeGreaterThan(200)
   })
 
-  it('leaves out what hidden layers draw: marked content, images, forms, annotations', async () => {
-    const doc = await PDFDocument.create()
-    const p = doc.addPage([612, 792])
-    const { context } = doc
-    const layer = (name: string) =>
-      context.register(context.obj({ Type: 'OCG', Name: PDFString.of(name) }))
-    const shown = layer('Shown')
-    const hiddenLayer = layer('Hidden')
-    // A membership dictionary hidden because its only layer is.
-    const membership = context.register(context.obj({ Type: 'OCMD', OCGs: [hiddenLayer] }))
-    doc.catalog.set(
-      PDFName.of('OCProperties'),
-      context.obj({ OCGs: [shown, hiddenLayer], D: { OFF: [hiddenLayer] } }),
-    )
-    const secretImage = await doc.embedJpg(taggedJpeg('HIDDEN-LAYER-IMAGE'))
-    await secretImage.embed()
-    const hiddenForm = context.register(
-      context.stream('BT /F1 12 Tf (HIDDEN-FORM-TEXT) Tj ET', {
-        Type: 'XObject',
-        Subtype: 'Form',
-        BBox: [0, 0, 100, 100],
-        OC: hiddenLayer,
-      }),
-    )
-    const box = context.register(
-      context.stream('0 g 0 0 100 100 re f', {
-        Type: 'XObject',
-        Subtype: 'Form',
-        BBox: [0, 0, 100, 100],
-      }),
-    )
-    p.node.set(
-      PDFName.of('Resources'),
-      context.obj({
-        Properties: { L1: shown, L2: hiddenLayer, M: membership },
-        XObject: { Secret: secretImage.ref, Fm: hiddenForm },
-      }),
-    )
-    p.node.set(
-      PDFName.of('Contents'),
-      context.register(
-        context.stream(
-          '/OC /L1 BDC 0 g 72 72 100 100 re f EMC /OC /L2 BDC q 100 0 0 100 300 300 cm /Secret Do Q EMC ' +
-            '/OC /M BDC (HIDDEN-MARKED-TEXT) Tj EMC /Fm Do',
-        ),
-      ),
-    )
-    const stamp = context.register(
-      context.obj({
-        Type: 'Annot',
-        Subtype: 'Stamp',
-        Rect: [400, 72, 500, 172],
-        OC: hiddenLayer,
-        AP: { N: box },
-      }),
-    )
-    p.node.set(PDFName.of('Annots'), context.obj([stamp]))
-    const { pdf, text } = await exported(await doc.save(), 0)
-    for (const secret of ['HIDDEN-LAYER-IMAGE', 'HIDDEN-FORM-TEXT', 'HIDDEN-MARKED-TEXT']) {
-      expect(text).not.toContain(secret)
-    }
-    expect(text).not.toMatch(/\/Subtype \/Image/)
-    const out = greys(pdf)
-    expect(out.at(40, 264 - 40)).toBeLessThan(60) // the shown layer
-    expect(out.at(150, 264 - 40)).toBeGreaterThan(200) // the hidden stamp
-  })
-
   it('skips damaged annotations instead of failing the export', async () => {
     const variants: ((d: PDFDocument) => PDFObject)[] = [
       (d) => d.context.obj([PDFNumber.of(5)]),
@@ -523,18 +456,21 @@ describe.skipIf(!hasQpdf)('what a PDF page shows comes with it', () => {
     expect(greys(pdf).at(30, 264 - 30)).toBeLessThan(250) // the image still draws
   })
 
-  it('cleans a form without resources by the ones it inherits, wherever it is used', async () => {
+  it('keeps what forms without resources draw from their parent’s, nested or shared', async () => {
     const doc = await PDFDocument.create()
     const { context } = doc
-    const layer = (name: string) =>
-      context.register(context.obj({ Type: 'OCG', Name: PDFString.of(name) }))
-    const shown = layer('Shown')
-    const hiddenLayer = layer('Hidden')
-    doc.catalog.set(
-      PDFName.of('OCProperties'),
-      context.obj({ OCGs: [shown, hiddenLayer], D: { OFF: [hiddenLayer] } }),
-    )
-    const form = (content: string, extra: Record<string, unknown> = {}) =>
+    const square = (grey: number) =>
+      context.register(
+        context.stream(`${String(grey)} g 0 0 100 100 re f`, {
+          Type: 'XObject',
+          Subtype: 'Form',
+          BBox: [0, 0, 100, 100],
+        }),
+      )
+    const form = (
+      content: string,
+      extra: Record<string, PDFObject | Record<string, PDFObject>> = {},
+    ) =>
       context.register(
         context.stream(content, {
           Type: 'XObject',
@@ -543,41 +479,100 @@ describe.skipIf(!hasQpdf)('what a PDF page shows comes with it', () => {
           ...extra,
         }),
       )
-    // Nested: the inner form inherits the outer form's Properties, not the page's.
-    const inner = form('/OC /L2 BDC BT /F1 12 Tf (NESTED-SECRET) Tj ET EMC')
+    // Nested: the inner form draws /Sq from the outer form's resources.
+    const inner = form('q 1 0 0 1 72 72 cm /Sq Do Q')
     const outer = form('/In Do', {
-      Resources: { XObject: { In: inner }, Properties: { L2: hiddenLayer } },
+      Resources: context.obj({ XObject: { In: inner, Sq: square(0) } }),
     })
-    // Shared: one form, a shown layer on one page and a hidden one on the other.
-    const shared = form('/OC /L BDC 0 g 72 72 100 100 re f EMC')
+    // A soft mask whose group has no resources: it draws /White from the form's.
+    const maskGroup = form('/White Do', {
+      Group: context.obj({ S: 'Transparency', CS: 'DeviceGray' }),
+    })
+    const masked = form('/GS gs 0 g 300 72 100 100 re f', {
+      Resources: context.obj({
+        ExtGState: { GS: { SMask: { S: 'Luminosity', G: maskGroup } } },
+        XObject: { White: square(1) },
+      }),
+    })
+    // Shared: one form without resources on two pages with different /Sq.
+    const shared = form('q 1 0 0 1 72 72 cm /Sq Do Q')
     const pageWith = (resources: Record<string, Record<string, PDFObject>>, content: string) => {
       const p = doc.addPage([612, 792])
       p.node.set(PDFName.of('Resources'), context.obj(resources))
       p.node.set(PDFName.of('Contents'), context.register(context.stream(content)))
     }
-    pageWith({ XObject: { Out: outer } }, '/Out Do')
-    pageWith({ XObject: { S: shared }, Properties: { L: shown } }, '/S Do')
-    pageWith({ XObject: { S: shared }, Properties: { L: hiddenLayer } }, '/S Do')
+    pageWith({ XObject: { Out: outer, M: masked } }, '/Out Do /M Do')
+    pageWith({ XObject: { S: shared, Sq: square(0) } }, '/S Do')
+    pageWith({ XObject: { S: shared, Sq: square(0.5) } }, '/S Do')
     const source = await doc.save()
-
-    expect((await exported(source, 0)).text).not.toContain('NESTED-SECRET')
-    // Hidden on page 3 first, then shown on page 2: page 2 still draws it.
-    const pages = [page('p3', 'a2'), page('p2', 'a1')]
-    const assets = {
-      a1: asset('a1', { bytesId: 'src', format: 'pdf', pdfPage: 1, width: 612, height: 792 }),
-      a2: asset('a2', { bytesId: 'src', format: 'pdf', pdfPage: 2, width: 612, height: 792 }),
-    }
+    const all = [0, 1, 2]
     const pdf = await buildPdf(
-      { settings: settings({ size: 'image', margin: 0 }), pages, assets },
+      {
+        settings: settings({ size: 'image', margin: 0 }),
+        pages: all.map((i) => page(`p${String(i)}`, `a${String(i)}`)),
+        assets: Object.fromEntries(
+          all.map((i) => [
+            `a${String(i)}`,
+            asset(`a${String(i)}`, {
+              bytesId: 'src',
+              format: 'pdf',
+              pdfPage: i,
+              width: 612,
+              height: 792,
+            }),
+          ]),
+        ),
+      },
       { getBytes: () => source },
     )
-    const second = execFileSync('pdftoppm', ['-r', '24', '-gray', '-f', '2', '-l', '2', '-'], {
-      input: Buffer.from(pdf),
-    })
-    const width = Number(second.subarray(0, 20).toString('latin1').split(/\s+/)[1])
-    const offset = second.indexOf('255\n', 0, 'latin1') + 4
-    expect(second[offset + (264 - 40) * width + 40]).toBeLessThan(60)
-    expect(greys(pdf).at(40, 264 - 40)).toBeGreaterThan(200) // page 3's copy, hidden
+    // The mask's white square (named only in the masked form's resources) is kept.
+    expect(qpdfText(pdf)).toContain('1 g 0 0 100 100 re f')
+    // Every page renders as its source does.
+    for (const i of all) {
+      const render = (bytes: Uint8Array) =>
+        execFileSync(
+          'pdftoppm',
+          ['-r', '24', '-gray', '-f', String(i + 1), '-l', String(i + 1), '-'],
+          {
+            input: Buffer.from(bytes),
+            stdio: ['pipe', 'pipe', 'ignore'],
+          },
+        )
+      expect(Buffer.compare(render(pdf), render(source)), `page ${String(i + 1)}`).toBe(0)
+    }
+  })
+
+  it('gives a shared appearance without resources each page’s own', async () => {
+    const doc = await PDFDocument.create()
+    const { context } = doc
+    const square = (grey: number) =>
+      context.register(
+        context.stream(`${String(grey)} g 0 0 1 1 re f`, {
+          Type: 'XObject',
+          Subtype: 'Form',
+          BBox: [0, 0, 1, 1],
+        }),
+      )
+    const ap = context.register(
+      context.stream('q 100 0 0 100 0 0 cm /Im Do Q', {
+        Type: 'XObject',
+        Subtype: 'Form',
+        BBox: [0, 0, 100, 100],
+      }),
+    )
+    for (const grey of [0.5, 0]) {
+      const p = doc.addPage([612, 792])
+      p.node.set(PDFName.of('Resources'), context.obj({ XObject: { Im: square(grey) } }))
+      const stamp = context.register(
+        context.obj({ Type: 'Annot', Subtype: 'Stamp', Rect: [72, 72, 172, 172], AP: { N: ap } }),
+      )
+      p.node.set(PDFName.of('Annots'), context.obj([stamp]))
+    }
+    const source = await doc.save()
+    // Page 1 first, then page 2: page 2 keeps its black.
+    for (const index of [0, 1]) await exported(source, index)
+    const { pdf } = await exported(source, 1)
+    expect(greys(pdf).at(40, 264 - 40)).toBeLessThan(30)
   })
 
   it('strips metadata boxes from JPEG 2000 images', async () => {
@@ -616,6 +611,28 @@ describe.skipIf(!hasQpdf)('what a PDF page shows comes with it', () => {
     const { text } = await exported(await doc.save(), 0)
     expect(text).not.toContain('JPX-GPS-SECRET')
     expect(text).toContain('/JPXDecode')
+  })
+
+  it('exports a page that hides a layer as the drawing it is given, and nothing of the source', async () => {
+    const doc = await PDFDocument.create()
+    const p = doc.addPage([612, 792])
+    const font = await doc.embedFont('Helvetica')
+    p.drawText('VECTOR-SECRET', { x: 72, y: 700, size: 12, font })
+    const source = await doc.save()
+    const pdf = await buildPdf(
+      {
+        settings: settings({ size: 'image', margin: 0 }),
+        pages: [page('p', 'src')],
+        assets: { src: asset('src', { format: 'pdf', pdfPage: 0, width: 612, height: 792 }) },
+        rendered: { src: 'drawn' },
+      },
+      { getBytes: (id) => (id === 'drawn' ? taggedJpeg('DRAWN-EXIF') : source) },
+    )
+    const text = qpdfText(pdf)
+    expect(text).not.toContain('VECTOR-SECRET')
+    expect(text).not.toContain('DRAWN-EXIF')
+    expect(text).toMatch(/\/Subtype \/Image/)
+    expect(textOf(pdf)).not.toContain('VECTOR-SECRET')
   })
 
   it('strips metadata from JPEGs written inline in a page or a form (#28)', async () => {

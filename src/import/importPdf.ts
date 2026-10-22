@@ -1,4 +1,4 @@
-import type { PDFPageProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { MAX_PDF_PAGES } from '../core/limits'
 import type { Asset, QuarterTurns } from '../core/model'
 import { assetStore } from './assetStore'
@@ -69,6 +69,75 @@ export const renderPdfPage = async (bytes: Uint8Array, pageIndex: number, maxEdg
         else reject(new Error('The browser could not draw this PDF page.'))
       }, 'image/png')
     })
+  } finally {
+    void task.destroy()
+  }
+}
+
+/**
+ * Whether the preview hides anything on this page: content, an image, a
+ * form or an annotation in a layer that's off by default. pdf.js marks each
+ * of those in the page's operator list with the layer it belongs to, and
+ * the canvas skips what `isVisible` says is off, so this is exactly what the
+ * preview leaves out.
+ */
+const hidesContent = async (
+  pdfjs: Awaited<ReturnType<typeof loadPdfJs>>,
+  pdf: PDFDocumentProxy,
+  page: PDFPageProxy,
+) => {
+  const config = await pdf.getOptionalContentConfig()
+  const { fnArray, argsArray } = await page.getOperatorList()
+  return fnArray.some((fn, i) => {
+    if (fn !== pdfjs.OPS.beginMarkedContentProps) return false
+    const args = (argsArray[i] ?? []) as unknown[]
+    return args[0] === 'OC' && !config.isVisible(args[1])
+  })
+}
+
+/** Long edge of a page drawn for export: about 300 dpi for Letter, within Safari's canvas limit. */
+export const LAYERED_EDGE = 4096
+
+/**
+ * A page that hides something, drawn as the preview shows it (a JPEG, long
+ * edge `maxEdge`), so what's hidden can't reach the exported file; null if
+ * it hides nothing and can be exported as it is. `hidden` alone answers
+ * without drawing.
+ */
+export const layeredPage = async (
+  bytes: Uint8Array,
+  pageIndex: number,
+  { maxEdge = LAYERED_EDGE, draw = true }: { maxEdge?: number; draw?: boolean } = {},
+): Promise<{ hidden: boolean; jpeg: Uint8Array | null }> => {
+  const pdfjs = await loadPdfJs()
+  const task = pdfjs.getDocument({
+    data: bytes.slice(),
+    verbosity: pdfjs.VerbosityLevel.ERRORS,
+    useSystemFonts: true,
+  })
+  const pdf = await task.promise
+  try {
+    const page = await pdf.getPage(pageIndex + 1)
+    if (!(await hidesContent(pdfjs, pdf, page))) return { hidden: false, jpeg: null }
+    if (!draw) return { hidden: true, jpeg: null }
+    const upright = page.getViewport({ scale: 1 })
+    const size = fit(upright.width * 5, upright.height * 5, maxEdge)
+    const viewport = page.getViewport({ scale: size.width / upright.width })
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(viewport.width)
+    canvas.height = Math.round(viewport.height)
+    await page.render({ canvas, viewport, background: '#ffffff' }).promise
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (b) => {
+          if (b) resolve(b)
+          else reject(new Error('The browser could not draw this PDF page.'))
+        },
+        'image/jpeg',
+        0.92,
+      )
+    })
+    return { hidden: true, jpeg: new Uint8Array(await blob.arrayBuffer()) }
   } finally {
     void task.destroy()
   }

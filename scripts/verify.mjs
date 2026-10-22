@@ -1773,6 +1773,58 @@ await context.close()
   await ctx.close()
 }
 
+// 20. A PDF page that hides a layer goes as the preview draws it. -----------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles(
+    '[data-testid="file-input"]',
+    ['quad-layers.pdf', 'quad-3pages.pdf'].map((f) => join(fixtures, f)),
+  )
+  await p.waitForSelector('ol[aria-label="4 pages"]', { timeout: 20_000 })
+  const [dl] = await Promise.all([
+    p.waitForEvent('download'),
+    p.getByRole('button', { name: /Export PDF/ }).click(),
+  ])
+  const outPath = join(mkdtempSync(join(tmpdir(), 'collated-verify-layers-')), 'layers.pdf')
+  await dl.saveAs(outPath)
+  const raw = readFileSync(outPath).toString('latin1')
+  const images = raw.match(/\/Subtype\s*\/Image/g) ?? []
+  check(
+    images.length === 1,
+    'only the page that hides a layer is drawn; the others stay vector',
+    `${images.length} images`,
+  )
+  if (hasPoppler) {
+    const text = execFileSync('pdftotext', [outPath, '-']).toString()
+    check(!text.includes('HIDDEN-LAYER-TEXT'), 'the hidden layer’s text is not in the export')
+    const prefix = outPath.replace(/\.pdf$/, '')
+    execFileSync('pdftoppm', [
+      '-png',
+      '-r',
+      '72',
+      '-f',
+      '1',
+      '-l',
+      '1',
+      '-singlefile',
+      outPath,
+      prefix,
+    ])
+    await p.getByRole('button', { name: /^Page 1: quad-layers\.pdf/ }).click()
+    const sheet = p.locator('aside[aria-label="Selected page"] .sheet').first()
+    const diff = await compareImages(
+      readFileSync(`${prefix}.png`).toString('base64'),
+      (await sheet.screenshot(sheetShot)).toString('base64'),
+    )
+    check(
+      diff.farShare < 0.03,
+      `the drawn page matches its preview (${(diff.farShare * 100).toFixed(2)}% of pixels differ)`,
+    )
+  }
+  await ctx.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()

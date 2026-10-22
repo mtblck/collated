@@ -18,7 +18,7 @@ interface Token {
 }
 
 /** An operand: what the tokens before an operator stand for. */
-export type Operand =
+type Operand =
   | { name: string }
   | { number: number }
   | { ref: [number, number] }
@@ -57,13 +57,26 @@ const indexOf = (b: Uint8Array, bytes: number[], from: number) => {
 }
 
 /**
- * The first "EI" at or after `from` that stands as a token: whitespace
- * before it (or nothing, right where encoded data ended), a delimiter after.
+ * Where an inline image's data ends when its encoding doesn't say: the first
+ * "EI" followed by whitespace and then by what looks like content (text, not
+ * binary), as pdf.js (the preview) decides. Null if there's none.
  */
-const findEI = (b: Uint8Array, from: number, adjacent: boolean) => {
+const findEI = (b: Uint8Array, from: number) => {
   for (let i = from; i < b.length - 1; i++) {
-    const before = (adjacent && i === from) || isWhite(b[i - 1])
-    if (b[i] === 0x45 && b[i + 1] === 0x49 && before && !isRegular(b[i + 2])) return i
+    if (b[i] !== 0x45 || b[i + 1] !== 0x49) continue
+    const after = b[i + 2]
+    if (after === undefined) return i
+    if (after !== 0x20 && after !== 0x0a && after !== 0x0d) continue
+    let text = true
+    for (let j = i + 3; j < Math.min(b.length, i + 18); j++) {
+      const c = b[j] ?? 0
+      if (c === 0 && b[j + 1] !== 0) continue
+      if (c !== 0x0a && c !== 0x0d && (c < 0x20 || c > 0x7f)) {
+        text = false
+        break
+      }
+    }
+    if (text) return i
   }
   return -1
 }
@@ -85,7 +98,7 @@ const isInteger = (t: Token | undefined) => t?.kind === 'number' && /^\d+$/.test
  * read as a reference (as pdf.js's parser does). Unbalanced brackets end
  * the group where the tokens do.
  */
-export const parseOperands = (tokens: Token[]): Operand[] => {
+const parseOperands = (tokens: Token[]): Operand[] => {
   let i = 0
   const value = (): Operand | undefined => {
     const t = tokens[i++]
@@ -185,7 +198,7 @@ const readInline = (b: Uint8Array, tokens: Token[], start: number, idEnd: number
     const tilde = indexOf(b, [0x7e, 0x3e], dataStart)
     encodedEnd = tilde < 0 ? null : tilde + 2
   }
-  const ei = findEI(b, encodedEnd ?? dataStart, encodedEnd !== null)
+  const ei = findEI(b, encodedEnd ?? dataStart)
   return {
     start,
     end: ei < 0 ? b.length : ei + 2,
@@ -302,17 +315,6 @@ export const namesIn = (content: Uint8Array) => {
   return names
 }
 
-/**
- * Operators that change the graphics or text state without drawing (PDF
- * 32000-1, tables 51, 74, 105, 108). In hidden content a viewer still
- * applies these, so they're kept when the drawing is removed.
- */
-const STATE = new Set([
-  ...['q', 'Q', 'cm', 'w', 'J', 'j', 'M', 'd', 'ri', 'i', 'gs'],
-  ...['CS', 'cs', 'SC', 'SCN', 'sc', 'scn', 'G', 'g', 'RG', 'rg', 'K', 'k'],
-  ...['BT', 'ET', 'Tc', 'Tw', 'Tz', 'TL', 'Tf', 'Tr', 'Ts', 'Td', 'TD', 'Tm', 'T*'],
-])
-
 export interface CleanedContent {
   bytes: Uint8Array
   /** Graphics states (q) and marked-content sections the content leaves open. */
@@ -321,30 +323,19 @@ export interface CleanedContent {
 }
 
 /**
- * The content without what a viewer wouldn't show or what carries metadata:
- * - marked-content sections in a hidden layer (`/OC <props> BDC … EMC`,
- *   where `hidden(props)` says so): their drawing is removed and only their
- *   state changes kept, so what follows draws as before;
+ * The content without metadata or what no viewer draws:
  * - inline JPEGs lose their metadata, and anything stored after the image;
  *   one wrapped in another encoding, or broken, is removed (it can't be
  *   cleaned without decoding it);
- * - anything after the last operator, or an unfinished inline image, which
- *   no viewer draws.
- * Everything else is copied byte for byte.
+ * - anything after the last operator, or an unfinished inline image.
+ * Everything else is copied byte for byte. (Hidden layers aren't handled
+ * here: a page that hides anything is exported as the preview draws it.)
  */
-export const cleanContent = (
-  content: Uint8Array,
-  hidden: (props: Operand) => boolean,
-): CleanedContent => {
+export const cleanContent = (content: Uint8Array): CleanedContent => {
   const parts: Uint8Array[] = []
   let from = 0
   let changed = false as boolean // set inside `cut`
-  // Start of the current operator's operands, and their tokens.
   let operandsStart = -1
-  let operands: Token[] = []
-  let skipDepth = 0 // > 0: inside a hidden section, this many levels deep
-  let skipFrom = 0
-  let kept: Uint8Array[] = [] // state changes from the hidden section
   let sections = 0
   let states = 0
 
@@ -354,18 +345,16 @@ export const cleanContent = (
     from = end
     changed = true
   }
-  const space = new Uint8Array([0x0a])
 
   for (const item of items(content)) {
     if ('unterminated' in item) {
-      if (skipDepth === 0) cut(item.unterminated, content.length)
+      cut(item.unterminated, content.length)
       continue
     }
     if ('inline' in item) {
       const image = item.inline
       operandsStart = -1
-      operands = []
-      if (skipDepth > 0 || !image.filters.includes('DCTDecode')) continue
+      if (!image.filters.includes('DCTDecode')) continue
       const jpeg = content.subarray(image.dataStart, image.dataEnd)
       const plain = image.filters.length === 1 && jpegEnd(jpeg, 0) === jpeg.length
       if (!plain) {
@@ -381,68 +370,24 @@ export const cleanContent = (
       continue
     }
     const { token } = item
-    // "n g R" is a reference among the operands, not an operator.
-    if (
-      token.kind === 'operator' &&
-      token.text === 'R' &&
-      isInteger(operands.at(-1)) &&
-      isInteger(operands.at(-2))
-    ) {
-      operands.push(token)
-      continue
-    }
     if (token.kind !== 'operator') {
       if (operandsStart < 0) operandsStart = token.start
-      operands.push(token)
       continue
     }
     const op = token.text
-    const opStart = operandsStart < 0 ? token.start : operandsStart
-    if (skipDepth > 0) {
-      if (op === 'BDC' || op === 'BMC') skipDepth++
-      else if (op === 'EMC') {
-        if (--skipDepth === 0) {
-          cut(skipFrom, token.end, kept.length ? concat(kept) : undefined)
-          kept = []
-        }
-      } else if (STATE.has(op)) {
-        kept.push(content.subarray(opStart, token.end), space)
-        if (op === 'q') states++
-        else if (op === 'Q') states = Math.max(0, states - 1)
-      } else if (op === "'") kept.push(encode('T*\n'))
-      else if (op === '"') {
-        // aw ac string ": sets word and character spacing, then T*.
-        const [aw, ac] = operands
-        if (aw && ac) kept.push(encode(`${aw.text} Tw ${ac.text} Tc T*\n`))
-      }
-    } else if (op === 'BDC') {
-      // The last two operands, as viewers take them.
-      const values = parseOperands(operands)
-      const tag = values.at(-2)
-      const props = values.at(-1)
-      if (tag && props && isName(tag, 'OC') && hidden(props)) {
-        skipDepth = 1
-        skipFrom = opStart
-      } else sections++
-    } else if (op === 'BMC') sections++
+    if (op === 'BDC' || op === 'BMC') sections++
     else if (op === 'EMC') sections = Math.max(0, sections - 1)
     else if (op === 'q') states++
     else if (op === 'Q') states = Math.max(0, states - 1)
-    operandsStart = -1
-    operands = []
+    // "n g R" belongs to the operands; anything else ends them.
+    if (op !== 'R') operandsStart = -1
   }
-  // A hidden section left open runs to the end; so do operands with no operator.
-  if (skipDepth > 0) cut(skipFrom, content.length, kept.length ? concat(kept) : undefined)
-  else if (operandsStart >= 0) cut(operandsStart, content.length)
+  // Operands with no operator after them: nothing a viewer draws.
+  if (operandsStart >= 0) cut(operandsStart, content.length)
   if (!changed) return { bytes: content, openStates: states, openSections: sections }
   parts.push(content.subarray(from))
   return { bytes: concat(parts), openStates: states, openSections: sections }
 }
-
-const isName = (operand: Operand, name: string) =>
-  !(operand instanceof Map) && !Array.isArray(operand) && 'name' in operand && operand.name === name
-
-const encode = (text: string) => new TextEncoder().encode(text)
 
 export const concat = (parts: Uint8Array[]) => {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
