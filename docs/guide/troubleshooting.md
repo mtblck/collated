@@ -9,7 +9,7 @@ order: 8
 
 **A page prints soft.** The panel shows **Prints at** in dpi; under about 150 dpi it warns that it may look soft. Use a higher-resolution scan, or a smaller page size.
 
-**The file is too big.** In **Export options**, choose **Balanced** or **Small**, or set **Keep the file under**. B&W pages are compact for text.
+**The file is too big.** In the **Export** options, choose **Balanced** or **Small**, or set **Keep the file under**. B&W pages are compact for text.
 
 **Auto-straighten did nothing.** It needs lines of text to measure. For photos or drawings, use the **Straighten** slider.
 
