@@ -1,6 +1,6 @@
 /**
- * Guards the hosting config that serving under mattblack.space/tools/collated/
- * depends on. Each check is a shape that has broken a sibling tool before, and
+ * Guards the hosting config that serving Collated from its own origin
+ * (collatedpdf.com, from the root) depends on. Each check is a shape that has broken a sibling tool before, and
  * every one of them fails quietly in production: the page still loads, so the
  * config *looks* fine.
  *
@@ -10,8 +10,9 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
-const SLUG = 'collated'
-const BASE = `/tools/${SLUG}/`
+const BASE = '/'
+/** Where Collated used to live, under mattblack.space; links to it must keep working. */
+const OLD = '/tools/collated'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const read = (file) => readFileSync(join(root, file), 'utf8')
 // An alternative vercel.json can be passed for the mutation tests.
@@ -20,18 +21,10 @@ const config = JSON.parse(
 )
 const problems = []
 
-// 1. Files live at the same path on the tool's own domain and behind the
-//    portfolio proxy. Anything else and assets 404 through the rewrite.
+// 1. Built for the root of its own origin.
 const vite = read('vite.config.ts')
-if (
-  !vite.includes('const BASE = `/tools/${SLUG}/`') ||
-  !vite.includes("export const SLUG = 'collated'")
-) {
-  problems.push(`vite.config.ts must set base to ${BASE}.`)
-}
-if (!vite.includes('outDir: `dist/tools/${SLUG}`')) {
-  problems.push(`vite.config.ts must build to dist/tools/${SLUG} so paths match on both domains.`)
-}
+if (!vite.includes("const BASE = '/'")) problems.push(`vite.config.ts must set base to ${BASE}.`)
+if (!vite.includes("outDir: 'dist',")) problems.push('vite.config.ts must build to dist.')
 if (config.outputDirectory !== 'dist') problems.push('vercel.json outputDirectory must be "dist".')
 
 // 2. App fallback and trailing-slash redirect. The fallback serves the app
@@ -50,10 +43,18 @@ if (rewrites.some((r) => r !== fallback && r.destination === `${BASE}index.html`
     'Only the extensionless fallback may rewrite to index.html (missing files must 404).',
   )
 }
+// The old address keeps working: every path under it goes to the same path
+// here. Absolute, because mattblack.space proxies that path to this project:
+// a relative Location would land back on the portfolio.
+const ORIGIN = 'https://collatedpdf.com'
+const redirects = config.redirects ?? []
 if (
-  !(config.redirects ?? []).some((r) => r.source === `/tools/${SLUG}` && r.destination === BASE)
+  !redirects.some((r) => r.source === OLD && r.destination === `${ORIGIN}/` && r.permanent) ||
+  !redirects.some(
+    (r) => r.source === `${OLD}/:path*` && r.destination === `${ORIGIN}/:path*` && r.permanent,
+  )
 ) {
-  problems.push(`Missing redirect /tools/${SLUG} -> ${BASE}.`)
+  problems.push(`Missing permanent redirects ${OLD}(/:path*) -> ${ORIGIN}/(:path*).`)
 }
 // Docs pages are folders; a URL typed without the slash would otherwise get
 // the app from the fallback.

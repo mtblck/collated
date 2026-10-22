@@ -34,11 +34,11 @@ const dist = join(root, 'dist')
 const fixtures = join(root, 'tests', 'fixtures')
 const shots = join(root, process.env.SHOTS ?? 'shots')
 mkdirSync(shots, { recursive: true })
-const BASE = '/tools/collated/'
+const BASE = '/'
 const PORT = Number(process.env.VERIFY_PORT ?? 4175)
 const URL_ROOT = `http://localhost:${PORT}${BASE}`
 
-if (!existsSync(join(dist, 'tools', 'collated', 'index.html'))) {
+if (!existsSync(join(dist, 'index.html'))) {
   console.error('No build found. Run `npm run build` first.')
   process.exit(1)
 }
@@ -60,12 +60,13 @@ const types = {
 }
 const server = createServer((req, res) => {
   const path = decodeURIComponent((req.url ?? '/').split('?')[0])
-  if (path === '/tools/collated') {
-    res.writeHead(308, { Location: BASE }).end()
+  // As vercel.json: the old address under mattblack.space keeps working.
+  if (path === '/tools/collated' || path.startsWith('/tools/collated/')) {
+    res.writeHead(308, { Location: path.slice('/tools/collated'.length) || '/' }).end()
     return
   }
   // As vercel.json: docs URLs typed without their slash go to the page.
-  if (/^\/tools\/collated\/(docs|docs\/[^/.]+|privacy|terms)$/.test(path)) {
+  if (/^\/(docs|docs\/[^/.]+|privacy|terms)$/.test(path)) {
     res.writeHead(308, { Location: `${path}/` }).end()
     return
   }
@@ -78,7 +79,7 @@ const server = createServer((req, res) => {
   // A folder URL serves its index.html, as Vercel does (the docs pages).
   if (path.endsWith('/') && existsSync(join(file, 'index.html'))) file = join(file, 'index.html')
   if (!path.startsWith(BASE) || !existsSync(file) || !extname(file)) {
-    file = join(dist, 'tools', 'collated', 'index.html') // app fallback
+    file = join(dist, 'index.html') // app fallback
   }
   for (const h of headerBlock.headers) res.setHeader(h.key, h.value)
   res.setHeader('Content-Type', types[extname(file)] ?? 'application/octet-stream')
@@ -1467,7 +1468,7 @@ await context.close()
     const font = await p.locator('h1').evaluate((h) => getComputedStyle(h).fontFamily)
     check(font.includes('Instrument Serif'), `${path} is styled`, font)
     for (const href of await p
-      .locator('a[href^="/tools/collated/"]')
+      .locator('a[href^="/"]:not([href^="//"])')
       .evaluateAll((as) => as.map((a) => a.getAttribute('href'))))
       internal.add(href)
     await axe(p, path)
@@ -1501,8 +1502,7 @@ await context.close()
   await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
   const footer = p.locator('footer')
   check(
-    (await footer.getByRole('link', { name: 'Privacy' }).getAttribute('href')) ===
-      '/tools/collated/privacy/' &&
+    (await footer.getByRole('link', { name: 'Privacy' }).getAttribute('href')) === '/privacy/' &&
       (await footer.getByRole('link', { name: /Support Collated/ }).getAttribute('href')) ===
         'https://ko-fi.com/mtblck',
     'the landing footer links to privacy and support',

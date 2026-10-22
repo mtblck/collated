@@ -2,7 +2,7 @@
 
 Turn a stack of scanned pages or phone photos into one PDF. Drop the images in, drag them into order, rotate, straighten or scale any page, pick a paper size, and export.
 
-**Live:** [mattblack.space/tools/collated](https://mattblack.space/tools/collated/)
+**Live:** [collatedpdf.com](https://collatedpdf.com/)
 
 Everything happens in the browser. There is no server, no upload, no account and no tracking: the images never leave the device, and the PDF is assembled locally in a Web Worker.
 
@@ -24,9 +24,9 @@ Requires Node 22+.
 
 ```sh
 npm install
-npm run dev            # http://localhost:5173/tools/collated/
+npm run dev            # http://localhost:5173/
 npm run check          # prettier --check, eslint, tsc, vitest
-npm run build          # hosting:check, tsc, vite build → dist/tools/collated
+npm run build          # hosting:check, tsc, vite build → dist
 npm run verify         # real-browser E2E against the build (needs Playwright's Chromium)
 ```
 
@@ -96,7 +96,7 @@ tests/         fixtures (with the script that generates them) and helpers
 
 ## Hosting
 
-Built to `dist/tools/collated` with Vite `base: '/tools/collated/'`, so files sit at the same path on the project's own Vercel domain and behind mattblack.space, which proxies `/tools/collated/(.*)` to it. The tool owns its security headers in `vercel.json`.
+Served from the root of its own origin, [collatedpdf.com](https://collatedpdf.com/) (Vercel project `collated`; `www` redirects to the apex). It used to live under mattblack.space, which it shared with other tools: on its own origin, a script-injection bug in any of them can't reach documents open here, and its storage is its own (#25). The old address, `mattblack.space/tools/collated/…`, redirects permanently to the same path here, from mb-portfolio and from this project's own `vercel.json`. The tool owns its security headers in `vercel.json`.
 
 ## Contributing
 

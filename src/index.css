@@ -4,7 +4,7 @@
 
 /* ---------------------------------------------------------------------------
    Type: the portfolio's three faces, self-hosted. Relative URLs so Vite hashes
-   them under /tools/collated/assets/. Latin subsets only — this is a UI, not
+   them under /assets/. Latin subsets only — this is a UI, not
    a document renderer. `optional` + metric-matched fallbacks: a slow font keeps
    the fallback for the page load instead of swapping under the reader.
    --------------------------------------------------------------------------- */

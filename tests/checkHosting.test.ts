@@ -20,7 +20,7 @@ interface Header {
 }
 interface Config {
   headers: { source: string; headers: Header[] }[]
-  redirects: { source: string; destination: string }[]
+  redirects: { source: string; destination: string; permanent?: boolean }[]
   rewrites: { source: string; destination: string }[]
 }
 const original = readFileSync(join(root, 'vercel.json'), 'utf8')
@@ -35,7 +35,7 @@ const run = (mutate?: (config: Config) => void) => {
 }
 
 const headers = (config: Config) => {
-  const block = config.headers.find((b) => b.source === '/tools/collated/(.*)')
+  const block = config.headers.find((b) => b.source === '/(.*)')
   if (!block) throw new Error('no header block')
   return block.headers
 }
@@ -124,9 +124,7 @@ describe('hosting:check', () => {
     [
       'the fallback catches missing files again',
       (config: Config) => {
-        config.rewrites = [
-          { source: '/tools/collated/(.*)', destination: '/tools/collated/index.html' },
-        ]
+        config.rewrites = [{ source: '/(.*)', destination: '/index.html' }]
       },
       'Missing rewrite',
     ],
@@ -134,11 +132,25 @@ describe('hosting:check', () => {
       'a second rewrite sends files to the app',
       (config: Config) => {
         config.rewrites.push({
-          source: '/tools/collated/assets/(.*)',
-          destination: '/tools/collated/index.html',
+          source: '/assets/(.*)',
+          destination: '/index.html',
         })
       },
       'missing files must 404',
+    ],
+    [
+      'the old mattblack.space address stops redirecting',
+      (config: Config) => {
+        config.redirects = config.redirects.filter((r) => !r.source.startsWith('/tools/collated'))
+      },
+      'Missing permanent redirects',
+    ],
+    [
+      'the old address redirects only temporarily',
+      (config: Config) => {
+        for (const r of config.redirects) if (r.source.startsWith('/tools/')) r.permanent = false
+      },
+      'Missing permanent redirects',
     ],
     [
       'docs URLs lose their slash redirect',
@@ -151,7 +163,7 @@ describe('hosting:check', () => {
       'a second block loosens the CSP',
       (config: Config) => {
         config.headers.push({
-          source: '/(.*)',
+          source: '/:path*',
           headers: [{ key: 'Content-Security-Policy', value: 'default-src *' }],
         })
       },
@@ -161,7 +173,7 @@ describe('hosting:check', () => {
       'the assets block adds CORS',
       (config: Config) => {
         config.headers
-          .find((b) => b.source === '/tools/collated/assets/(.*)')
+          .find((b) => b.source === '/assets/(.*)')
           ?.headers.push({ key: 'Access-Control-Allow-Origin', value: '*' })
       },
       'Access-Control-Allow-Origin',
