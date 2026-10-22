@@ -377,8 +377,8 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     const pdfPage = doc.addPage([layout.page.width, layout.page.height])
     const drawn = drawings.get(asset.id)
     const stored = drawn ?? asset
-    // A drawn page has no corners of its own (PDF pages can't be cropped).
-    const look = drawn ? { ...page, corners: null } : page
+    // A drawn page is shown as it is: PDF pages take no crop and no filter.
+    const look = drawn ? { ...page, corners: null, filter: 'original' as const } : page
     const visible = stored.format === 'pdf' ? null : visiblePart(layout)
     // Whole source pixels, unless corners resample anyway.
     const source = contentSize(stored, look)

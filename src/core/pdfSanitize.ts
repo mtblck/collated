@@ -147,6 +147,7 @@ const appearanceOf = (doc: PDFDocument, page: PDFPageLeaf, annot: PDFObject | un
   if (!(normal instanceof PDFRef)) return null
   const form = context.lookup(normal)
   if (!(form instanceof PDFStream) || !isForm(form)) return null
+  const oc = annot.get(PDFName.of('OC'))
   const rect = numbers(get(context, annot, 'Rect', PDFArray))
   const bbox = numbers(get(context, form.dict, 'BBox', PDFArray))
   const m = numbers(get(context, form.dict, 'Matrix', PDFArray))
@@ -178,21 +179,26 @@ const appearanceOf = (doc: PDFDocument, page: PDFPageLeaf, annot: PDFObject | un
   const matrix = [sx, 0, 0, sy, left - minX * sx, bottom - minY * sy]
   if (!matrix.every((n) => Number.isFinite(n) && Math.abs(n) < 1e7)) return null
   // An appearance without resources of its own: viewers use the form's
-  // default resources (fonts for field text) or the page's. It's drawn from
-  // a copy that names them, so the same appearance on another page (or
-  // drawn elsewhere) keeps its own.
-  if (!form.dict.has(PDFName.of('Resources')) && form instanceof PDFRawStream) {
-    const dr =
-      subtype === 'Widget'
-        ? get(context, doc.catalog, 'AcroForm', PDFDict)?.get(PDFName.of('DR'))
-        : undefined
-    const fallback = dr ?? page.Resources()
-    if (fallback) {
-      const dict = form.dict.clone(context)
-      dict.set(PDFName.of('Resources'), fallback)
-      return { ref: context.register(PDFRawStream.of(dict, form.contents)), matrix }
+  // default resources (fonts for field text) or the page's. And an
+  // annotation in a layer: its appearance carries the layer, so the check
+  // on what's copied (`reachesHiddenLayer`) sees it. Either way it's drawn
+  // from a copy, so the same appearance elsewhere keeps its own.
+  const needsResources = !form.dict.has(PDFName.of('Resources'))
+  if ((needsResources || oc) && form instanceof PDFRawStream) {
+    const dict = form.dict.clone(context)
+    if (oc) dict.set(PDFName.of('OC'), oc)
+    if (needsResources) {
+      const dr =
+        subtype === 'Widget'
+          ? get(context, doc.catalog, 'AcroForm', PDFDict)?.get(PDFName.of('DR'))
+          : undefined
+      const fallback = dr ?? page.Resources()
+      if (fallback) dict.set(PDFName.of('Resources'), fallback)
     }
+    return { ref: context.register(PDFRawStream.of(dict, form.contents)), matrix }
   }
+  // A stream pdf-lib made itself (not read from a file) can't be copied raw.
+  if (oc) return null
   return { ref: normal, matrix }
 }
 
@@ -272,7 +278,15 @@ const layerConfig = (src: PDFDocument) => {
   const baseOff = config
     ? get(context, config, 'BaseState', PDFName)?.decodeText() === 'OFF'
     : false
-  return (layer: PDFObject) => !off.has(layer) && (on.has(layer) || !baseOff)
+  // pdf.js also turns a layer off for display by its usage (View/ViewState).
+  const viewOff = (layer: PDFObject) => {
+    const dict = context.lookup(layer)
+    if (!(dict instanceof PDFDict)) return false
+    const usage = get(context, dict, 'Usage', PDFDict)
+    const view = usage ? get(context, usage, 'View', PDFDict) : undefined
+    return view ? get(context, view, 'ViewState', PDFName)?.decodeText() === 'OFF' : false
+  }
+  return (layer: PDFObject) => !off.has(layer) && (on.has(layer) || !baseOff) && !viewOff(layer)
 }
 
 /**
@@ -659,7 +673,7 @@ const isImage = (dict: PDFDict) =>
   dict.lookupMaybe(PDFName.of('Subtype'), PDFName)?.decodeText() === 'Image'
 
 const isTilingPattern = (dict: PDFDict) => {
-  const type = dict.get(PDFName.of('PatternType'))
+  const type = dict.lookup(PDFName.of('PatternType'))
   return type instanceof PDFNumber && type.asNumber() === 1
 }
 

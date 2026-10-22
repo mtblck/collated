@@ -379,6 +379,59 @@ describe.skipIf(!hasQpdf)('what a PDF page shows comes with it', () => {
         set(d, '/OC <</Type /OCMD /OCGs 5 0 R>> BDC 0 g 72 72 100 100 re f EMC', {})
       }),
     ).toBe('must draw')
+    // An annotation in a hidden layer.
+    expect(
+      await outcome((d, h) => {
+        set(d, '', {})
+        const box = d.context.register(
+          d.context.stream('0 g 0 0 9 9 re f', {
+            Type: 'XObject',
+            Subtype: 'Form',
+            BBox: [0, 0, 9, 9],
+          }),
+        )
+        const square = d.context.register(
+          d.context.obj({
+            Type: 'Annot',
+            Subtype: 'Square',
+            Rect: [72, 72, 172, 172],
+            OC: h,
+            AP: { N: box },
+          }),
+        )
+        d.getPage(0).node.set(PDFName.of('Annots'), d.context.obj([square]))
+      }),
+    ).toBe('must draw')
+    // A layer off by its usage for viewing, and a pattern whose type is a reference.
+    expect(
+      await outcome((d) => {
+        const viewOff = d.context.register(
+          d.context.obj({
+            Type: 'OCG',
+            Name: PDFString.of('V'),
+            Usage: { View: { ViewState: 'OFF' } },
+          }),
+        )
+        set(d, '/OC /V BDC 0 g 72 72 100 100 re f EMC', { Properties: { V: viewOff } })
+      }),
+    ).toBe('must draw')
+    expect(
+      await outcome((d) => {
+        const one = d.context.register(PDFNumber.of(1))
+        const pattern = d.context.register(
+          d.context.stream('/OC <</Type /OCMD>> BDC 0 0 5 5 re f EMC', {
+            Type: 'Pattern',
+            PatternType: one,
+            PaintType: 1,
+            TilingType: 1,
+            BBox: [0, 0, 10, 10],
+            XStep: 10,
+            YStep: 10,
+          }),
+        )
+        set(d, '/Pattern cs /P1 scn 0 0 100 100 re f', { Pattern: { P1: pattern } })
+      }),
+    ).toBe('must draw')
   })
 
   it('skips damaged annotations instead of failing the export', async () => {
@@ -747,6 +800,17 @@ describe.skipIf(!hasQpdf)('what a PDF page shows comes with it', () => {
     expect(text).not.toContain('DRAWN-EXIF')
     expect(text).toMatch(/\/Subtype \/Image/)
     expect(textOf(pdf)).not.toContain('VECTOR-SECRET')
+    // PDF pages take no filter, drawn or not (it would make this one B&W).
+    const filtered = await buildPdf(
+      {
+        settings: settings({ size: 'image', margin: 0 }),
+        pages: [{ ...page('p', 'src'), filter: 'bw' }],
+        assets: { src: asset('src', { format: 'pdf', pdfPage: 0, width: 612, height: 792 }) },
+        rendered: { src: 'drawn' },
+      },
+      { getBytes: (id) => (id === 'drawn' ? taggedJpeg('DRAWN-EXIF') : source) },
+    )
+    expect(qpdfText(filtered)).toMatch(/\/DCTDecode/)
   })
 
   it('strips metadata from JPEGs written inline in a page or a form (#28)', async () => {
