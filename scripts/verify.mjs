@@ -1914,9 +1914,13 @@ await context.close()
   check(padRight >= 24, `the page-size select leaves room for its arrow (${padRight}px)`)
   await p.screenshot({ path: join(shots, 'page-setup-select.png') })
   await p.keyboard.press('Escape')
-  await p.emulateMedia({ colorScheme: 'dark' })
-  await p.evaluate(() => {
+  // Switch without transitions: axe must see the settled colours, not a
+  // frame mid-fade (CI's slower runner caught one).
+  await p.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' })
+  await p.evaluate(async () => {
     document.documentElement.dataset.theme = 'dark'
+    await Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined)))
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
   })
   await axe(p, 'inspector actions, dark')
   await ctx.close()
