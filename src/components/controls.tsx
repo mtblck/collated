@@ -9,9 +9,11 @@ const VARIANTS: Record<Variant, string> = {
     'bg-ink text-paper hover:bg-ink/85 disabled:bg-ink/30 disabled:text-paper/80 aria-disabled:bg-ink/30 aria-disabled:text-paper/80 border border-transparent',
   secondary:
     'border border-rule bg-paper text-ink hover:border-ink-faint disabled:text-ink-faint disabled:hover:border-rule aria-disabled:text-ink-faint aria-disabled:hover:border-rule',
-  // Destructive actions: the accent behind paper-coloured text (AA in both themes).
+  // Destructive actions: the accent behind paper-coloured text, AA in both
+  // themes; hover mixes in ink (darker in light, lighter in dark), so the
+  // contrast only grows.
   danger:
-    'border border-transparent bg-accent text-paper hover:bg-accent/90 disabled:opacity-50 aria-disabled:opacity-50',
+    'border border-transparent bg-accent text-paper hover:bg-[color-mix(in_oklab,var(--c-accent),var(--c-ink)_14%)] disabled:opacity-50 aria-disabled:opacity-50',
   quiet:
     'border border-transparent text-ink-muted hover:text-ink hover:bg-ink/5 disabled:text-ink-faint/60 disabled:hover:bg-transparent aria-disabled:text-ink-faint/60 aria-disabled:hover:bg-transparent',
 }

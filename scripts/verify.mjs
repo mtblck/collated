@@ -1851,6 +1851,16 @@ await context.close()
     el.scrollTop = el.scrollHeight
   })
   check(await inView(), 'Export stays in view with the options scrolled to the end')
+  // The panel itself never scrolls, by wheel or touch: only the options do.
+  const panelScrolls = await dialog.evaluate((el) => el.scrollHeight > el.clientHeight + 1)
+  check(!panelScrolls, 'the export panel itself has nothing to scroll')
+  const box = await scroller.boundingBox()
+  if (box) await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  for (let i = 0; i < 5; i++) await p.mouse.wheel(0, 400)
+  check(
+    (await dialog.evaluate((el) => el.scrollTop)) === 0 && (await inView()),
+    'wheeling past the end of the options leaves Export in place',
+  )
   await p.screenshot({ path: join(shots, 'export-phone.png') })
   await axe(p, 'export options, phone')
   await p.keyboard.press('Escape')

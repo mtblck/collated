@@ -708,13 +708,12 @@ describe('App', () => {
       menu.focus()
       await user.click(exportButton())
       menu.focus()
-      expect(menu).toHaveAccessibleName(/^Building \d\/2…, options$/)
-      expect(menu).toHaveAttribute('aria-busy', 'true')
+      expect(menu).toHaveAccessibleName(/^Building \d\/2…/)
       // Still a working button, so focus on it isn't dropped.
       expect(menu).toBeEnabled()
       expect(menu).toHaveFocus()
-      // While it runs, Export can't start another.
-      expect(exportButton()).toBeDisabled()
+      // While it runs, Export can't start another (but stays reachable).
+      expect(exportButton()).toHaveAttribute('aria-disabled', 'true')
       await user.click(exportButton())
       expect(exportPdf).toHaveBeenCalledTimes(1)
       await act(async () => {
@@ -856,17 +855,18 @@ describe('App', () => {
 
     it('refuses a password longer than a PDF can hold, saying why', async () => {
       const exportPdf = vi.fn<AppDeps['exportPdf']>()
-      const { upload } = setup({ exportPdf })
+      const { user, upload } = setup({ exportPdf })
       await upload('a.jpg')
       const field = await screen.findByLabelText('Password to open')
       // 64 two-byte letters: 128 bytes, one over.
       fireEvent.change(field, { target: { value: 'é'.repeat(64) } })
       expect(field).toHaveAttribute('aria-invalid', 'true')
       expect(field).toHaveAccessibleDescription(/Too long: a PDF password can use at most 127/)
-      // Export waits until the password fits, and says why.
-      expect(exportButton()).toBeDisabled()
+      // Export says why it waits, and takes you to the field.
       expect(exportButton()).toHaveAccessibleDescription(/Too long/)
+      await user.click(exportButton())
       expect(exportPdf).not.toHaveBeenCalled()
+      expect(field).toHaveFocus()
       fireEvent.change(field, { target: { value: 'é'.repeat(63) } })
       expect(field).not.toHaveAttribute('aria-invalid')
     })

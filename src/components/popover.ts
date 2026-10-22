@@ -41,6 +41,12 @@ export const closeOwnPopover = (from: Element) => {
  * pinned near the top corner; on phones, a sheet along the bottom.
  */
 export const POPOVER_PANEL = 'm-0 overflow-y-auto border border-rule bg-paper text-ink shadow-xl'
+/**
+ * A panel that never scrolls itself, for one that scrolls part of its
+ * content and pins the rest (the export options' foot). It has no border:
+ * the inner frame carries it, so its height limit matches the panel's.
+ */
+export const POPOVER_FRAME = 'm-0 overflow-hidden bg-paper text-ink shadow-xl'
 
 /** The usual panel's width; with its padding (one of each: see controls.tsx on why). */
 export const POPOVER_WIDTH = 'w-[min(22rem,calc(100vw-1rem))]'

@@ -7,7 +7,7 @@ import { cx } from './cx'
 import type { ExportState } from './DocumentBar'
 import { DownloadIcon, LockIcon } from './Icons'
 import { NumberField } from './NumberField'
-import { POPOVER_PANEL, POPOVER_WIDTH, closeOwnPopover, useCloseOnFocusOut } from './popover'
+import { POPOVER_FRAME, POPOVER_WIDTH, closeOwnPopover, useCloseOnFocusOut } from './popover'
 import { TOOLBAR_ITEM } from './toolbarItem'
 
 const OPTIONS: readonly { value: Quality; label: string; hint: string }[] = [
@@ -86,36 +86,37 @@ export const ExportOptions = ({
 
   return (
     <>
-      <button
-        type="button"
-        popoverTarget={panelId}
-        {...TOOLBAR_ITEM}
-        // Stays focusable while busy (it only opens the options), so focus
-        // isn't dropped mid-export; the progress shows here.
-        aria-busy={exporting.busy || undefined}
-        className="anchor-export inline-flex h-9 items-center gap-2 rounded-[2px] border border-transparent bg-ink px-3.5 text-sm font-medium whitespace-nowrap text-paper hover:bg-ink/85"
-      >
+      {/* Stays a working button while busy (it only opens the options), so
+          focus isn't dropped mid-export; the progress shows here, and the
+          status line announces it. */}
+      <Button variant="primary" popoverTarget={panelId} {...TOOLBAR_ITEM} className="anchor-export">
         {locked ? <LockIcon width={16} height={16} /> : <DownloadIcon width={16} height={16} />}
         {/* The accessible name starts with the visible text (WCAG 2.5.3). */}
         {exporting.busy ? (
-          <span className="tabular-nums">{progress(exporting)}</span>
+          <>
+            <span className="hidden tabular-nums sm:inline">{progress(exporting)}</span>
+            {/* Phones: just the count, so the toolbar keeps its two rows. */}
+            <span className="tabular-nums sm:hidden">
+              {String(exporting.done)}/{String(exporting.total)}…
+            </span>
+          </>
         ) : (
           <span>Export · {pages(pageCount)}</span>
         )}
         <span className="sr-only">{locked ? ', locked with a password' : ''}, options</span>
-      </button>
+      </Button>
       <div
         id={panelId}
         popover="auto"
         role="dialog"
         aria-labelledby={`${id}-title`}
         ref={panel}
-        className={cx(POPOVER_PANEL, POPOVER_WIDTH, 'popover-end from-export')}
+        className={cx(POPOVER_FRAME, POPOVER_WIDTH, 'popover-end from-export')}
       >
-        {/* The panel's height limit, passed down so the options scroll and
-            the foot stays put. */}
-        <div className="flex max-h-[inherit] flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        {/* The panel's height limit, passed down (with the border, so the
+            two match exactly): only the options scroll, the foot stays put. */}
+        <div className="flex max-h-[inherit] flex-col border border-rule">
+          <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
             <h2 id={`${id}-title`} className="font-display text-2xl">
               Export options
             </h2>
@@ -355,9 +356,15 @@ export const ExportOptions = ({
             <Button
               variant="primary"
               className="mt-3 w-full"
-              disabled={!canExport || Boolean(passwordError)}
+              // Inactive, not disabled: it stays reachable, and with a password
+              // problem it says why and takes you to the field.
+              inactive={!canExport}
               {...(passwordError ? { 'aria-describedby': `${passwordId}-error` } : {})}
               onClick={(event) => {
+                if (passwordError) {
+                  document.getElementById(passwordId)?.focus()
+                  return
+                }
                 closeOwnPopover(event.currentTarget)
                 onExport()
               }}
