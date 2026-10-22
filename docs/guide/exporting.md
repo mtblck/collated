@@ -5,7 +5,7 @@ order: 5
 
 # Exporting
 
-**Export PDF** builds the file and saves it to your downloads. When a password is set, the button says **Export locked PDF**. **Export options**, next to it, shows the image quality and an estimate of the file size; open it for everything below.
+**Export** in the toolbar (it says how many pages there are) opens the export options: everything below. At the foot, always in view, are the estimated file size and **Export PDF**, which builds the file and saves it to your downloads. When a password is set, it says **Export locked PDF**. While a file is being built, the toolbar button shows its progress.
 
 ## Title and filename
 

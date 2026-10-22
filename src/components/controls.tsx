@@ -1,7 +1,7 @@
 import { useId, type ButtonHTMLAttributes, type ReactNode, type Ref } from 'react'
 import { cx } from './cx'
 
-type Variant = 'primary' | 'secondary' | 'quiet'
+type Variant = 'primary' | 'secondary' | 'quiet' | 'danger'
 
 // `aria-disabled:` mirrors `disabled:` for buttons that stay focusable (`inactive`).
 const VARIANTS: Record<Variant, string> = {
@@ -9,6 +9,9 @@ const VARIANTS: Record<Variant, string> = {
     'bg-ink text-paper hover:bg-ink/85 disabled:bg-ink/30 disabled:text-paper/80 aria-disabled:bg-ink/30 aria-disabled:text-paper/80 border border-transparent',
   secondary:
     'border border-rule bg-paper text-ink hover:border-ink-faint disabled:text-ink-faint disabled:hover:border-rule aria-disabled:text-ink-faint aria-disabled:hover:border-rule',
+  // Destructive actions: the accent behind paper-coloured text (AA in both themes).
+  danger:
+    'border border-transparent bg-accent text-paper hover:bg-accent/90 disabled:opacity-50 aria-disabled:opacity-50',
   quiet:
     'border border-transparent text-ink-muted hover:text-ink hover:bg-ink/5 disabled:text-ink-faint/60 disabled:hover:bg-transparent aria-disabled:text-ink-faint/60 aria-disabled:hover:bg-transparent',
 }
@@ -18,11 +21,14 @@ const VARIANTS: Record<Variant, string> = {
  * element resolve by stylesheet order, not by which was written last, which
  * once squeezed every icon button's glyph to 6px wide.
  */
-type Size = 'md' | 'lg' | 'icon' | 'icon-sm'
+type Size = 'sm' | 'md' | 'lg' | 'tile' | 'icon' | 'icon-sm'
 
 const SIZES: Record<Size, string> = {
-  md: 'h-9 px-3.5 text-sm',
-  lg: 'h-11 px-6 text-base',
+  sm: 'h-8 gap-2 px-3 text-xs',
+  md: 'h-9 gap-2 px-3.5 text-sm',
+  /** Icon over label, for a row of equal actions in a narrow panel. */
+  tile: 'h-14 flex-col gap-1 px-2 text-xs',
+  lg: 'h-11 gap-2 px-6 text-base',
   icon: 'size-9',
   'icon-sm': 'size-7',
 }
@@ -51,7 +57,7 @@ export const Button = ({
   <button
     type={type}
     className={cx(
-      'inline-flex shrink-0 items-center justify-center gap-2 rounded-[2px] font-medium whitespace-nowrap transition-colors [&>svg]:shrink-0',
+      'inline-flex shrink-0 items-center justify-center rounded-[2px] font-medium whitespace-nowrap transition-colors [&>svg]:shrink-0',
       SIZES[size],
       VARIANTS[variant],
       className,

@@ -2,7 +2,7 @@ import { useId } from 'react'
 import type { Settings } from '../core/model'
 import { Button, IconButton } from './controls'
 import { ExportOptions } from './ExportOptions'
-import { DownloadIcon, LockIcon, PlusIcon, RedoIcon, UndoIcon } from './Icons'
+import { PlusIcon, RedoIcon, UndoIcon } from './Icons'
 import { MoreMenu } from './MoreMenu'
 import { PageSetup } from './PageSetup'
 import { Toolbar } from './Toolbar'
@@ -20,8 +20,8 @@ export interface ExportState {
 
 /**
  * The workspace toolbar, in the header's one row: page setup (a popover),
- * undo and redo, add, export options (a popover, with the title) and export,
- * and a More menu for the rest. One Tab stop; arrow keys move along it.
+ * undo and redo, add, export (a popover of options with the Export button
+ * pinned at its foot), and a More menu for the rest. One Tab stop; arrow keys move along it.
  */
 export const DocumentBar = ({
   settings,
@@ -67,12 +67,11 @@ export const DocumentBar = ({
 }) => {
   const id = useId()
   const optionsId = `${id}-export-options`
-  const locked = password !== ''
   const mod =
     typeof navigator !== 'undefined' && /Mac|iP(hone|ad)/.test(navigator.platform) ? '⌘' : 'Ctrl+'
 
   return (
-    // Phones: two rows (setup, undo, redo / add, options, export, more), in
+    // Phones: two rows (setup, undo, redo / add, export, more), in
     // the same order as the DOM so the arrow keys go where the eye does.
     <Toolbar
       label="Document"
@@ -114,6 +113,8 @@ export const DocumentBar = ({
       </Button>
       <ExportOptions
         settings={settings}
+        pageCount={pageCount}
+        exporting={exporting}
         estimate={estimate}
         lastExport={lastExport}
         onSettings={onSettings}
@@ -124,49 +125,6 @@ export const DocumentBar = ({
         passwordError={passwordError}
         panelId={optionsId}
       />
-      <Button
-        variant="primary"
-        disabled={pageCount === 0}
-        // Stays focusable while busy, so focus isn't dropped mid-export.
-        inactive={exporting.busy}
-        {...TOOLBAR_ITEM}
-        {...(passwordError ? { 'aria-describedby': `${optionsId}-password-error` } : {})}
-        onClick={() => {
-          if (passwordError) {
-            // Show the problem where it can be fixed.
-            try {
-              document.getElementById(optionsId)?.showPopover()
-            } catch {
-              /* already open, or no popover support */
-            }
-            document.getElementById(`${optionsId}-password`)?.focus()
-            return
-          }
-          onExport()
-        }}
-      >
-        {locked ? <LockIcon width={16} height={16} /> : <DownloadIcon width={16} height={16} />}
-        {exporting.busy ? (
-          exporting.phase === 'ocr' ? (
-            `Reading text ${exporting.done + 1}/${exporting.total}…`
-          ) : (exporting.attempt ?? 1) > 1 ? (
-            `Shrinking, try ${exporting.attempt} · ${exporting.done}/${exporting.total}…`
-          ) : (
-            `Building ${exporting.done}/${exporting.total}…`
-          )
-        ) : (
-          <span>
-            Export {locked ? 'locked ' : ''}
-            {/* Phones show just the verb; the name always has it all. */}
-            <span className="hidden sm:inline">
-              PDF · {pageCount} {pageCount === 1 ? 'page' : 'pages'}
-            </span>
-            <span className="sr-only sm:hidden">
-              PDF, {pageCount} {pageCount === 1 ? 'page' : 'pages'}
-            </span>
-          </span>
-        )}
-      </Button>
       <MoreMenu
         pageCount={pageCount}
         onRotateAll={onRotateAll}

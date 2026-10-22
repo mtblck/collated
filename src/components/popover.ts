@@ -42,5 +42,6 @@ export const closeOwnPopover = (from: Element) => {
  */
 export const POPOVER_PANEL = 'm-0 overflow-y-auto border border-rule bg-paper text-ink shadow-xl'
 
-/** The usual panel's width and padding (one of each: see controls.tsx on why). */
-export const POPOVER_BOX = 'w-[min(22rem,calc(100vw-1rem))] p-5'
+/** The usual panel's width; with its padding (one of each: see controls.tsx on why). */
+export const POPOVER_WIDTH = 'w-[min(22rem,calc(100vw-1rem))]'
+export const POPOVER_BOX = `${POPOVER_WIDTH} p-5`
