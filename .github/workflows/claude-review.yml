@@ -71,7 +71,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: ${{ runner.temp }}/claude-marketplace
           plugins: pr-review@mtblck
-          prompt: "/pr-review:review --comment ${{ github.repository }}/pull/${{ env.PR }}"
+          prompt: '/pr-review:review --comment ${{ github.repository }}/pull/${{ env.PR }}'
           claude_args: >-
             --allowedTools "Read,Grep,Glob,Agent,Bash(gh api:*),Bash(git fetch:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git blame:*),Bash(git merge-base:*),Bash(git rev-parse:*),Bash(git cat-file:*),mcp__github_inline_comment__create_inline_comment"
           # Without this the log only says "is_error: true" when Claude fails, never why.
