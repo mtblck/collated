@@ -1928,6 +1928,11 @@ server.close()
 
 if (fails.length) {
   console.error(`\n${fails.length} problem(s):\n  - ${fails.join('\n  - ')}`)
+  // In GitHub Actions, each failure is also an annotation on the check, so
+  // it can be read without the job log.
+  if (process.env.GITHUB_ACTIONS) {
+    for (const f of fails) console.log(`::error title=verify::${f.replace(/\r?\n/g, ' ')}`)
+  }
   process.exit(1)
 }
 console.log(`\nAll checks passed. Screenshots in ${shots}`)
