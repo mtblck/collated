@@ -9,7 +9,7 @@ Drop files anywhere on the page, use **Choose files** (or **Add pages** once you
 
 ## What Collated reads
 
-- **PDFs:** each page becomes a page you can move, rotate or remove. PDFs that need a password to open can't be read; PDFs that only restrict editing or printing are fine. Pages stay as sharp as the original at any size, except a page with a hidden layer, which goes into the PDF as an image of what you see.
+- **PDFs:** each page becomes a page you can move, rotate or remove. PDFs that need a password to open can't be read; PDFs that only restrict editing or printing are fine. Pages stay as sharp as the original at any size, except a page with a hidden layer, which goes into the PDF as an image of what you see (turn on **Make text searchable** to keep its text searchable).
 - **JPEG and PNG:** go into the PDF as they are, without recompressing (see [Exporting](exporting.md)).
 - **HEIC / HEIF** (iPhone photos): read in every browser, not only Safari.
 - **WebP, AVIF, GIF and BMP:** converted once, because PDF can't hold them.

@@ -113,7 +113,13 @@ describe('the export worker', () => {
       },
       pages: [page('a', 'p1'), page('b', 'p2')],
     }
-    const exported = exportPdf(pdfDoc)
+    const readDrawn = vi.fn((id: string) => Promise.resolve(id === 'p2' ? { b: ['late'] } : {}))
+    const exported = exportPdf(pdfDoc, undefined, {
+      readDrawn: readDrawn as unknown as (
+        id: string,
+        jpeg: Uint8Array,
+      ) => Promise<Record<string, never[]>>,
+    })
     await vi.waitFor(() => {
       expect(FakeWorker.all[0]?.posted).toHaveLength(1)
     })
@@ -131,6 +137,8 @@ describe('the export worker', () => {
     const second = FakeWorker.all[0]?.posted[1] as typeof first
     expect(layeredImage).toHaveBeenLastCalledWith(expect.objectContaining({ bytesId: 'f2' }), true)
     expect(second.input.rendered).toEqual({ p1: 'drawn:p1', p2: 'drawn:p2' })
+    // Words for pages drawn on the second round come from readDrawn.
+    expect((second.input as { text?: Record<string, unknown> }).text).toEqual({ b: ['late'] })
     expect(Object.keys(second.bytes).sort()).toEqual(['drawn:p1', 'drawn:p2'])
     FakeWorker.all[0]?.reply(done)
     await expect(exported).resolves.toMatchObject({ fits: true })

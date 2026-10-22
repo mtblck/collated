@@ -1817,6 +1817,21 @@ await context.close()
       `the drawn page matches its preview (${(diff.farShare * 100).toFixed(2)}% of pixels differ)`,
     )
   }
+  // With OCR on, the drawn page gets a text layer read from the drawing (#52).
+  await exportMenu(p).click()
+  const ocrDialog = p.getByRole('dialog', { name: 'Export options' })
+  await ocrDialog.getByRole('checkbox', { name: 'Make text searchable (OCR)' }).check()
+  const [ocrDl] = await Promise.all([
+    p.waitForEvent('download', { timeout: 120_000 }),
+    ocrDialog.getByRole('button', { name: 'Export PDF' }).click(),
+  ])
+  const ocrPath = join(mkdtempSync(join(tmpdir(), 'collated-verify-layers-ocr-')), 'ocr.pdf')
+  await ocrDl.saveAs(ocrPath)
+  if (hasPoppler) {
+    const page1 = execFileSync('pdftotext', ['-f', '1', '-l', '1', ocrPath, '-']).toString()
+    check(/Visible\s+words/i.test(page1), 'the drawn page is searchable with OCR on', page1.trim())
+    check(!page1.includes('HIDDEN-LAYER-TEXT'), 'OCR read nothing from the hidden layer')
+  }
   await ctx.close()
 }
 

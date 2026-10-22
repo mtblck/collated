@@ -35,12 +35,18 @@ export const forgetPageWords = () => {
   cache.clear()
 }
 
+/**
+ * `drawn`: a PDF page exported as a drawing (it hides a layer, see
+ * export/layered.ts) is read from that drawing, which is upright and uncropped.
+ */
 export const pageWords = (
   asset: Asset,
   page: Pick<Page, 'corners' | 'turns' | 'angle'>,
+  drawn?: Uint8Array,
 ): Promise<OcrWord[]> => {
   const rotation = pageRotation(page)
-  const key = `${asset.id}:${JSON.stringify(page.corners)}:${rotation}`
+  const corners = drawn ? null : page.corners
+  const key = `${asset.id}:${drawn ? 'drawn' : JSON.stringify(corners)}:${rotation}`
   const hit = cache.get(key)
   if (hit) {
     cache.delete(key)
@@ -48,10 +54,10 @@ export const pageWords = (
     return hit.words
   }
   const words = (async () => {
-    const bytes = assetStore.get(asset.bytesId)
+    const bytes = drawn ?? assetStore.get(asset.bytesId)
     const { blob, width, height } = await displayedToBlob(
       new Blob([bytes as Uint8Array<ArrayBuffer>]),
-      page.corners,
+      corners,
       rotation,
       OCR_EDGE,
     )
