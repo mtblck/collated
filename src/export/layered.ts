@@ -10,12 +10,16 @@ import { assetStore } from '../import/assetStore'
  */
 const cache = new Map<string, Promise<Uint8Array | null>>()
 
-export const layeredImage = (asset: Pick<Asset, 'bytesId' | 'pdfPage'>) => {
-  const key = `${asset.bytesId}:${String(asset.pdfPage ?? 0)}`
+/**
+ * The page drawn, if it hides anything (by the preview's own reckoning), or
+ * always with `force` (the export's check said it could).
+ */
+export const layeredImage = (asset: Pick<Asset, 'bytesId' | 'pdfPage'>, force = false) => {
+  const key = `${asset.bytesId}:${String(asset.pdfPage ?? 0)}${force ? ':force' : ''}`
   let drawn = cache.get(key)
   if (!drawn) {
     drawn = import('../import/importPdf').then(({ layeredPage }) =>
-      layeredPage(assetStore.get(asset.bytesId), asset.pdfPage ?? 0).then((r) => r.jpeg),
+      layeredPage(assetStore.get(asset.bytesId), asset.pdfPage ?? 0, { force }).then((r) => r.jpeg),
     )
     // A failure shouldn't stick: the next export tries again.
     drawn.catch(() => cache.delete(key))

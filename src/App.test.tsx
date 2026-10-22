@@ -923,7 +923,7 @@ describe('App', () => {
       expect(hrefs).toEqual([
         '/tools/collated/docs/',
         'https://github.com/mtblck/collated',
-        'https://ko-fi.com/collated',
+        'https://ko-fi.com/mtblck',
       ])
       for (const link of within(nav)
         .getAllByRole('link')
@@ -991,7 +991,7 @@ describe('App', () => {
       if (!more) throw new Error('no More panel')
       expect(
         within(more).getByRole('link', { name: /Support Collated/, hidden: true }),
-      ).toHaveAttribute('href', 'https://ko-fi.com/collated')
+      ).toHaveAttribute('href', 'https://ko-fi.com/mtblck')
     })
   })
 })

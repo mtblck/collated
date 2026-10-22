@@ -1412,7 +1412,7 @@ await context.close()
   await axe(p, 'More menu open')
   check(
     (await more.getByRole('link', { name: /Support Collated/ }).getAttribute('href')) ===
-      'https://ko-fi.com/collated',
+      'https://ko-fi.com/mtblck',
     'More links to Support Collated',
   )
   await p.keyboard.press('Escape')
@@ -1504,7 +1504,7 @@ await context.close()
     (await footer.getByRole('link', { name: 'Privacy' }).getAttribute('href')) ===
       '/tools/collated/privacy/' &&
       (await footer.getByRole('link', { name: /Support Collated/ }).getAttribute('href')) ===
-        'https://ko-fi.com/collated',
+        'https://ko-fi.com/mtblck',
     'the landing footer links to privacy and support',
   )
   await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-landscape.jpg')])

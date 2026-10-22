@@ -15,6 +15,7 @@ import {
 import { describe, expect, it } from 'vitest'
 import { asset, fixture, page, settings } from '../../tests/helpers'
 import { buildPdf } from './pdf'
+import { NeedsDrawing } from './pdfSanitize'
 import { namesIn } from './pdfContent'
 
 const hasQpdf = (() => {
@@ -274,34 +275,110 @@ describe.skipIf(!hasQpdf)('what a PDF page shows comes with it', () => {
     expect(differ / out.all.length).toBeLessThan(0.002)
   })
 
-  it('keeps hidden layers hidden and shown layers shown (#28)', async () => {
-    const doc = await PDFDocument.create()
-    const p = doc.addPage([612, 792])
-    const { context } = doc
-    const layer = (name: string) =>
-      context.register(context.obj({ Type: 'OCG', Name: PDFString.of(name) }))
-    const shown = layer('Shown')
-    const hiddenLayer = layer('Hidden')
-    doc.catalog.set(
-      PDFName.of('OCProperties'),
-      context.obj({ OCGs: [shown, hiddenLayer], D: { OFF: [hiddenLayer] } }),
+  it('keeps shown layers as layers, and refuses to copy a page that could hide one (#28)', async () => {
+    type Build = (doc: PDFDocument, hidden: PDFObject, shown: PDFObject) => void
+    const source = async (build: Build) => {
+      const doc = await PDFDocument.create()
+      doc.addPage([612, 792])
+      const { context } = doc
+      const layer = (name: string) =>
+        context.register(context.obj({ Type: 'OCG', Name: PDFString.of(name) }))
+      const shown = layer('Shown')
+      const hidden = layer('Hidden')
+      doc.catalog.set(
+        PDFName.of('OCProperties'),
+        context.obj({ OCGs: [shown, hidden], D: { OFF: [hidden] } }),
+      )
+      build(doc, hidden, shown)
+      return doc.save()
+    }
+    const set = (
+      doc: PDFDocument,
+      content: string,
+      resources: Record<string, PDFObject | Record<string, PDFObject>>,
+    ) => {
+      const node = doc.getPage(0).node
+      node.set(PDFName.of('Resources'), doc.context.obj(resources))
+      node.set(PDFName.of('Contents'), doc.context.register(doc.context.stream(content)))
+    }
+    const outcome = async (build: Build) =>
+      exported(await source(build), 0).then(
+        () => 'copied',
+        (error: unknown) => (error instanceof NeedsDrawing ? 'must draw' : String(error)),
+      )
+
+    // All shown: copied, the layer listed and on.
+    const shownOnly = await exported(
+      await source((d, _h, s) => {
+        set(d, '/OC /L BDC 0 g 72 72 100 100 re f EMC', { Properties: { L: s } })
+      }),
+      0,
     )
-    p.node.set(PDFName.of('Resources'), context.obj({ Properties: { L1: shown, L2: hiddenLayer } }))
-    p.node.set(
-      PDFName.of('Contents'),
-      context.register(
-        context.stream(
-          '/OC /L1 BDC 0 g 72 72 100 100 re f EMC /OC /L2 BDC 0 g 400 72 100 100 re f EMC',
-        ),
-      ),
-    )
-    const source = await doc.save()
-    const before = greys(source)
-    expect(before.at(150, 264 - 40)).toBeGreaterThan(200) // hidden in the source
-    const { pdf } = await exported(source, 0)
-    const out = greys(pdf)
-    expect(out.at(40, 264 - 40)).toBeLessThan(60)
-    expect(out.at(150, 264 - 40)).toBeGreaterThan(200)
+    expect(shownOnly.text).toMatch(/\/OCProperties/)
+    expect(greys(shownOnly.pdf).at(40, 264 - 40)).toBeLessThan(60)
+
+    expect(
+      await outcome((d, h) => {
+        set(d, '/OC /L BDC 0 g 72 72 100 100 re f EMC', { Properties: { L: h } })
+      }),
+    ).toBe('must draw')
+    // A form in a hidden layer.
+    expect(
+      await outcome((d, h) => {
+        set(d, '0 g 72 72 100 100 re f /Fm Do', {
+          XObject: {
+            Fm: d.context.register(
+              d.context.stream('', { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, 1, 1], OC: h }),
+            ),
+          },
+        })
+      }),
+    ).toBe('must draw')
+    expect(
+      await outcome((d, h) => {
+        const pattern = d.context.register(
+          d.context.stream('/OC /L BDC 0 0 5 5 re f EMC', {
+            Type: 'Pattern',
+            PatternType: 1,
+            PaintType: 1,
+            TilingType: 1,
+            BBox: [0, 0, 10, 10],
+            XStep: 10,
+            YStep: 10,
+            Resources: { Properties: { L: h } },
+          }),
+        )
+        set(d, '/Pattern cs /P1 scn 0 0 100 100 re f', { Pattern: { P1: pattern } })
+      }),
+    ).toBe('must draw')
+    expect(
+      await outcome((d, h) => {
+        const glyph = d.context.register(
+          d.context.stream('1000 0 d0 /OC /L BDC 0 0 1000 1000 re f EMC'),
+        )
+        const font = d.context.register(
+          d.context.obj({
+            Type: 'Font',
+            Subtype: 'Type3',
+            CharProcs: { a: glyph },
+            Resources: { Properties: { L: h } },
+          }),
+        )
+        set(d, 'BT /T3 20 Tf (a) Tj ET', { Font: { T3: font } })
+      }),
+    ).toBe('must draw')
+    // A membership dictionary can hide content whatever its layers say.
+    expect(
+      await outcome((d, _h, s) => {
+        const ocmd = d.context.register(d.context.obj({ Type: 'OCMD', OCGs: [s], P: 'AllOff' }))
+        set(d, '/OC /M BDC 0 g 72 72 100 100 re f EMC', { Properties: { M: ocmd } })
+      }),
+    ).toBe('must draw')
+    expect(
+      await outcome((d) => {
+        set(d, '/OC <</Type /OCMD /OCGs 5 0 R>> BDC 0 g 72 72 100 100 re f EMC', {})
+      }),
+    ).toBe('must draw')
   })
 
   it('skips damaged annotations instead of failing the export', async () => {
@@ -329,6 +406,32 @@ describe.skipIf(!hasQpdf)('what a PDF page shows comes with it', () => {
       doc.addPage([612, 792]).node.set(PDFName.of('Annots'), annots(doc))
       await expect(exported(await doc.save(), 0), `variant ${String(i)}`).resolves.toBeTruthy()
     }
+  })
+
+  it('leaves out text markup with no usable quadrilaterals, as the preview does', async () => {
+    const doc = await PDFDocument.create()
+    const p = doc.addPage([612, 792])
+    const { context } = doc
+    const box = context.register(
+      context.stream('0 g 0 0 100 100 re f', {
+        Type: 'XObject',
+        Subtype: 'Form',
+        BBox: [0, 0, 100, 100],
+      }),
+    )
+    const highlight = context.register(
+      context.obj({
+        Type: 'Annot',
+        Subtype: 'Highlight',
+        F: 4,
+        QuadPoints: [1, 2, 3],
+        Rect: [72, 72, 172, 172],
+        AP: { N: box },
+      }),
+    )
+    p.node.set(PDFName.of('Annots'), context.obj([highlight]))
+    const { pdf } = await exported(await doc.save(), 0)
+    expect(greys(pdf).at(40, 264 - 40)).toBeGreaterThan(200)
   })
 
   it('gives field appearances without resources the form’s fonts', async () => {

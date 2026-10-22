@@ -305,6 +305,28 @@ const latin1 = (b: Uint8Array, from: number, to: number) => {
   return out
 }
 
+/**
+ * Whether the content marks anything with an optional-content dictionary
+ * written in place (`/OC <<…>> BDC`) rather than named in its resources.
+ */
+export const hasInlineOC = (content: Uint8Array) => {
+  let previous: Token | undefined
+  for (const item of items(content)) {
+    if (!('token' in item)) continue
+    const { token } = item
+    if (
+      token.kind === 'open' &&
+      token.text === '<<' &&
+      previous?.kind === 'name' &&
+      previous.text === 'OC'
+    ) {
+      return true
+    }
+    previous = token
+  }
+  return false
+}
+
 /** Every resource name the content uses: name operands and inline images' names. */
 export const namesIn = (content: Uint8Array) => {
   const names = new Set<string>()

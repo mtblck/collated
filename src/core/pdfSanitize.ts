@@ -16,7 +16,7 @@ import {
   type PDFObject,
 } from '@cantoo/pdf-lib'
 import { stripJp2Metadata, stripJpegMetadata } from './jpegClean'
-import { cleanContent, concat, namesIn } from './pdfContent'
+import { cleanContent, concat, hasInlineOC, namesIn } from './pdfContent'
 
 /**
  * A copy of a source page that carries only what draws it: its content and
@@ -24,8 +24,8 @@ import { cleanContent, concat, namesIn } from './pdfContent'
  * dictionary — comments, form fields, actions, thumbnails, metadata — and its
  * whole resource dictionary, which many scanners share across every page, so
  * one kept page would carry all the others' images. Image metadata (XMP, and
- * EXIF inside JPEG data) is removed too, and so is anything in a layer the
- * source hides.
+ * EXIF inside JPEG data) is removed too. A page that could hide anything (a
+ * layer that's off) is never copied: see `reachesHiddenLayer`.
  *
  * What the content itself draws outside the visible box is still there (it's
  * one stream); the export clips it away, like any viewer would.
@@ -131,6 +131,11 @@ const appearanceOf = (doc: PDFDocument, page: PDFPageLeaf, annot: PDFObject | un
   if (subtype === 'Popup' || subtype === 'Link') return null
   const flags = get(context, annot, 'F', PDFNumber)?.asNumber() ?? 0
   if (flags & (HIDDEN | NO_VIEW)) return null
+  // Text markup without usable quadrilaterals isn't shown (as in pdf.js).
+  if (subtype && ['Highlight', 'Underline', 'Squiggly', 'StrikeOut'].includes(subtype)) {
+    const quads = numbers(get(context, annot, 'QuadPoints', PDFArray))
+    if (quads.length === 0 || quads.length % 8 !== 0 || quads.some(Number.isNaN)) return null
+  }
   const ap = get(context, annot, 'AP', PDFDict)
   let normal = ap?.get(PDFName.of('N'))
   // Checkboxes and the like: a dictionary of states, picked by /AS.
@@ -181,7 +186,7 @@ const appearanceOf = (doc: PDFDocument, page: PDFPageLeaf, annot: PDFObject | un
       subtype === 'Widget'
         ? get(context, doc.catalog, 'AcroForm', PDFDict)?.get(PDFName.of('DR'))
         : undefined
-    const fallback = dr ?? page.get(PDFName.of('Resources'))
+    const fallback = dr ?? page.Resources()
     if (fallback) {
       const dict = form.dict.clone(context)
       dict.set(PDFName.of('Resources'), fallback)
@@ -209,9 +214,9 @@ const copierFor = (src: PDFDocument, out: PDFDocument) => {
 
 /**
  * Embeds a sanitized page into `out`, carrying its optional content (layers)
- * with the source's default visibility. What hidden layers drew is already
- * gone (see `sanitizedPage`); the layers that remain keep their names and
- * state, so a viewer's layer panel still works.
+ * with the source's default visibility: all of them on, since a page
+ * reaching one that's off is drawn instead (`reachesHiddenLayer`). The
+ * layers keep their names, so a viewer's layer panel still works.
  */
 export const embedSanitized = async (
   out: PDFDocument,
@@ -268,6 +273,65 @@ const layerConfig = (src: PDFDocument) => {
     ? get(context, config, 'BaseState', PDFName)?.decodeText() === 'OFF'
     : false
   return (layer: PDFObject) => !off.has(layer) && (on.has(layer) || !baseOff)
+}
+
+/**
+ * Thrown when PDF pages reach a layer that's off by default: they must be
+ * exported as drawn (see export/layered.ts), never as vectors.
+ */
+export class NeedsDrawing extends Error {
+  constructor(readonly assetIds: string[]) {
+    super('Some PDF pages hide a layer and must be drawn first.')
+  }
+}
+
+/**
+ * Whether a sanitized page could hide anything: it reaches a layer the
+ * default configuration turns off, a membership dictionary (OCMD, which can
+ * turn content off however its layers are set), or content marked with an
+ * optional-content dictionary written in place. The check behind the
+ * preview's own (export/layered.ts), from what would be copied: if it says
+ * yes, the page is drawn instead.
+ */
+export const reachesHiddenLayer = (src: PDFDocument, page: PDFPage) => {
+  const { context } = src
+  const isOn = layerConfig(src)
+  const seen = new Set<PDFRef>()
+  const content = (stream: PDFStream) => {
+    try {
+      return hasInlineOC(decodeStream(stream))
+    } catch {
+      return false
+    }
+  }
+  const walk = (object: PDFObject | undefined, isContent = false): boolean => {
+    if (!object) return false
+    let value: PDFObject | undefined = object
+    if (object instanceof PDFRef) {
+      if (seen.has(object)) return false
+      seen.add(object)
+      value = context.lookup(object)
+    }
+    if (value instanceof PDFArray) return value.asArray().some((item) => walk(item, isContent))
+    const stream = value instanceof PDFStream ? value : undefined
+    const dict = stream ? stream.dict : value instanceof PDFDict ? value : undefined
+    if (!dict) return false
+    const type = get(context, dict, 'Type', PDFName)?.decodeText()
+    if (type === 'OCMD') return true
+    if (type === 'OCG' && object instanceof PDFRef && !isOn(object)) return true
+    if (stream && (isContent || isForm(stream) || isTilingPattern(dict)) && content(stream))
+      return true
+    return dict.entries().some(([key, entry]) => {
+      const name = key.decodeText()
+      // Glyph procedures are content; a page's own stream is too.
+      if (name === 'CharProcs') {
+        const procs = context.lookup(entry)
+        return procs instanceof PDFDict && procs.entries().some(([, proc]) => walk(proc, true))
+      }
+      return walk(entry, name === 'Contents')
+    })
+  }
+  return walk(page.node)
 }
 
 /** Lists the layers in `out`'s catalog, hidden where the source hides them. */

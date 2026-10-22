@@ -87,12 +87,44 @@ const hidesContent = async (
   page: PDFPageProxy,
 ) => {
   const config = await pdf.getOptionalContentConfig()
-  const { fnArray, argsArray } = await page.getOperatorList()
-  return fnArray.some((fn, i) => {
-    if (fn !== pdfjs.OPS.beginMarkedContentProps) return false
-    const args = (argsArray[i] ?? []) as unknown[]
-    return args[0] === 'OC' && !config.isVisible(args[1])
-  })
+  // No layers: nothing can be off (pdf.js shows everything), so skip the scan.
+  if ([...config].length === 0) return false
+  const list = await page.getOperatorList()
+  const seen = new Set<unknown>()
+  const isList = (v: unknown): v is { fnArray: number[]; argsArray: unknown[] } =>
+    typeof v === 'object' &&
+    v !== null &&
+    Array.isArray((v as { fnArray?: unknown }).fnArray) &&
+    Array.isArray((v as { argsArray?: unknown }).argsArray)
+  // Operator lists nested in arguments: tiling patterns carry their own.
+  const nested = (value: unknown, depth: number): boolean => {
+    if (depth > 6 || typeof value !== 'object' || value === null) return false
+    if (isList(value)) return hides(value)
+    if (Array.isArray(value)) return value.some((v) => nested(v, depth + 1))
+    return false
+  }
+  const fontHides = (id: unknown) => {
+    if (typeof id !== 'string' || !page.commonObjs.has(id)) return false
+    const font = page.commonObjs.get(id) as { charProcOperatorList?: unknown } | null
+    const procs = font?.charProcOperatorList
+    if (!procs || typeof procs !== 'object') return false
+    const lists = procs instanceof Map ? [...procs.values()] : Object.values(procs)
+    return lists.some((l) => isList(l) && hides(l))
+  }
+  const hides = (ir: { fnArray: number[]; argsArray: unknown[] }): boolean => {
+    if (seen.has(ir)) return false
+    seen.add(ir)
+    return ir.fnArray.some((fn, i) => {
+      const args = (ir.argsArray[i] ?? []) as unknown[]
+      if (fn === pdfjs.OPS.beginMarkedContentProps) {
+        return args[0] === 'OC' && !config.isVisible(args[1])
+      }
+      // Type 3 glyphs are drawn from the font's own operator lists.
+      if (fn === pdfjs.OPS.setFont && fontHides(args[0])) return true
+      return nested(args, 0)
+    })
+  }
+  return hides(list)
 }
 
 /** Long edge of a page drawn for export: about 300 dpi for Letter, within Safari's canvas limit. */
@@ -107,7 +139,11 @@ export const LAYERED_EDGE = 4096
 export const layeredPage = async (
   bytes: Uint8Array,
   pageIndex: number,
-  { maxEdge = LAYERED_EDGE, draw = true }: { maxEdge?: number; draw?: boolean } = {},
+  {
+    maxEdge = LAYERED_EDGE,
+    draw = true,
+    force = false,
+  }: { maxEdge?: number; draw?: boolean; force?: boolean } = {},
 ): Promise<{ hidden: boolean; jpeg: Uint8Array | null }> => {
   const pdfjs = await loadPdfJs()
   const task = pdfjs.getDocument({
@@ -118,7 +154,7 @@ export const layeredPage = async (
   const pdf = await task.promise
   try {
     const page = await pdf.getPage(pageIndex + 1)
-    if (!(await hidesContent(pdfjs, pdf, page))) return { hidden: false, jpeg: null }
+    if (!force && !(await hidesContent(pdfjs, pdf, page))) return { hidden: false, jpeg: null }
     if (!draw) return { hidden: true, jpeg: null }
     const upright = page.getViewport({ scale: 1 })
     const size = fit(upright.width * 5, upright.height * 5, maxEdge)
@@ -126,18 +162,27 @@ export const layeredPage = async (
     const canvas = document.createElement('canvas')
     canvas.width = Math.round(viewport.width)
     canvas.height = Math.round(viewport.height)
-    await page.render({ canvas, viewport, background: '#ffffff' }).promise
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (b) => {
-          if (b) resolve(b)
-          else reject(new Error('The browser could not draw this PDF page.'))
-        },
-        'image/jpeg',
-        0.92,
-      )
-    })
-    return { hidden: true, jpeg: new Uint8Array(await blob.arrayBuffer()) }
+    try {
+      await page.render({ canvas, viewport, background: '#ffffff' }).promise
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (b) => {
+            if (b) resolve(b)
+            else
+              reject(
+                new Error(`The browser could not draw page ${String(pageIndex + 1)} of a PDF.`),
+              )
+          },
+          'image/jpeg',
+          0.92,
+        )
+      })
+      return { hidden: true, jpeg: new Uint8Array(await blob.arrayBuffer()) }
+    } finally {
+      // Give the memory back now: Safari caps what all canvases may hold.
+      canvas.width = 0
+      canvas.height = 0
+    }
   } finally {
     void task.destroy()
   }

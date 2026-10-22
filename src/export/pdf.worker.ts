@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 import { buildWithin, compressionFor } from '../core/compression'
 import { buildPdf } from '../core/pdf'
+import { NeedsDrawing } from '../core/pdfSanitize'
 import { processToBlob } from '../lib/filterCanvas'
 import type { ExportRequest, ExportResponse } from './protocol'
 
@@ -46,6 +47,10 @@ self.onmessage = async ({ data }: MessageEvent<ExportRequest>) => {
     )
     post({ type: 'done', ...result }, [result.pdf.buffer])
   } catch (error) {
+    if (error instanceof NeedsDrawing) {
+      post({ type: 'draw', assetIds: error.assetIds })
+      return
+    }
     post({ type: 'error', message: error instanceof Error ? error.message : String(error) })
   }
 }

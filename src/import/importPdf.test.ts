@@ -131,4 +131,45 @@ describe('layeredPage: does the preview hide anything on a page?', () => {
       }),
     ).toBe(true)
   })
+  it('says yes for hidden content inside a tiling pattern or a Type 3 glyph', async () => {
+    expect(
+      await hides((d, h) => {
+        const pattern = d.context.register(
+          d.context.stream('/OC /L BDC 0 0 5 5 re f EMC', {
+            Type: 'Pattern',
+            PatternType: 1,
+            PaintType: 1,
+            TilingType: 1,
+            BBox: [0, 0, 10, 10],
+            XStep: 10,
+            YStep: 10,
+            Resources: { Properties: { L: h } },
+          }),
+        )
+        content(d, '/Pattern cs /P1 scn 0 0 100 100 re f', { Pattern: { P1: pattern } })
+      }),
+    ).toBe(true)
+    expect(
+      await hides((d, h) => {
+        const glyph = d.context.register(
+          d.context.stream('1000 0 d0 /OC /L BDC 0 0 1000 1000 re f EMC'),
+        )
+        const font = d.context.register(
+          d.context.obj({
+            Type: 'Font',
+            Subtype: 'Type3',
+            FontBBox: [0, 0, 1000, 1000],
+            FontMatrix: [0.001, 0, 0, 0.001, 0, 0],
+            CharProcs: { a: glyph },
+            Encoding: { Type: 'Encoding', Differences: [97, PDFName.of('a')] },
+            FirstChar: 97,
+            LastChar: 97,
+            Widths: [1000],
+            Resources: { Properties: { L: h } },
+          } as never),
+        )
+        content(d, 'BT /T3 20 Tf 10 10 Td (a) Tj ET', { Font: { T3: font } })
+      }),
+    ).toBe(true)
+  })
 })
