@@ -590,7 +590,16 @@ describe.skipIf(!hasQpdf)('what a PDF page shows comes with it', () => {
       box('jP  ', new Uint8Array([0x0d, 0x0a, 0x87, 0x0a])),
       box('ftyp', new TextEncoder().encode('jp2 \0\0\0\0jp2 ')),
       box('xml ', new TextEncoder().encode('<x:xmpmeta>JPX-GPS-SECRET</x:xmpmeta>')),
-      box('jp2c', new Uint8Array([0xff, 0x4f, 0xff, 0xd9])),
+      box('asoc', box('xml ', new TextEncoder().encode('ASOC-SECRET'))),
+      box(
+        'jp2c',
+        concatBytes(
+          new Uint8Array([0xff, 0x4f, 0xff, 0x64, 0x00, 0x14, 0x00, 0x01]),
+          new TextEncoder().encode('JPX-COMMENT-SECR'),
+          new Uint8Array([0xff, 0x90, 0x00, 0x0a, 0, 0, 0, 0, 0, 0, 0, 1, 0xff, 0xd9]),
+        ),
+      ),
+      new Uint8Array([0x0a]), // a stray line end after the last box
     )
     const image = context.register(
       context.stream(jp2, {
@@ -609,7 +618,9 @@ describe.skipIf(!hasQpdf)('what a PDF page shows comes with it', () => {
       context.register(context.stream('q 10 0 0 10 0 0 cm /Im Do Q')),
     )
     const { text } = await exported(await doc.save(), 0)
-    expect(text).not.toContain('JPX-GPS-SECRET')
+    for (const secret of ['JPX-GPS-SECRET', 'ASOC-SECRET', 'JPX-COMMENT-SECR']) {
+      expect(text).not.toContain(secret)
+    }
     expect(text).toContain('/JPXDecode')
   })
 

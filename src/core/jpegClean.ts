@@ -125,17 +125,48 @@ export const jpegEnd = (bytes: Uint8Array, start = 0): number | null => {
   return null
 }
 
-/** JPEG 2000 boxes that hold only metadata (ISO 15444-1 I.7, 15444-2 M.11). */
-const JP2_METADATA = new Set(['xml ', 'uuid', 'uinf', 'ipr '])
+/**
+ * JPEG 2000 boxes that hold only metadata (ISO 15444-1 I.7, 15444-2 M.11):
+ * XML (XMP), UUID (EXIF, XMP), URLs, rights, and association boxes, which
+ * group labels and XML with what they describe.
+ */
+const JP2_METADATA = new Set(['xml ', 'uuid', 'uinf', 'ipr ', 'asoc', 'lbl '])
 
 /**
- * A JPEG 2000 file (JP2/JPX boxes) without its metadata boxes: XMP and other
- * XML, UUID boxes (where EXIF and XMP live), URLs and rights statements. A
- * bare codestream has no boxes and comes back as it is. Anything else, or a
- * box that runs past the end, gives null: it can't be checked.
+ * A JPEG 2000 codestream without comment (COM) segments in its main header,
+ * where encoders put free text. Tile-part headers are left alone (encoders
+ * don't write comments there in practice). Null if the header can't be read.
+ */
+const stripCodestreamComments = (bytes: Uint8Array): Uint8Array | null => {
+  if (bytes[0] !== 0xff || bytes[1] !== 0x4f) return null
+  const out: Uint8Array[] = [bytes.subarray(0, 2)]
+  let dropped = false
+  for (let i = 2; ;) {
+    if (i + 2 > bytes.length || bytes[i] !== 0xff) return null
+    const marker = bytes[i + 1] ?? 0
+    // SOT: the main header is over; the rest is tile data. (EOC: no tiles.)
+    if (marker === 0x90 || marker === 0xd9) {
+      out.push(bytes.subarray(i))
+      return dropped ? concat(out) : bytes
+    }
+    if (i + 4 > bytes.length) return null
+    const length = ((bytes[i + 2] ?? 0) << 8) | (bytes[i + 3] ?? 0)
+    if (length < 2 || i + 2 + length > bytes.length) return null
+    if (marker === 0x64) dropped = true
+    else out.push(bytes.subarray(i, i + 2 + length))
+    i += 2 + length
+  }
+}
+
+/**
+ * A JPEG 2000 image without its metadata: in a JP2/JPX file, the metadata
+ * boxes go and the codestream loses its comments; a bare codestream loses
+ * its comments. A few stray bytes after the last box (a PDF stream length
+ * that counts the line end) are dropped. Anything else gives null: it can't
+ * be checked.
  */
 export const stripJp2Metadata = (bytes: Uint8Array): Uint8Array | null => {
-  if (bytes[0] === 0xff && bytes[1] === 0x4f) return bytes // codestream (SOC)
+  if (bytes[0] === 0xff && bytes[1] === 0x4f) return stripCodestreamComments(bytes)
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   const signature =
     bytes.length >= 12 && view.getUint32(0) === 12 && view.getUint32(4) === 0x6a502020
@@ -143,7 +174,11 @@ export const stripJp2Metadata = (bytes: Uint8Array): Uint8Array | null => {
   const kept: Uint8Array[] = []
   let dropped = false
   for (let i = 0; i < bytes.length;) {
-    if (i + 8 > bytes.length) return null
+    if (i + 8 > bytes.length) {
+      // Trailing bytes too short to be a box.
+      dropped = true
+      break
+    }
     let size = view.getUint32(i)
     let header = 8
     if (size === 1) {
@@ -154,7 +189,20 @@ export const stripJp2Metadata = (bytes: Uint8Array): Uint8Array | null => {
     if (size < header || i + size > bytes.length) return null
     const type = String.fromCharCode(...bytes.subarray(i + 4, i + 8))
     if (JP2_METADATA.has(type)) dropped = true
-    else kept.push(bytes.subarray(i, i + size))
+    else if (type === 'jp2c') {
+      const stream = bytes.subarray(i + header, i + size)
+      const cleaned = stripCodestreamComments(stream)
+      if (!cleaned) return null
+      if (cleaned === stream) kept.push(bytes.subarray(i, i + size))
+      else {
+        const box = new Uint8Array(8 + cleaned.length)
+        new DataView(box.buffer).setUint32(0, box.length)
+        box.set(bytes.subarray(i + 4, i + 8), 4)
+        box.set(cleaned, 8)
+        kept.push(box)
+        dropped = true
+      }
+    } else kept.push(bytes.subarray(i, i + size))
     i += size
   }
   return dropped ? concat(kept) : bytes
