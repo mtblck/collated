@@ -163,6 +163,39 @@ describe('App', () => {
       expect(screen.queryByRole('list', { name: /pages?$/ })).toBeNull()
     })
 
+    it('ignores files pasted while it asks, and waits while straightening', async () => {
+      let finish: (skew: { angle: number; confidence: number }) => void = () => undefined
+      const { user, upload } = setup({
+        estimateSkew: () =>
+          new Promise((resolve) => {
+            finish = resolve
+          }),
+      })
+      await upload('a.jpg')
+      await startOver(user)
+      const paste = new Event('paste', { bubbles: true, cancelable: true }) as Event & {
+        clipboardData: { files: File[] }
+      }
+      Object.defineProperty(paste, 'clipboardData', { value: { files: [file('late.png')] } })
+      act(() => {
+        window.dispatchEvent(paste)
+      })
+      await user.keyboard('{Escape}')
+      expect(pageLabels()).toEqual(['Page 1: a.jpg'])
+
+      const panel = within(screen.getByRole('complementary', { name: 'Selected page' }))
+      await user.click(panel.getByRole('button', { name: 'Auto-straighten' }))
+      await user.click(screen.getByRole('button', { name: 'More' }))
+      expect(screen.getByRole('button', { name: 'Start over…', hidden: true })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      )
+      await act(async () => {
+        finish({ angle: 1, confidence: 2 })
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      })
+    })
+
     it('waits while an export is running', async () => {
       let finish: () => void = () => undefined
       const exportPdf = vi.fn<AppDeps['exportPdf']>(

@@ -19,7 +19,7 @@ Only what you see on the pages, and what you chose to add:
 
 - **No photo metadata.** Phones store the camera, the time and often the GPS location inside each photo. Collated removes all of it before the image goes into the PDF; the picture itself is unchanged.
 - **No hidden parts.** If Fill or scaling hides part of an image, that part isn't stored.
-- **PDF pages bring only what they show.** Filled-in form fields, stamps, signatures and highlights are drawn onto the page as they look; the form data behind them, comment text, attachments, scripts and the original file's metadata are left out, and so are images from pages you removed. Hidden layers stay hidden. Anything a PDF page draws outside its visible area is still there, clipped (as it was in the original).
+- **PDF pages bring only what they show.** Filled-in form fields, stamps, signatures and highlights are drawn onto the page as they look; the form data behind them, comment text, attachments, scripts and the original file's metadata are left out, and so are images from pages you removed. Anything in a hidden layer is left out, not just hidden. Anything a PDF page draws outside its visible area is still there, clipped (as it was in the original).
 - **Searchable text,** only if you turn it on.
 - **The title** you gave, "Collated" as the creating tool, and the date (without the time of day).
 

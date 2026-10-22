@@ -3,7 +3,15 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PDFArray, PDFDocument, PDFName, PDFString, type PDFRawStream } from '@cantoo/pdf-lib'
+import {
+  PDFArray,
+  PDFDocument,
+  PDFName,
+  PDFNumber,
+  PDFString,
+  type PDFObject,
+  type PDFRawStream,
+} from '@cantoo/pdf-lib'
 import { describe, expect, it } from 'vitest'
 import { asset, fixture, page, settings } from '../../tests/helpers'
 import { buildPdf } from './pdf'
@@ -175,6 +183,7 @@ describe.skipIf(!hasQpdf)('PDF pages are copied with only what they draw', () =>
 const greys = (pdf: Uint8Array) => {
   const out = execFileSync('pdftoppm', ['-r', '24', '-gray', '-f', '1', '-l', '1', '-'], {
     input: Buffer.from(pdf),
+    stdio: ['pipe', 'pipe', 'ignore'],
   })
   const header = out.subarray(0, 20).toString('latin1').split(/\s+/)
   const width = Number(header[1])
@@ -183,6 +192,23 @@ const greys = (pdf: Uint8Array) => {
     width,
     at: (x: number, y: number) => out[offset + y * width + x] ?? 255,
     all: out.subarray(offset),
+  }
+}
+
+/** An exported PDF uncompressed, as text, to search for what must not be in it. */
+const qpdfText = (pdf: Uint8Array) => {
+  const dir = mkdtempSync(join(tmpdir(), 'collated-sanitize-'))
+  try {
+    writeFileSync(join(dir, 'in.pdf'), pdf)
+    execFileSync('qpdf', [
+      '--qdf',
+      '--object-streams=disable',
+      join(dir, 'in.pdf'),
+      join(dir, 'out.pdf'),
+    ])
+    return readFileSync(join(dir, 'out.pdf')).toString('latin1')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 
@@ -267,6 +293,225 @@ describe.skipIf(!hasQpdf)('what a PDF page shows comes with it', () => {
     const out = greys(pdf)
     expect(out.at(40, 264 - 40)).toBeLessThan(60)
     expect(out.at(150, 264 - 40)).toBeGreaterThan(200)
+  })
+
+  it('leaves out what hidden layers draw: marked content, images, forms, annotations', async () => {
+    const doc = await PDFDocument.create()
+    const p = doc.addPage([612, 792])
+    const { context } = doc
+    const layer = (name: string) =>
+      context.register(context.obj({ Type: 'OCG', Name: PDFString.of(name) }))
+    const shown = layer('Shown')
+    const hiddenLayer = layer('Hidden')
+    // A membership dictionary hidden because its only layer is.
+    const membership = context.register(context.obj({ Type: 'OCMD', OCGs: [hiddenLayer] }))
+    doc.catalog.set(
+      PDFName.of('OCProperties'),
+      context.obj({ OCGs: [shown, hiddenLayer], D: { OFF: [hiddenLayer] } }),
+    )
+    const secretImage = await doc.embedJpg(taggedJpeg('HIDDEN-LAYER-IMAGE'))
+    await secretImage.embed()
+    const hiddenForm = context.register(
+      context.stream('BT /F1 12 Tf (HIDDEN-FORM-TEXT) Tj ET', {
+        Type: 'XObject',
+        Subtype: 'Form',
+        BBox: [0, 0, 100, 100],
+        OC: hiddenLayer,
+      }),
+    )
+    const box = context.register(
+      context.stream('0 g 0 0 100 100 re f', {
+        Type: 'XObject',
+        Subtype: 'Form',
+        BBox: [0, 0, 100, 100],
+      }),
+    )
+    p.node.set(
+      PDFName.of('Resources'),
+      context.obj({
+        Properties: { L1: shown, L2: hiddenLayer, M: membership },
+        XObject: { Secret: secretImage.ref, Fm: hiddenForm },
+      }),
+    )
+    p.node.set(
+      PDFName.of('Contents'),
+      context.register(
+        context.stream(
+          '/OC /L1 BDC 0 g 72 72 100 100 re f EMC /OC /L2 BDC q 100 0 0 100 300 300 cm /Secret Do Q EMC ' +
+            '/OC /M BDC (HIDDEN-MARKED-TEXT) Tj EMC /Fm Do',
+        ),
+      ),
+    )
+    const stamp = context.register(
+      context.obj({
+        Type: 'Annot',
+        Subtype: 'Stamp',
+        Rect: [400, 72, 500, 172],
+        OC: hiddenLayer,
+        AP: { N: box },
+      }),
+    )
+    p.node.set(PDFName.of('Annots'), context.obj([stamp]))
+    const { pdf, text } = await exported(await doc.save(), 0)
+    for (const secret of ['HIDDEN-LAYER-IMAGE', 'HIDDEN-FORM-TEXT', 'HIDDEN-MARKED-TEXT']) {
+      expect(text).not.toContain(secret)
+    }
+    expect(text).not.toMatch(/\/Subtype \/Image/)
+    const out = greys(pdf)
+    expect(out.at(40, 264 - 40)).toBeLessThan(60) // the shown layer
+    expect(out.at(150, 264 - 40)).toBeGreaterThan(200) // the hidden stamp
+  })
+
+  it('skips damaged annotations instead of failing the export', async () => {
+    const variants: ((d: PDFDocument) => PDFObject)[] = [
+      (d) => d.context.obj([PDFNumber.of(5)]),
+      (d) => d.context.obj({ A: 1 }),
+      (d) => d.context.obj([d.context.obj({ Subtype: PDFString.of('Stamp'), Rect: [0, 0, 1, 1] })]),
+      (d) => d.context.obj([d.context.obj({ Subtype: 'Stamp', F: 'Hidden', Rect: [0, 0, 1, 1] })]),
+      (d) =>
+        d.context.obj([
+          d.context.obj({
+            Subtype: 'Widget',
+            AS: PDFString.of('On'),
+            Rect: [0, 0, 9, 9],
+            AP: { N: { On: 1 } },
+          }),
+        ]),
+      (d) => d.context.obj([d.context.obj({ Subtype: 'Stamp', AP: [1], Rect: [0, 0, 1, 1] })]),
+      (d) => d.context.obj([d.context.obj({ Subtype: 'Stamp', AP: { N: 1 }, Rect: { a: 1 } })]),
+      (d) =>
+        d.context.obj([d.context.obj({ Subtype: 'Stamp', AP: { N: 1 }, Rect: [0, 0, 1e300, 1] })]),
+    ]
+    for (const [i, annots] of variants.entries()) {
+      const doc = await PDFDocument.create()
+      doc.addPage([612, 792]).node.set(PDFName.of('Annots'), annots(doc))
+      await expect(exported(await doc.save(), 0), `variant ${String(i)}`).resolves.toBeTruthy()
+    }
+  })
+
+  it('gives field appearances without resources the form’s fonts', async () => {
+    const doc = await PDFDocument.create()
+    const p = doc.addPage([612, 792])
+    const { context } = doc
+    const helv = context.register(
+      context.obj({ Type: 'Font', Subtype: 'Type1', BaseFont: 'Helvetica' }),
+    )
+    doc.catalog.set(
+      PDFName.of('AcroForm'),
+      context.obj({ Fields: [], DR: { Font: { Helv: helv } } }),
+    )
+    const ap = context.register(
+      context.stream('/Tx BMC BT /Helv 12 Tf 5 5 Td (DRTEXT) Tj ET EMC', {
+        Type: 'XObject',
+        Subtype: 'Form',
+        BBox: [0, 0, 200, 30],
+      }),
+    )
+    const widget = context.register(
+      context.obj({
+        Type: 'Annot',
+        Subtype: 'Widget',
+        FT: 'Tx',
+        Rect: [72, 600, 272, 630],
+        AP: { N: ap },
+      }),
+    )
+    p.node.set(PDFName.of('Annots'), context.obj([widget]))
+    const { pdf, text } = await exported(await doc.save(), 0)
+    expect(text).toContain('/BaseFont /Helvetica')
+    expect(textOf(pdf)).toContain('DRTEXT')
+  })
+
+  it('draws annotations over content that leaves states and clips open', async () => {
+    const doc = await PDFDocument.create()
+    const p = doc.addPage([612, 792])
+    const { context } = doc
+    p.node.set(
+      PDFName.of('Contents'),
+      context.register(context.stream('q q /P BMC 500 500 50 50 re W n 0 g 500 500 50 50 re f')),
+    )
+    const box = context.register(
+      context.stream('0 g 0 0 100 100 re f', {
+        Type: 'XObject',
+        Subtype: 'Form',
+        BBox: [0, 0, 100, 100],
+      }),
+    )
+    const stamp = context.register(
+      context.obj({ Type: 'Annot', Subtype: 'Stamp', Rect: [72, 72, 172, 172], AP: { N: box } }),
+    )
+    p.node.set(PDFName.of('Annots'), context.obj([stamp]))
+    const { pdf } = await exported(await doc.save(), 0)
+    expect(greys(pdf).at(40, 264 - 40)).toBeLessThan(60)
+  })
+
+  it('unwraps JPEG images inside other filters and strips them; copies shared fonts once', async () => {
+    const doc = await PDFDocument.create()
+    const { context } = doc
+    const wrapped = context.register(
+      context.flateStream(taggedJpeg('WRAPPED-EXIF'), {
+        Type: 'XObject',
+        Subtype: 'Image',
+        Width: 240,
+        Height: 160,
+        ColorSpace: 'DeviceRGB',
+        BitsPerComponent: 8,
+      }),
+    )
+    // flateStream sets /Filter /FlateDecode: make it a chain ending in DCT.
+    const image = context.lookup(wrapped) as PDFRawStream
+    image.dict.set(
+      PDFName.of('Filter'),
+      context.obj([PDFName.of('FlateDecode'), PDFName.of('DCTDecode')]),
+    )
+    // A big shared font program, which must not be decoded once per page.
+    const big = new Uint8Array(4_000_000).map((_, i) => (i * 2654435761) >>> 24)
+    const font = context.register(
+      context.obj({
+        Type: 'Font',
+        Subtype: 'TrueType',
+        BaseFont: 'Big',
+        FontDescriptor: {
+          Type: 'FontDescriptor',
+          FontName: 'Big',
+          Flags: 32,
+          FontFile2: context.register(context.flateStream(big)),
+        },
+      }),
+    )
+    const shared = context.register(context.obj({ Font: { F1: font }, XObject: { Im: wrapped } }))
+    for (let i = 0; i < 10; i++) {
+      const p = doc.addPage([612, 792])
+      p.node.set(PDFName.of('Resources'), shared)
+      p.node.set(
+        PDFName.of('Contents'),
+        context.register(context.stream('q 240 0 0 160 72 72 cm /Im Do Q BT /F1 12 Tf (x) Tj ET')),
+      )
+    }
+    const source = await doc.save()
+    const pages = Array.from({ length: 10 }, (_, i) => page(`p${String(i)}`, `a${String(i)}`))
+    const assets = Object.fromEntries(
+      pages.map((_, i) => [
+        `a${String(i)}`,
+        asset(`a${String(i)}`, {
+          bytesId: 'src',
+          format: 'pdf',
+          pdfPage: i,
+          width: 612,
+          height: 792,
+        }),
+      ]),
+    )
+    const started = performance.now()
+    const pdf = await buildPdf(
+      { settings: settings({ size: 'image', margin: 0 }), pages, assets },
+      { getBytes: () => source },
+    )
+    expect(performance.now() - started).toBeLessThan(5000)
+    const text = qpdfText(pdf)
+    expect(text).not.toContain('WRAPPED-EXIF')
+    expect(text.match(/\/FontName \/Big/g)).toHaveLength(1)
+    expect(greys(pdf).at(30, 264 - 30)).toBeLessThan(250) // the image still draws
   })
 
   it('strips metadata from JPEGs written inline in a page or a form (#28)', async () => {

@@ -169,6 +169,11 @@ export const MoreMenu = ({
             <Button
               variant="primary"
               onClick={() => {
+                // Something may have started since the dialog opened.
+                if (busy) {
+                  confirm.current?.close()
+                  return
+                }
                 confirm.current?.close('start-over')
                 onStartOver()
               }}
