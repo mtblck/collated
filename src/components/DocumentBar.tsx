@@ -33,6 +33,8 @@ export const DocumentBar = ({
   onUndo,
   onRedo,
   onRotateAll,
+  onStartOver,
+  importing = false,
   onAdd,
   onExport,
   estimate,
@@ -50,6 +52,9 @@ export const DocumentBar = ({
   onUndo: () => void
   onRedo: () => void
   onRotateAll: (by: -1 | 1) => void
+  /** Clears the document, its undo history and everything kept for it. */
+  onStartOver: () => void
+  importing?: boolean
   onAdd: () => void
   onExport: () => void
   estimate: number
@@ -161,7 +166,12 @@ export const DocumentBar = ({
           </span>
         )}
       </Button>
-      <MoreMenu pageCount={pageCount} onRotateAll={onRotateAll} />
+      <MoreMenu
+        pageCount={pageCount}
+        onRotateAll={onRotateAll}
+        busy={exporting.busy || importing}
+        onStartOver={onStartOver}
+      />
     </Toolbar>
   )
 }

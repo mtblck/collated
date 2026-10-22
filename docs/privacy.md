@@ -11,7 +11,7 @@ Collated is a free, open-source tool. It is built so that your documents never l
 
 ## Your documents
 
-The files you add, the pages you arrange and the PDFs you export are processed only in your web browser. They are never uploaded, and nobody, including the author, can see them. When you close the tab they're gone, unless you saved the PDF.
+The files you add, the pages you arrange and the PDFs you export are processed only in your web browser. They are never uploaded, and nobody, including the author, can see them. While the page is open they're kept in its memory, including pages you removed, so Undo can bring them back. **Start over** (in the toolbar's **More** menu) clears all of it straight away; otherwise it's gone when you close the tab. Either way, a PDF you saved stays where you saved it.
 
 ## What is stored on your device
 

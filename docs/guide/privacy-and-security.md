@@ -27,6 +27,10 @@ Only what you see on the pages, and what you chose to add:
 
 A password encrypts the PDF's content with AES-256. The filename and the page count aren't hidden. Collated keeps the password in memory while the page is open and never stores it; closing the tab forgets it, along with your pages.
 
+## Starting over
+
+Pages you remove stay in the page's memory so **Undo** can bring them back. On a shared computer, **Start over** in the toolbar's **More** menu clears everything at once: the pages (removed ones too), the undo history, recognised text and the password. It can't be undone. Your page setup is kept.
+
 ## Open source
 
 The [source code](https://github.com/mtblck/collated) is public (MIT licence), so all of this can be checked. Security problems: please open an issue, or report it privately through GitHub's security advisories.

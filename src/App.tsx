@@ -4,7 +4,8 @@ import { pdfFilename } from './core/filename'
 import { compressionFor, estimateBytes } from './core/compression'
 import type { Skew } from './core/deskew'
 import { skewOf } from './lib/skew'
-import { pageWords } from './lib/pageText'
+import { forgetPageWords, pageWords } from './lib/pageText'
+import { forgetPageThumbs } from './hooks/usePageThumb'
 import type { OcrWord } from './core/textLayer'
 import { layoutPage } from './core/geometry'
 import { formatBytes } from './core/units'
@@ -95,8 +96,8 @@ const isEditable = (target: EventTarget | null) =>
 
 export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const deps = useMemo(() => ({ ...defaultDeps(), ...injected }), [injected])
-  const { doc, previous, next, act, undo, redo, canUndo, canRedo, endGesture } = useDocument(() =>
-    loadSettings(deps.storage, deps.locale),
+  const { doc, previous, next, act, undo, redo, canUndo, canRedo, endGesture, reset } = useDocument(
+    () => loadSettings(deps.storage, deps.locale),
   )
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [importing, setImporting] = useState<{
@@ -556,6 +557,28 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     [assets, pages, settings],
   )
 
+  /**
+   * Start over (#29): an empty document with no undo history, and nothing
+   * kept for the old one: bytes, thumbnails, previews, recognised text, the
+   * password. Page setup is a preference and stays; the title is per
+   * document, so it goes back to the default with everything else unsaved.
+   */
+  const onStartOver = useCallback(() => {
+    const count = pages.length
+    reset(loadSettings(deps.storage, deps.locale))
+    assetStore.clear()
+    forgetPageThumbs()
+    forgetPageWords()
+    setSelectedId(null)
+    setPassword('')
+    setLastExport(null)
+    setNotices([])
+    requestFocus(null, true)
+    announce(
+      `Started over: removed ${plural(count, 'page')} and the undo history. Add files to begin again.`,
+    )
+  }, [announce, deps.locale, deps.storage, pages.length, requestFocus, reset])
+
   const workspace = pages.length > 0 || importing !== null
 
   return (
@@ -584,6 +607,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             onRotateAll={(by) => {
               act({ type: 'rotateAll', by })
             }}
+            onStartOver={onStartOver}
+            importing={importing !== null}
             onAdd={chooseFiles}
             onExport={() => void onExport()}
             estimate={estimate}

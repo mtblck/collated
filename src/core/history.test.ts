@@ -49,3 +49,17 @@ describe('withHistory', () => {
     expect(h.past).toHaveLength(HISTORY_LIMIT)
   })
 })
+
+describe('reset', () => {
+  it('replaces the document and forgets both directions of history', () => {
+    const reduce = withHistory((n: number, by: number) => n + by)
+    let h = initHistory(0)
+    h = reduce(h, { type: 'do', action: 1 })
+    h = reduce(h, { type: 'do', action: 1 })
+    h = reduce(h, { type: 'undo' })
+    h = reduce(h, { type: 'reset', present: 10 })
+    expect(h).toEqual(initHistory(10))
+    expect(canUndo(h)).toBe(false)
+    expect(canRedo(h)).toBe(false)
+  })
+})

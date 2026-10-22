@@ -155,12 +155,15 @@ const checkSameOrigin = () => {
 }
 // ---------------------------------------------------------------------------
 
+let expectRevoked = false
 const open = async (options = {}) => {
   const context = await browser.newContext({ acceptDownloads: true, ...options })
   guard(context)
   const page = await context.newPage()
   page.on('console', (m) => {
-    if (m.type() === 'error') fails.push(`console: ${m.text()}`)
+    // A check that loads a revoked blob: URL on purpose expects this one.
+    if (m.type() === 'error' && !(expectRevoked && m.text().includes('ERR_FILE_NOT_FOUND')))
+      fails.push(`console: ${m.text()}`)
   })
   page.on('pageerror', (e) => fails.push(`pageerror: ${e.message}`))
   await page.addInitScript(() => {
@@ -1691,6 +1694,81 @@ await context.close()
     (await p.evaluate(() => document.activeElement?.getAttribute('aria-label'))) ===
       'View page 1 larger',
     'closing the viewer returns focus to the preview',
+  )
+  await ctx.close()
+}
+
+// 19. Start over (#29): asks, then clears pages, history and blob URLs. ------
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1280, height: 900 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [
+    join(fixtures, 'quad-landscape.jpg'),
+    join(fixtures, 'doc-skewed-4deg.jpg'),
+  ])
+  await p.waitForSelector('ol[aria-label="2 pages"]')
+  const thumb = await p.locator('ol img').first().getAttribute('src')
+  const openConfirm = async () => {
+    await p.getByRole('button', { name: 'More' }).click()
+    await p
+      .getByRole('dialog', { name: 'More' })
+      .getByRole('button', { name: 'Start over…' })
+      .click()
+    const confirm = p.getByRole('dialog', { name: 'Start over?' })
+    await confirm.waitFor()
+    return confirm
+  }
+  let confirm = await openConfirm()
+  check(
+    !(await p.getByRole('dialog', { name: 'More' }).isVisible()),
+    'Start over closes the More menu behind its confirmation',
+  )
+  check(
+    (await p.evaluate(() => document.activeElement?.textContent)) === 'Cancel',
+    'the Start over confirmation opens on Cancel',
+  )
+  await axe(p, 'Start over confirmation')
+  await p.keyboard.press('Escape')
+  await confirm.waitFor({ state: 'hidden' })
+  check(
+    (await p.locator('ol[aria-label="2 pages"]').count()) === 1 &&
+      (await p.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === 'More',
+    'Escape keeps the pages and returns focus to More',
+  )
+  confirm = await openConfirm()
+  await confirm.getByRole('button', { name: 'Start over', exact: true }).click()
+  await p.getByRole('button', { name: 'Choose files' }).waitFor()
+  check(
+    (await p.evaluate(() => document.activeElement?.textContent?.trim())) === 'Choose files',
+    'after Start over, focus is on Choose files',
+  )
+  check(
+    (await p.locator('#status').textContent())?.startsWith('Started over: removed 2 pages') ??
+      false,
+    'Start over is announced',
+  )
+  // The old thumbnail's object URL was revoked: it no longer loads.
+  expectRevoked = true
+  const revoked = await p.evaluate(
+    (src) =>
+      new Promise((resolve) => {
+        const img = new Image()
+        img.onload = () => resolve(false)
+        img.onerror = () => resolve(true)
+        img.src = src ?? ''
+      }),
+    thumb,
+  )
+  expectRevoked = false
+  check(
+    (thumb?.startsWith('blob:') ?? false) && revoked,
+    'Start over revokes the old thumbnails',
+    thumb ?? 'no thumbnail',
+  )
+  await p.keyboard.press('Control+z')
+  check(
+    (await p.locator('ol[aria-label$="page"], ol[aria-label$="pages"]').count()) === 0,
+    'Undo cannot bring the old document back',
   )
   await ctx.close()
 }
