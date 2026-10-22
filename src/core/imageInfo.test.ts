@@ -145,15 +145,10 @@ describe('headerSize', () => {
     expect(headerSize(fixture('quad-landscape.heic'))).toEqual({ width: 240, height: 160 })
   })
 
-  it.skipIf(!hasPillow)('reads AVIF sizes, and a grid image by its full size', () => {
-    expect(headerSize(encode('AVIF'))).toEqual({ width: 321, height: 123 })
-    const grid = new Uint8Array(
-      execFileSync('python3', [
-        '-c',
-        "import io,sys\nimport pillow_heif\nfrom PIL import Image\npillow_heif.register_heif_opener()\nb=io.BytesIO()\nImage.new('RGB',(1100,700)).save(b,'HEIF',quality=50)\nsys.stdout.buffer.write(b.getvalue())",
-      ]),
-    )
-    expect(headerSize(grid)).toEqual({ width: 1100, height: 700 })
+  it('reads AVIF sizes, and a grid image by its full size', () => {
+    // Written by Pillow with pillow-heif (CI's Pillow can't write either).
+    expect(headerSize(fixture('blank-321x123.avif'))).toEqual({ width: 321, height: 123 })
+    expect(headerSize(fixture('grid-1100x700.heic'))).toEqual({ width: 1100, height: 700 })
   })
 
   it('reads a forged huge size, so the import cap can refuse it', () => {
