@@ -10,8 +10,8 @@
       "permanent": true
     },
     {
-      "source": "/tools/collated/:path*",
-      "destination": "https://collatedpdf.com/:path*",
+      "source": "/tools/collated/(.*)",
+      "destination": "https://collatedpdf.com/$1",
       "permanent": true
     },
     {

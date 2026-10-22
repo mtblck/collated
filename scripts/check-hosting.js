@@ -51,10 +51,11 @@ const redirects = config.redirects ?? []
 if (
   !redirects.some((r) => r.source === OLD && r.destination === `${ORIGIN}/` && r.permanent) ||
   !redirects.some(
-    (r) => r.source === `${OLD}/:path*` && r.destination === `${ORIGIN}/:path*` && r.permanent,
+    // "(.*)", not ":path*": the latter doesn't match paths ending in "/".
+    (r) => r.source === `${OLD}/(.*)` && r.destination === `${ORIGIN}/$1` && r.permanent,
   )
 ) {
-  problems.push(`Missing permanent redirects ${OLD}(/:path*) -> ${ORIGIN}/(:path*).`)
+  problems.push(`Missing permanent redirects ${OLD} -> ${ORIGIN}/ and ${OLD}/(.*) -> ${ORIGIN}/$1.`)
 }
 // Docs pages are folders; a URL typed without the slash would otherwise get
 // the app from the fallback.
