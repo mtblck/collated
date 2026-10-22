@@ -104,7 +104,15 @@ const takeWorker = () => {
 export const exportPdf = (
   state: DocState,
   onProgress?: Progress,
-  options: { password?: string; text?: Record<string, OcrWord[]> } = {},
+  options: {
+    password?: string
+    text?: Record<string, OcrWord[]>
+    /**
+     * Reads the words on pages drawn only because the export's own check
+     * asked (see below); their words are added to `text`. With OCR off, unset.
+     */
+    readDrawn?: (assetId: string, jpeg: Uint8Array) => Promise<Record<string, OcrWord[]>>
+  } = {},
 ): Promise<Exported> => {
   const hasPdf = state.pages.some((p) => state.assets[p.assetId]?.format === 'pdf')
   const finish = (result: Exported | { draw: string[] }) => {
@@ -125,7 +133,15 @@ export const exportPdf = (
       if (!jpeg) throw new Error('A PDF page that hides a layer could not be drawn.')
       drawn[id] = jpeg
     }
-    return finish(await send(request(state, options.password, options.text, drawn), onProgress))
+    let text = options.text
+    if (options.readDrawn) {
+      text = { ...text }
+      for (const id of first.draw) {
+        const jpeg = drawn[id]
+        if (jpeg) Object.assign(text, await options.readDrawn(id, jpeg))
+      }
+    }
+    return finish(await send(request(state, options.password, text, drawn), onProgress))
   })()
 }
 

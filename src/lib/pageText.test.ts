@@ -5,9 +5,10 @@ import type * as PageText from './pageText'
 
 const recognizeWords = vi.fn(() => Promise.resolve([]))
 vi.mock('./ocr', () => ({ recognizeWords }))
-vi.mock('./filterCanvas', () => ({
-  displayedToBlob: () => Promise.resolve({ blob: new Blob(), width: 1, height: 1 }),
-}))
+const displayedToBlob = vi.fn<
+  (source: Blob, corners: unknown) => Promise<{ blob: Blob; width: number; height: number }>
+>(() => Promise.resolve({ blob: new Blob(), width: 1, height: 1 }))
+vi.mock('./filterCanvas', () => ({ displayedToBlob }))
 
 const upright = { corners: null, turns: 0, angle: 0 } as const
 
@@ -36,6 +37,28 @@ describe('pageWords cache', () => {
     assetStore.putBytes('a', new Uint8Array(1))
     await pageWords(a, upright)
     expect(recognizeWords).toHaveBeenCalledTimes(3)
+  })
+
+  it('reads a drawn PDF page from its drawing, kept apart from the source', async () => {
+    const a = asset('a', { format: 'pdf' })
+    assetStore.putBytes('a', new Uint8Array(1))
+    const drawn = new Uint8Array([0xff, 0xd8, 9])
+    const corners = [
+      { x: 0.1, y: 0.1 },
+      { x: 0.9, y: 0.1 },
+      { x: 0.9, y: 0.9 },
+      { x: 0.1, y: 0.9 },
+    ] as const
+    displayedToBlob.mockClear()
+    await pageWords(a, { ...upright, corners: [...corners] }, drawn)
+    await pageWords(a, upright, drawn)
+    expect(recognizeWords).toHaveBeenCalledTimes(1)
+    // Read from the drawing's bytes, uncropped.
+    const [source, usedCorners] = displayedToBlob.mock.calls[0] ?? [new Blob(), undefined]
+    expect(new Uint8Array(await source.arrayBuffer())).toEqual(drawn)
+    expect(usedCorners).toBeNull()
+    await pageWords(a, upright)
+    expect(recognizeWords).toHaveBeenCalledTimes(2)
   })
 
   it('keeps at most 200 entries, dropping the least recently used', async () => {

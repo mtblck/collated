@@ -120,5 +120,8 @@ console.log('PDF fixtures written')
   page.drawRectangle({ x: 10, y: 110, width: 130, height: 80, color: rgb(0, 0, 0) })
   page.drawText('HIDDEN-LAYER-TEXT', { x: 12, y: 150, size: 10, font, color: rgb(1, 1, 1) })
   page.pushOperators(PDFOperator.of('EMC'))
+  // Visible text on a white band, for OCR of the drawn page (#52).
+  page.drawRectangle({ x: 150, y: 20, width: 140, height: 40, color: rgb(1, 1, 1) })
+  page.drawText('Visible words', { x: 158, y: 33, size: 16, font, color: rgb(0, 0, 0) })
   await save(doc, 'quad-layers.pdf')
 }

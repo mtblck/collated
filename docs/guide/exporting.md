@@ -20,7 +20,7 @@ The title is stored in the PDF (readers show it in their title bar) and names th
 
 ## Searchable text (OCR)
 
-**Make text searchable** recognises English text on image pages and adds it to the PDF invisibly, under the picture, so you can search the PDF and copy from it. It reads each page as you see it, crop and rotation included. Recognition runs on your device. The first time, it downloads about 4 MB of recognition data (from Collated's own site, not a third party); after that, it takes a few seconds per page. Anyone with the file can search and copy the text, and the recognised text may contain mistakes.
+**Make text searchable** recognises English text on image pages, and on PDF pages that go into the file as an image (ones with a hidden layer), and adds it to the PDF invisibly, under the picture, so you can search the PDF and copy from it. It reads each page as you see it, crop and rotation included. Recognition runs on your device. The first time, it downloads about 4 MB of recognition data (from Collated's own site, not a third party); after that, it takes a few seconds per page. Anyone with the file can search and copy the text, and the recognised text may contain mistakes.
 
 ## Page numbers
 

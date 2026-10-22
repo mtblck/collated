@@ -6,7 +6,7 @@ import type { Skew } from './core/deskew'
 import { skewOf } from './lib/skew'
 import { forgetPageWords, pageWords } from './lib/pageText'
 import { forgetPageThumbs } from './hooks/usePageThumb'
-import { forgetLayered } from './export/layered'
+import { forgetLayered, layeredImage } from './export/layered'
 import type { OcrWord } from './core/textLayer'
 import { layoutPage } from './core/geometry'
 import { formatBytes } from './core/units'
@@ -32,13 +32,22 @@ export interface AppDeps {
   exportPdf: (
     doc: DocState,
     onProgress: (done: number, total: number, attempt: number) => void,
-    options?: { password?: string; text?: Record<string, OcrWord[]> },
+    options?: {
+      password?: string
+      text?: Record<string, OcrWord[]>
+      readDrawn?: (assetId: string, jpeg: Uint8Array) => Promise<Record<string, OcrWord[]>>
+    },
   ) => Promise<Exported>
   download: (blob: Blob, filename: string) => void
   newId: () => string
   estimateSkew: (asset: Asset) => Promise<Skew | null>
-  /** Recognises a page's words (fractions of its content image). */
-  recognizeText: (asset: Asset, page: Page) => Promise<OcrWord[]>
+  /**
+   * Recognises a page's words (fractions of its content image); from
+   * `drawn` instead for a PDF page exported as a drawing.
+   */
+  recognizeText: (asset: Asset, page: Page, drawn?: Uint8Array) => Promise<OcrWord[]>
+  /** A PDF page drawn as the preview shows it, if it hides a layer (else null). */
+  drawnPage: (asset: Asset) => Promise<Uint8Array | null>
   storage: Pick<Storage, 'getItem' | 'setItem'> | undefined
   locale: string
   /** Loads the export code ahead of time (see exportPdf.ts). */
@@ -60,6 +69,7 @@ const defaultDeps = (): AppDeps => ({
   newId: () => crypto.randomUUID(),
   estimateSkew: skewOf,
   recognizeText: pageWords,
+  drawnPage: (asset) => layeredImage(asset),
   storage: safeStorage(),
   locale: navigator.language,
   prepareExport,
@@ -372,27 +382,57 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     setExporting({ busy: true, done: 0, total: pages.length })
     setStatus('Building PDF…')
     try {
-      // OCR first, page by page, so progress is visible; PDF pages are
-      // skipped (they're vector, and usually carry their own text).
+      // OCR first, page by page, so progress is visible. Vector PDF pages
+      // are skipped (their text is real); one that hides a layer is
+      // exported as a drawing, so it's read from that drawing (#52).
       let text: Record<string, OcrWord[]> | undefined
       if (settings.ocr) {
         text = {}
-        const readable = pages.filter((p) => assets[p.assetId]?.format !== 'pdf')
-        for (const [i, page] of readable.entries()) {
+        const readable: { page: Page; asset: Asset; drawn?: Uint8Array }[] = []
+        for (const page of pages) {
           const asset = assets[page.assetId]
           if (!asset) continue
+          if (asset.format !== 'pdf') readable.push({ page, asset })
+          else {
+            const drawn = await deps.drawnPage(asset)
+            if (drawn) readable.push({ page, asset, drawn })
+          }
+        }
+        for (const [i, { page, asset, drawn }] of readable.entries()) {
           setStatus(`Reading text on page ${i + 1} of ${readable.length}…`)
           setExporting({ busy: true, done: i, total: readable.length, phase: 'ocr' })
-          text[page.id] = await deps.recognizeText(asset, page)
+          text[page.id] = await deps.recognizeText(asset, page, drawn)
         }
       }
+      // Pages the export finds it must draw after all are read then.
+      const readDrawn = settings.ocr
+        ? async (assetId: string, jpeg: Uint8Array) => {
+            const words: Record<string, OcrWord[]> = {}
+            const asset = assets[assetId]
+            if (!asset) return words
+            const reading = pages.filter((p) => p.assetId === assetId)
+            for (const [i, page] of reading.entries()) {
+              setStatus(`Reading text on drawn page ${i + 1} of ${reading.length}…`)
+              setExporting({ busy: true, done: i, total: reading.length, phase: 'ocr' })
+              words[page.id] = await deps.recognizeText(asset, page, jpeg)
+            }
+            // The build runs again next.
+            setStatus('Building PDF…')
+            setExporting({ busy: true, done: 0, total: pages.length })
+            return words
+          }
+        : undefined
       setStatus('Building PDF…')
       const result = await deps.exportPdf(
         doc,
         (done, total, attempt) => {
           setExporting({ busy: true, done, total, attempt })
         },
-        { ...(lockPassword ? { password: lockPassword } : {}), ...(text ? { text } : {}) },
+        {
+          ...(lockPassword ? { password: lockPassword } : {}),
+          ...(text ? { text } : {}),
+          ...(readDrawn ? { readDrawn } : {}),
+        },
       )
       const filename = pdfFilename(settings.title)
       deps.download(result.blob, filename)

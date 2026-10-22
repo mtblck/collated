@@ -47,6 +47,10 @@ const setup = (overrides: Partial<AppDeps> = {}) => {
     estimateSkew: vi.fn((a: { name: string }) =>
       Promise.resolve(a.name.includes('blank') ? null : { angle: -2.5, confidence: 2 }),
     ),
+    // PDF pages named "layers" hide a layer, so they'd be exported drawn.
+    drawnPage: vi.fn((a: { name: string }) =>
+      Promise.resolve(a.name.startsWith('layers') ? new Uint8Array([0xff, 0xd8, 7]) : null),
+    ),
     recognizeText: vi.fn(() =>
       Promise.resolve([{ text: 'Hello', x0: 0.1, y0: 0.1, x1: 0.3, y1: 0.15, baseline: 0.15 }]),
     ),
@@ -568,6 +572,52 @@ describe('App', () => {
     const text = exportPdf.mock.calls[0]?.[2]?.text ?? {}
     expect(Object.values(text)).toEqual([[expect.objectContaining({ text: 'Hello' })]])
     expect(status()).toHaveTextContent('searchable')
+  })
+
+  it('asks nothing about drawn pages when OCR is off', async () => {
+    const exportPdf = vi.fn<AppDeps['exportPdf']>(() =>
+      Promise.resolve({ blob: new Blob(['%PDF']), compression: null, fits: true }),
+    )
+    const { user, deps, upload } = setup({ exportPdf })
+    await upload('layers.pdf')
+    await user.click(exportButton())
+    await waitFor(() => {
+      expect(exportPdf).toHaveBeenCalled()
+    })
+    expect(deps.drawnPage).not.toHaveBeenCalled()
+    expect(exportPdf.mock.calls[0]?.[2]?.readDrawn).toBeUndefined()
+  })
+
+  it('reads text on PDF pages exported as drawings, from the drawing (#52)', async () => {
+    const exportPdf = vi.fn<AppDeps['exportPdf']>(() =>
+      Promise.resolve({ blob: new Blob(['%PDF']), compression: null, fits: true }),
+    )
+    const { user, deps, upload } = setup({ exportPdf })
+    await upload('scan.jpg', 'layers.pdf', 'form.pdf')
+    await user.click(
+      await screen.findByRole('checkbox', { name: 'Make text searchable (OCR)', hidden: true }),
+    )
+    await user.click(exportButton())
+    await waitFor(() => {
+      expect(exportPdf).toHaveBeenCalled()
+    })
+    // The image page and the three drawn pages; not form.pdf's vector pages.
+    const calls = vi.mocked(deps.recognizeText ?? vi.fn()).mock.calls
+    expect(calls).toHaveLength(4)
+    expect(calls.filter(([, , drawn]) => drawn instanceof Uint8Array)).toHaveLength(3)
+    expect(Object.keys(exportPdf.mock.calls[0]?.[2]?.text ?? {})).toHaveLength(4)
+    // And pages drawn only because the export asks are read too.
+    const readDrawn = exportPdf.mock.calls[0]?.[2]?.readDrawn
+    const formAsset = Object.values(vi.mocked(exportPdf).mock.calls[0]?.[0].assets ?? {}).find(
+      (a) => a.name.startsWith('form.pdf'),
+    )
+    expect(readDrawn).toBeDefined()
+    if (readDrawn && formAsset) {
+      const words = await act(() => readDrawn(formAsset.id, new Uint8Array([0xff, 0xd8])))
+      expect(Object.keys(words)).toHaveLength(1)
+      // Then back to building: the status doesn't stay on reading.
+      expect(status()).toHaveTextContent('Building PDF…')
+    }
   })
 
   it('shows an error if the export fails and stays usable', async () => {
