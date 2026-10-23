@@ -8,7 +8,7 @@ import { useTheme } from './theme'
 import { TOOLBAR_ITEM } from './toolbarItem'
 
 const ITEM =
-  'flex w-full items-center gap-3 rounded-[2px] px-3 py-2 text-left text-sm text-ink hover:bg-ink/5 aria-disabled:text-ink-faint aria-disabled:hover:bg-transparent'
+  'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-ink hover:bg-ink/5 aria-disabled:text-ink-faint aria-disabled:hover:bg-transparent'
 
 const Group = ({ label, children }: { label: string; children: ReactNode }) => (
   <div role="group" aria-label={label} className="flex flex-col py-1.5 first:pt-0 last:pb-0">
@@ -51,7 +51,7 @@ export const MoreMenu = ({
         {...TOOLBAR_ITEM}
         aria-label="More"
         title="More"
-        className="anchor-more inline-flex size-9 items-center justify-center rounded-[2px] text-ink-muted hover:bg-ink/5 hover:text-ink"
+        className="anchor-more inline-flex size-9 items-center justify-center rounded-full text-ink-muted hover:bg-ink/5 hover:text-ink"
       >
         <MoreIcon />
       </button>
@@ -140,7 +140,7 @@ export const MoreMenu = ({
         ref={confirm}
         aria-labelledby={`${id}-start-over`}
         aria-describedby={`${id}-start-over-help`}
-        className="m-auto w-[min(26rem,calc(100vw-2rem))] border border-rule bg-paper p-0 text-ink shadow-2xl backdrop:bg-ink/50"
+        className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-2xl bg-paper p-0 text-ink shadow-panel backdrop:bg-black/50"
         onClose={() => {
           // The dialog would return focus into the closed popover. Starting
           // over moves focus on its own (the toolbar goes away).
@@ -150,7 +150,7 @@ export const MoreMenu = ({
         }}
       >
         <div className="flex flex-col gap-4 p-5 sm:p-6">
-          <h2 id={`${id}-start-over`} className="font-display text-2xl">
+          <h2 id={`${id}-start-over`} className="text-lg font-semibold tracking-tight">
             Start over?
           </h2>
           <p id={`${id}-start-over-help`} className="text-sm text-ink-muted">

@@ -1464,7 +1464,7 @@ await context.close()
     )
     // Styled by the app's stylesheet: the h1 is in the display face.
     const font = await p.locator('h1').evaluate((h) => getComputedStyle(h).fontFamily)
-    check(font.includes('Instrument Serif'), `${path} is styled`, font)
+    check(font.includes('Geist'), `${path} is styled`, font)
     for (const href of await p
       .locator('a[href^="/"]:not([href^="//"])')
       .evaluateAll((as) => as.map((a) => a.getAttribute('href'))))

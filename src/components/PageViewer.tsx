@@ -330,7 +330,10 @@ export const PageViewer = ({
     >
       <div className="flex h-full flex-col">
         <div className="flex flex-wrap items-center gap-2 border-b border-rule bg-paper px-4 py-2 sm:px-6">
-          <h2 id={`${id}-title`} className="min-w-0 flex-1 truncate font-display text-2xl">
+          <h2
+            id={`${id}-title`}
+            className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight"
+          >
             {title}
           </h2>
           <p id={`${id}-help`} className="sr-only">

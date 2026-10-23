@@ -5,15 +5,17 @@ type Variant = 'primary' | 'secondary' | 'quiet' | 'danger'
 
 // `aria-disabled:` mirrors `disabled:` for buttons that stay focusable (`inactive`).
 const VARIANTS: Record<Variant, string> = {
+  // The safelight: amber on the dark table, ochre by day. Hover mixes in ink,
+  // which only moves it further from the text colour.
   primary:
-    'bg-ink text-paper hover:bg-ink/85 disabled:bg-ink/30 disabled:text-paper/80 aria-disabled:bg-ink/30 aria-disabled:text-paper/80 border border-transparent',
+    'bg-accent text-on-accent hover:bg-[color-mix(in_oklab,var(--c-accent),var(--c-ink)_14%)] disabled:bg-ink/25 disabled:text-ink-muted aria-disabled:bg-ink/25 aria-disabled:text-ink-muted border border-transparent',
   secondary:
     'border border-rule bg-paper text-ink hover:border-ink-faint disabled:text-ink-faint disabled:hover:border-rule aria-disabled:text-ink-faint aria-disabled:hover:border-rule',
-  // Destructive actions: the accent behind paper-coloured text, AA in both
-  // themes; hover mixes in ink (darker in light, lighter in dark), so the
-  // contrast only grows.
+  // Destructive actions: their own red, AA against its text in both themes;
+  // hover mixes in ink (darker in light, lighter in dark), so the contrast
+  // only grows.
   danger:
-    'border border-transparent bg-accent text-paper hover:bg-[color-mix(in_oklab,var(--c-accent),var(--c-ink)_14%)] disabled:opacity-50 aria-disabled:opacity-50',
+    'border border-transparent bg-danger text-on-danger hover:bg-[color-mix(in_oklab,var(--c-danger),var(--c-ink)_14%)] disabled:opacity-50 aria-disabled:opacity-50',
   quiet:
     'border border-transparent text-ink-muted hover:text-ink hover:bg-ink/5 disabled:text-ink-faint/60 disabled:hover:bg-transparent aria-disabled:text-ink-faint/60 aria-disabled:hover:bg-transparent',
 }
@@ -25,14 +27,16 @@ const VARIANTS: Record<Variant, string> = {
  */
 type Size = 'sm' | 'md' | 'lg' | 'tile' | 'icon' | 'icon-sm'
 
+// The corner radius rides with the size for the same reason: pills, except
+// the tile, which is a rounded square.
 const SIZES: Record<Size, string> = {
-  sm: 'h-8 gap-2 px-3 text-xs',
-  md: 'h-9 gap-2 px-3.5 text-sm',
+  sm: 'h-8 gap-2 rounded-full px-3 text-xs',
+  md: 'h-9 gap-2 rounded-full px-4 text-sm',
   /** Icon over label, for a row of equal actions in a narrow panel. */
-  tile: 'h-14 flex-col gap-1 px-2 text-xs',
-  lg: 'h-11 gap-2 px-6 text-base',
-  icon: 'size-9',
-  'icon-sm': 'size-7',
+  tile: 'h-16 flex-col gap-1.5 rounded-xl px-2 text-xs',
+  lg: 'h-11 gap-2 rounded-full px-6 text-base',
+  icon: 'size-9 rounded-full',
+  'icon-sm': 'size-7 rounded-full',
 }
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -59,7 +63,7 @@ export const Button = ({
   <button
     type={type}
     className={cx(
-      'inline-flex shrink-0 items-center justify-center rounded-[2px] font-medium whitespace-nowrap transition-colors [&>svg]:shrink-0',
+      'inline-flex shrink-0 items-center justify-center font-medium whitespace-nowrap transition-colors [&>svg]:shrink-0',
       SIZES[size],
       VARIANTS[variant],
       className,
@@ -118,12 +122,12 @@ export const Segmented = <T extends string>({
   return (
     <fieldset className="min-w-0" disabled={disabled} aria-describedby={describedBy}>
       <legend className={cx('label mb-2 text-ink-faint', hideLegend && 'sr-only')}>{legend}</legend>
-      <div className="flex h-9 rounded-[2px] border border-control">
+      <div className="flex h-9 gap-0.5 rounded-[0.625rem] border border-control p-[3px]">
         {options.map((option) => (
           <label
             key={option.value}
             className={cx(
-              'relative flex flex-1 items-center justify-center px-3 text-sm whitespace-nowrap transition-colors not-first:border-l not-first:border-control',
+              'relative flex flex-1 items-center justify-center rounded-[0.4375rem] px-3 text-sm whitespace-nowrap transition-colors',
               'has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent',
               disabled
                 ? value === option.value
@@ -131,7 +135,7 @@ export const Segmented = <T extends string>({
                   : 'text-ink-faint'
                 : value === option.value
                   ? 'bg-ink text-paper'
-                  : 'text-ink-muted hover:text-ink',
+                  : 'text-ink-muted hover:bg-ink/[0.06] hover:text-ink',
             )}
           >
             <input

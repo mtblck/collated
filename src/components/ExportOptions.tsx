@@ -117,7 +117,7 @@ export const ExportOptions = ({
             two match exactly): only the options scroll, the foot stays put. */}
         <div className="flex max-h-[inherit] flex-col border border-rule">
           <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
-            <h2 id={`${id}-title`} className="font-display text-2xl">
+            <h2 id={`${id}-title`} className="text-lg font-semibold tracking-tight">
               Export options
             </h2>
 
@@ -150,7 +150,7 @@ export const ExportOptions = ({
                   <label
                     key={option.value}
                     className={cx(
-                      'flex cursor-pointer gap-3 rounded-[2px] border px-3 py-2',
+                      'flex cursor-pointer gap-3 rounded-xl border px-3 py-2',
                       'has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent',
                       settings.quality === option.value
                         ? 'border-ink bg-ink/[0.04]'
