@@ -683,7 +683,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col lg:flex-row">
               <section
                 aria-label="Pages"
-                className="mat scroll-pane min-w-0 flex-1 px-4 py-6 sm:px-6 lg:overflow-y-auto lg:overscroll-contain"
+                className="scroll-pane min-w-0 flex-1 bg-paper-sunk px-4 py-6 sm:px-6 lg:overflow-y-auto lg:overscroll-contain"
               >
                 {importing && (
                   <p className="label mb-4 text-ink-faint" aria-hidden="true">
@@ -707,7 +707,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
               <aside
                 ref={rail}
                 aria-label="Selected page"
-                className="scroll-pane border-t border-rule px-4 py-6 sm:px-6 lg:w-[22rem] lg:shrink-0 lg:overflow-y-auto lg:overscroll-contain lg:border-t-0 lg:border-l lg:px-8"
+                className="rail scroll-pane border-t border-rule px-4 py-6 sm:px-6 lg:w-[22rem] lg:shrink-0 lg:overflow-y-auto lg:overscroll-contain lg:border-t-0 lg:border-l lg:px-8"
               >
                 {selected && selectedAsset && inspectorActions ? (
                   <Inspector

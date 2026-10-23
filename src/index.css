@@ -87,6 +87,8 @@
   --c-selection: oklch(0.552 0.171 38 / 0.18);
   --c-sheet: #fff;
   --c-sheet-shadow: 0 1px 2px oklch(0.215 0.014 55 / 0.08), 0 4px 14px oklch(0.215 0.014 55 / 0.07);
+  --c-rail-shadow:
+    -1px 0 2px oklch(0.215 0.014 55 / 0.05), -6px 0 20px -6px oklch(0.215 0.014 55 / 0.12);
   --sheet-filter: none;
   --grain-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.42'/%3E%3C/svg%3E");
 }
@@ -106,6 +108,7 @@
   --c-selection: oklch(0.702 0.153 42 / 0.22);
   --c-sheet: #f4f1ec;
   --c-sheet-shadow: 0 1px 2px oklch(0 0 0 / 0.4), 0 6px 18px oklch(0 0 0 / 0.35);
+  --c-rail-shadow: -1px 0 2px oklch(0 0 0 / 0.3), -8px 0 24px -6px oklch(0 0 0 / 0.5);
   --sheet-filter: brightness(0.92);
 }
 
@@ -185,12 +188,14 @@
     mix-blend-mode: screen;
   }
 
-  /* The work area: a cutting-mat dot grid (from Inlaytrace), so the pages
-     sit on a surface distinct from the plain-paper rail beside them. */
-  .mat {
-    background-color: var(--c-paper-sunk);
-    background-image: radial-gradient(var(--c-rule) 1px, transparent 1.2px);
-    background-size: 16px 16px;
+  /* The rail sits a layer above the sunk work area: plain paper with a soft
+     shadow cast leftward. Side by side only; stacked on phones, the top rule
+     separates them. */
+  @media (width >= 64rem) {
+    .rail {
+      background-color: var(--c-paper);
+      box-shadow: var(--c-rail-shadow);
+    }
   }
 
   /* A page as it will print. */
