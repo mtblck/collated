@@ -70,7 +70,7 @@ jobs:
           allowed_bots: dependabot[bot]
           plugin_marketplaces: https://github.com/mtblck/claude-marketplace.git
           plugins: dependency-review@mtblck
-          prompt: "/dependency-review:dependabot --comment ${{ github.repository }}/pull/${{ env.PR }}"
+          prompt: '/dependency-review:dependabot --comment ${{ github.repository }}/pull/${{ env.PR }}'
           claude_args: >-
             --allowedTools "Read,Grep,Glob,Agent,Bash(gh api:*),Bash(git fetch:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git rev-parse:*),Bash(git cat-file:*),Bash(npm view:*),Bash(npm diff:*),Bash(npm pack:*),Bash(jq:*),Bash(mkdir -p /tmp/depreview/:*),Bash(tar -xzf:*),Bash(unzip -q:*),Bash(diff -r:*),Bash(curl -sSf https://api.osv.dev/:*),Bash(curl -sSf https://pypi.org/:*),Bash(curl -sSfL https://files.pythonhosted.org/:*),Bash(curl -sSf https://crates.io/:*),Bash(curl -sSfL https://static.crates.io/:*)"
           show_full_output: true
