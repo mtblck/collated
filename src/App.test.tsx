@@ -67,11 +67,14 @@ const setup = (overrides: Partial<AppDeps> = {}) => {
 /** The app's own live region (dnd-kit adds another for drag announcements). */
 const status = () => screen.getAllByRole('status').find((el) => el.id === 'status')
 
-/** The Export button at the foot of the export popover (jsdom can't open popovers). */
+/** The Export button at the foot of the export popover (usable while it's closed). */
 const exportButton = () =>
   screen.getByRole('button', { name: /^Export (locked )?PDF$/, hidden: true })
 /** The toolbar button that opens it. */
 const exportMenu = () => screen.getByRole('button', { name: /^Export · / })
+/** The toolbar buttons that open popovers (the test setup shims them; see tests/setup.ts). */
+const findExportMenu = () => screen.findByRole('button', { name: /^Export · / })
+const findPageSetup = () => screen.findByRole('button', { name: /^Page setup/ })
 
 const pageLabels = () =>
   within(screen.getByRole('list', { name: /pages?$/ }))
@@ -235,9 +238,11 @@ describe('App', () => {
     const { user, upload } = setup()
     await upload('a.jpg', 'b.jpg')
     await user.click(await screen.findByRole('button', { name: 'Remove page 2' }))
+    await user.click(exportMenu())
     await user.click(screen.getByLabelText('Title & filename'))
     await user.keyboard('{Control>}z{/Control}')
     expect(pageLabels()).toHaveLength(1)
+    await user.click(exportMenu()) // closes it again
     await user.click(screen.getByRole('heading', { level: 2 }))
     await user.keyboard('{Control>}z{/Control}')
     expect(pageLabels()).toHaveLength(2)
@@ -453,7 +458,8 @@ describe('App', () => {
     )
     const { user, deps, upload } = setup({ exportPdf })
     await upload('a.jpg')
-    await user.type(await screen.findByLabelText('Title & filename'), 'Lease 2026')
+    await user.click(await findExportMenu())
+    await user.type(screen.getByLabelText('Title & filename'), 'Lease 2026')
     expect(exportMenu()).toHaveAccessibleName('Export · 1 page, options')
     await user.click(exportButton())
     await waitFor(() => {
@@ -481,9 +487,8 @@ describe('App', () => {
       screen.getByText('Estimated size', { selector: 'dt' }).parentElement?.querySelector('dd')
         ?.textContent
     expect(estimate()).toMatch(/≈\s*3\.8 MB/)
-    // jsdom hides popover content but doesn't implement popovertarget, so the
-    // panel can't be opened here; its controls are queried directly. The
-    // browser verify opens the real popover.
+    // The panel stays closed; its controls are queried directly. The browser
+    // verify opens the real popover.
     await user.click(screen.getByRole('radio', { name: /Small/, hidden: true }))
     // 4000 px across 11 in is ~364 dpi; capping at 150 dpi leaves ~17% of
     // the pixels, so the estimate drops from megabytes to kilobytes.
@@ -501,7 +506,8 @@ describe('App', () => {
         }),
     })
     await upload('a.jpg')
-    const limit = await screen.findByLabelText(/^Keep the file under/)
+    await user.click(await findExportMenu())
+    const limit = screen.getByLabelText(/^Keep the file under/)
     expect(limit).toHaveAccessibleName('Keep the file under (megabytes)')
     await user.type(limit, '1{Enter}')
     await user.click(exportButton())
@@ -517,7 +523,8 @@ describe('App', () => {
     )
     const { user, store, upload } = setup({ exportPdf })
     await upload('a.jpg')
-    await user.type(await screen.findByLabelText('Password to open'), 'hunter2')
+    await user.click(await findExportMenu())
+    await user.type(screen.getByLabelText('Password to open'), 'hunter2')
     // Both buttons say the PDF will be locked.
     expect(exportMenu()).toHaveAccessibleName('Export · 1 page, locked with a password, options')
     await user.click(screen.getByRole('button', { name: 'Export locked PDF', hidden: true }))
@@ -534,7 +541,8 @@ describe('App', () => {
     await upload('a.jpg', 'b.jpg')
     const pages = await screen.findByRole('list', { name: '2 pages' })
     expect(within(pages).queryByText('8')).not.toBeInTheDocument()
-    await user.click(screen.getByRole('checkbox', { name: 'Page numbers', hidden: true }))
+    await user.click(exportMenu())
+    await user.click(screen.getByRole('checkbox', { name: 'Page numbers' }))
     await user.clear(screen.getByLabelText('Start at'))
     await user.type(screen.getByLabelText('Start at'), '7{Enter}')
     expect(within(pages).getByText('7')).toBeInTheDocument()
@@ -544,7 +552,8 @@ describe('App', () => {
   it('sizes pages to their image when "Match image" is chosen', async () => {
     const { user, upload } = setup()
     await upload('a.jpg')
-    await user.selectOptions(await screen.findByLabelText('Page size'), 'image')
+    await user.click(await findPageSetup())
+    await user.selectOptions(screen.getByLabelText('Page size'), 'image')
     // 300 x 200 px at the default 300 dpi is 1 x 0.67 in.
     const panel = within(screen.getByRole('complementary', { name: 'Selected page' }))
     expect(panel.getByText('1 in × 0.67 in')).toBeInTheDocument()
@@ -831,7 +840,8 @@ describe('App', () => {
     it('leaves notices alone when Escape is pressed in a field', async () => {
       const { user, upload } = setup()
       await upload('a.jpg', 'notes.txt')
-      await user.click(await screen.findByLabelText('Title & filename'))
+      await user.click(await findExportMenu())
+      await user.click(screen.getByLabelText('Title & filename'))
       await user.keyboard('{Escape}')
       expect(screen.getByRole('alert')).toHaveTextContent('notes.txt')
     })
@@ -841,7 +851,8 @@ describe('App', () => {
     it('keeps the default dpi valid and steps it with the arrow keys', async () => {
       const { user, upload } = setup()
       await upload('a.jpg')
-      await user.selectOptions(await screen.findByLabelText('Page size'), 'image')
+      await user.click(await findPageSetup())
+      await user.selectOptions(screen.getByLabelText('Page size'), 'image')
       const dpi = screen.getByLabelText('Image dpi')
       expect(dpi).toHaveValue(300)
       expect(dpi).toBeValid()
@@ -856,7 +867,8 @@ describe('App', () => {
     it('steps an off-grid value onto the grid, like the browser', async () => {
       const { user, upload } = setup()
       await upload('tall.jpg')
-      await user.click(await screen.findByRole('radio', { name: 'mm', hidden: true }))
+      await user.click(await findPageSetup())
+      await user.click(screen.getByRole('radio', { name: 'mm' }))
       const margin = screen.getByLabelText(/^Margin/)
       expect(margin).toHaveAccessibleName('Margin in millimetres')
       await user.clear(margin)
@@ -864,7 +876,7 @@ describe('App', () => {
       expect(margin).toBeValid()
       await user.keyboard('{ArrowUp}')
       expect(margin).toHaveValue(13)
-      await user.click(screen.getByRole('radio', { name: 'in', hidden: true }))
+      await user.click(screen.getByRole('radio', { name: 'in' }))
       expect(screen.getByLabelText(/^Margin/)).toHaveAccessibleName('Margin in inches')
     })
   })
@@ -873,12 +885,13 @@ describe('App', () => {
     it('has a show toggle that keeps focus and switches the field type', async () => {
       const { user, upload } = setup()
       await upload('a.jpg')
-      const field = await screen.findByLabelText('Password to open')
+      await user.click(await findExportMenu())
+      const field = screen.getByLabelText('Password to open')
       expect(field).toHaveAttribute('type', 'password')
       expect(field).toHaveAttribute('autocomplete', 'off')
       expect(field).toHaveAttribute('data-1p-ignore')
       expect(field).toHaveAttribute('data-lpignore', 'true')
-      const show = screen.getByRole('button', { name: 'Show password', hidden: true })
+      const show = screen.getByRole('button', { name: 'Show password' })
       expect(show).toHaveAttribute('aria-pressed', 'false')
       await user.click(show)
       expect(show).toHaveAttribute('aria-pressed', 'true')
@@ -907,7 +920,8 @@ describe('App', () => {
       const exportPdf = vi.fn<AppDeps['exportPdf']>()
       const { user, upload } = setup({ exportPdf })
       await upload('a.jpg')
-      const field = await screen.findByLabelText('Password to open')
+      await user.click(await findExportMenu())
+      const field = screen.getByLabelText('Password to open')
       // 64 two-byte letters: 128 bytes, one over.
       fireEvent.change(field, { target: { value: 'é'.repeat(64) } })
       expect(field).toHaveAttribute('aria-invalid', 'true')
