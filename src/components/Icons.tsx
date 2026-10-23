@@ -157,3 +157,10 @@ export const ExpandIcon = (p: P) => (
     <path d="M11.5 3.5h5v5M8.5 16.5h-5v-5M16.5 3.5 11 9M3.5 16.5 9 11" />
   </Icon>
 )
+
+export const PageIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M5 2.5h7l3.5 3.5v11.5H5z" />
+    <path d="M12 2.5V6h3.5" />
+  </Icon>
+)

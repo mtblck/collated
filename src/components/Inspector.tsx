@@ -127,7 +127,7 @@ export const Inspector = ({
         </p>
         <h2
           id={`${id}-heading`}
-          className="mt-2 truncate font-display text-3xl leading-tight text-ink"
+          className="mt-2 truncate text-xl leading-tight font-semibold tracking-tight text-ink"
           title={asset.name}
         >
           {asset.name}
@@ -135,7 +135,7 @@ export const Inspector = ({
       </header>
 
       <div
-        className="relative w-full rounded-[3px] bg-paper-sunk p-5"
+        className="relative w-full rounded-xl bg-paper-sunk p-5"
         style={{ aspectRatio: boxRatio }}
       >
         <PagePreview
@@ -149,7 +149,7 @@ export const Inspector = ({
             preview's blocks, and this keeps one clear name. */}
         <button
           type="button"
-          className="group absolute inset-0 cursor-zoom-in rounded-[3px] focus-visible:outline-offset-2"
+          className="group absolute inset-0 cursor-zoom-in rounded-xl focus-visible:outline-offset-2"
           aria-label={`View page ${String(index + 1)} larger`}
           onClick={() => {
             setViewing(true)

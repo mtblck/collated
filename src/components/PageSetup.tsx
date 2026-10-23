@@ -6,6 +6,7 @@ import { fromPoints, roundForUnit, toPoints } from '../core/units'
 import { ORIENTATIONS, setupSummary } from './setupSummary'
 import { FieldLabel, Segmented } from './controls'
 import { cx } from './cx'
+import { PageIcon } from './Icons'
 import { NumberField } from './NumberField'
 import { POPOVER_BOX, POPOVER_PANEL, useCloseOnFocusOut } from './popover'
 import { TOOLBAR_ITEM } from './toolbarItem'
@@ -44,14 +45,11 @@ export const PageSetup = ({
         type="button"
         popoverTarget={panelId}
         {...TOOLBAR_ITEM}
-        className="anchor-setup flex h-9 min-w-0 flex-col items-start justify-center rounded-[2px] border border-control bg-paper px-3 text-left hover:border-ink-faint"
+        className="anchor-setup flex h-9 min-w-0 items-center gap-2 rounded-full border border-control px-3.5 text-left text-sm text-ink hover:bg-ink/[0.06] sm:border-transparent"
       >
-        <span className="label text-[0.625rem] leading-none text-ink-faint">
-          Page setup<span className="sr-only">:</span>
-        </span>
-        <span className="mt-0.5 max-w-[40vw] truncate text-xs leading-none text-ink sm:max-w-none">
-          {summary}
-        </span>
+        <PageIcon width={16} height={16} className="shrink-0 text-ink-muted" />
+        <span className="sr-only">Page setup:</span>
+        <span className="max-w-[50vw] truncate sm:max-w-none">{summary}</span>
       </button>
       <div
         id={panelId}
@@ -61,7 +59,7 @@ export const PageSetup = ({
         ref={panel}
         className={cx(POPOVER_PANEL, POPOVER_BOX, 'popover-start from-setup')}
       >
-        <h2 id={`${id}-title`} className="font-display text-2xl">
+        <h2 id={`${id}-title`} className="text-lg font-semibold tracking-tight">
           Page setup
         </h2>
         <p className="mt-1 text-xs text-ink-muted">For every page of the PDF.</p>

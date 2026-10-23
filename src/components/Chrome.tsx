@@ -15,64 +15,94 @@ const ThemeToggle = () => {
   )
 }
 
-const NAV_LINK = 'px-2 py-1 text-sm text-ink-muted hover:text-ink'
+const NAV_LINK =
+  'rounded-full px-3 py-1.5 text-sm text-ink-muted hover:bg-ink/[0.06] hover:text-ink'
+
+/** The name, set in the UI's own face: semibold, tight, lower case. */
+const WORDMARK = 'text-xl leading-none font-semibold tracking-[-0.03em] text-ink lowercase'
+
+const TrustNote = ({ className }: { className?: string }) => (
+  <p className={cx('label items-center gap-2 text-ink-faint', className)}>
+    <span
+      className="inline-block size-1.5 rounded-full bg-accent shadow-[0_0_8px_var(--c-accent)]"
+      aria-hidden="true"
+    />
+    Files stay on this device
+  </p>
+)
 
 /**
- * One row. The wordmark, then either the workspace toolbar (`children`) or,
- * on the landing view, the privacy note and links. It never scrolls away:
- * on a wide screen the panes below scroll instead (see App).
+ * One row over the table, no bar of its own. In the workspace: the
+ * wordmark, the toolbar (`children`) as a floating pill in the middle, and
+ * the privacy note; on the landing view, the note and links. It never
+ * scrolls away: on a wide screen the panes below scroll instead (see App).
  */
 export const Header = ({ children }: { children?: ReactNode }) => (
-  <header className="relative z-20 shrink-0 border-b border-rule bg-paper">
-    <div className="mx-auto flex min-h-14 max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 sm:px-6">
-      {/* While working on a phone the toolbar needs the room; the landing
-          view always shows the name. */}
-      <span
-        className={cx(
-          'font-display text-[1.75rem] leading-none text-ink',
-          children !== undefined && 'max-sm:sr-only',
-        )}
-      >
-        Collated
-      </span>
-      {children ?? (
-        <>
-          <p className="label ml-auto hidden text-ink-faint md:block">
-            <span
-              className="mr-2 inline-block size-1.5 rounded-full bg-accent align-middle"
-              aria-hidden="true"
-            />
-            Files stay on this device
-          </p>
-          <nav aria-label="About Collated" className="ml-auto flex items-center gap-1 md:ml-4">
-            <a className={NAV_LINK} href={DOCS_URL}>
-              Docs
-            </a>
-            <a className={NAV_LINK} href={SOURCE_URL} rel="noopener noreferrer" target="_blank">
-              Source<span className="sr-only"> code (opens in a new tab)</span>
-            </a>
-            <a className={NAV_LINK} href={SUPPORT_URL} rel="noopener noreferrer" target="_blank">
-              Support<span className="sr-only"> Collated (opens in a new tab)</span>
-            </a>
-            <ThemeToggle />
-          </nav>
-        </>
-      )}
-    </div>
+  <header className="relative z-20 shrink-0">
+    {children !== undefined ? (
+      <div className="mx-auto flex min-h-16 max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:grid sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:px-6">
+        {/* While working on a phone the toolbar needs the room. */}
+        <span className={cx(WORDMARK, 'max-sm:sr-only')}>Collated</span>
+        {children}
+        <TrustNote className="hidden justify-self-end xl:flex" />
+      </div>
+    ) : (
+      <div className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-6">
+        <span className={WORDMARK}>Collated</span>
+        <TrustNote className="ml-auto hidden md:flex" />
+        <nav aria-label="About Collated" className="ml-auto flex items-center gap-1 md:ml-4">
+          <a className={NAV_LINK} href={DOCS_URL}>
+            Docs
+          </a>
+          <a className={NAV_LINK} href={SOURCE_URL} rel="noopener noreferrer" target="_blank">
+            Source<span className="sr-only"> code (opens in a new tab)</span>
+          </a>
+          <a className={NAV_LINK} href={SUPPORT_URL} rel="noopener noreferrer" target="_blank">
+            Support<span className="sr-only"> Collated (opens in a new tab)</span>
+          </a>
+          <ThemeToggle />
+        </nav>
+      </div>
+    )}
   </header>
 )
 
-export const EmptyState = ({ onChoose }: { onChoose: () => void }) => (
-  <div className="mx-auto flex max-w-5xl flex-col gap-12 px-4 pt-14 pb-20 sm:px-6 sm:pt-20">
-    <h1 className="font-display text-display text-ink">
-      Many pages in.
-      <br />
-      <em className="text-ink-muted">One PDF out.</em>
-    </h1>
+/** A page lying on the table, drawn in CSS: lines of text and a margin. */
+const Sheet = ({ className, lines = 11 }: { className: string; lines?: number }) => (
+  <div className={cx('sheet absolute flex flex-col gap-[6%] overflow-hidden p-[11%]', className)}>
+    {Array.from({ length: lines }, (_, i) => (
+      <span
+        key={i}
+        className="h-[3%] min-h-1 rounded-full bg-[#2a2c31]/55"
+        style={{ width: `${[92, 100, 86, 97, 74, 100, 90, 95, 62, 100, 88, 79, 96, 54][i % 14]}%` }}
+      />
+    ))}
+  </div>
+)
 
-    <div className="crop-marks p-2">
-      <div className="flex flex-col items-center gap-5 bg-paper-sunk px-6 py-16 text-center sm:py-24">
-        <p className="font-display text-3xl text-ink sm:text-4xl">
+export const EmptyState = ({ onChoose }: { onChoose: () => void }) => (
+  <div className="mx-auto flex max-w-6xl flex-col gap-14 px-4 pt-10 pb-20 sm:px-6 sm:pt-16">
+    <div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-14">
+      <div className="flex flex-col gap-6">
+        <h1 className="text-display font-semibold text-ink">
+          Many pages in.
+          <br />
+          <span className="text-ink-faint">One PDF out.</span>
+        </h1>
+        <p className="max-w-md text-lg leading-relaxed text-ink-muted">
+          Lay scans, phone photos and PDFs out on the table, put them in order, and take one tidy
+          PDF away. It all happens in your browser.
+        </p>
+      </div>
+
+      {/* The drop target: an empty patch of the light table. */}
+      <div className="relative flex flex-col items-center gap-5 overflow-hidden rounded-[1.75rem] border border-dashed border-control/70 bg-[radial-gradient(ellipse_at_50%_35%,var(--c-glow),transparent_70%)] px-6 pt-10 pb-12 text-center sm:pt-12">
+        <div className="relative h-44 w-64 sm:h-52 sm:w-72" aria-hidden="true">
+          <Sheet className="top-4 left-3 aspect-[17/22] h-[82%] -rotate-[9deg]" />
+          <Sheet className="top-6 right-2 aspect-[17/22] h-[82%] rotate-[8deg]" lines={8} />
+          <Sheet className="top-0 left-1/2 aspect-[17/22] h-[92%] -translate-x-1/2" />
+        </div>
+        <p className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
           Drop scans, photos or PDFs here
         </p>
         {/* Where focus goes when the last page is removed. */}
@@ -80,11 +110,11 @@ export const EmptyState = ({ onChoose }: { onChoose: () => void }) => (
           Choose files
         </Button>
         <p className="text-sm text-ink-muted">or paste them from the clipboard</p>
-        <p className="label mt-2 text-ink-faint">PDF · JPEG · PNG · HEIC · WebP · AVIF · GIF</p>
+        <p className="label text-ink-faint">PDF · JPEG · PNG · HEIC · WebP · AVIF · GIF</p>
       </div>
     </div>
 
-    <ol className="grid gap-8 border-t border-rule pt-8 sm:grid-cols-3">
+    <ol className="grid gap-4 sm:grid-cols-3">
       {[
         [
           'Add',
@@ -99,10 +129,10 @@ export const EmptyState = ({ onChoose }: { onChoose: () => void }) => (
           'One PDF, built in your browser. Scanned JPEGs go in as they are, not recompressed.',
         ],
       ].map(([title, body], i) => (
-        <li key={title}>
+        <li key={title} className="rounded-[1.125rem] bg-paper p-6 shadow-panel">
           <p className="label text-accent">{String(i + 1).padStart(2, '0')}</p>
-          <h2 className="mt-3 font-display text-2xl text-ink">{title}</h2>
-          <p className="mt-2 text-sm leading-relaxed text-ink-muted">{body}</p>
+          <h2 className="mt-3 text-lg font-semibold tracking-tight text-ink">{title}</h2>
+          <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">{body}</p>
         </li>
       ))}
     </ol>
@@ -116,7 +146,7 @@ export const EmptyState = ({ onChoose }: { onChoose: () => void }) => (
 /** Landing-view footer; the docs pages render the same columns (docs-site.ts). */
 export const Footer = () => (
   <footer className="border-t border-rule">
-    <div className="mx-auto grid max-w-5xl gap-8 px-4 py-10 sm:grid-cols-3 sm:px-6">
+    <div className="mx-auto grid max-w-6xl gap-8 px-4 py-10 sm:grid-cols-3 sm:px-6">
       {FOOTER.map((column) => (
         <div key={column.title}>
           <h2 className="label mb-3 text-ink-faint">{column.title}</h2>
@@ -143,11 +173,13 @@ export const Footer = () => (
 export const DropOverlay = ({ active }: { active: boolean }) =>
   active ? (
     <div
-      className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-paper/80 p-6 backdrop-blur-sm"
+      className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-ground/80 p-6 backdrop-blur-sm"
       aria-hidden="true"
     >
-      <div className="flex size-full items-center justify-center border-2 border-dashed border-accent">
-        <p className="font-display text-4xl text-ink sm:text-5xl">Drop to add pages</p>
+      <div className="flex size-full items-center justify-center rounded-[1.75rem] border-2 border-dashed border-accent bg-accent-dim">
+        <p className="text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
+          Drop to add pages
+        </p>
       </div>
     </div>
   ) : null
@@ -221,7 +253,7 @@ export const Notices = ({
   return (
     <div
       ref={box}
-      className="fixed right-4 bottom-4 z-40 w-[min(26rem,calc(100vw-2rem))] border border-l-2 border-rule border-l-accent bg-paper text-sm text-ink shadow-lg"
+      className="fixed right-4 bottom-4 z-40 w-[min(26rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border-l-4 border-l-accent bg-paper text-sm text-ink shadow-panel"
     >
       <div className="flex items-start gap-3 py-2 pr-2 pl-4">
         {/* Keyed so each new message is a new alert, and announced. */}

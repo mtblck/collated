@@ -184,12 +184,12 @@ export const CropEditor = ({
       ref={dialog}
       aria-labelledby={`${id}-title`}
       aria-describedby={`${id}-help`}
-      className="m-auto max-h-[calc(100dvh-2rem)] w-[min(60rem,calc(100vw-2rem))] overflow-y-auto border border-rule bg-paper p-0 text-ink shadow-2xl backdrop:bg-ink/50"
+      className="m-auto max-h-[calc(100dvh-2rem)] w-[min(60rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl bg-paper p-0 text-ink shadow-panel backdrop:bg-black/50"
       onClose={onClose}
     >
       <div className="flex flex-col gap-4 p-5 sm:p-6">
         <div>
-          <h2 id={`${id}-title`} className="font-display text-3xl">
+          <h2 id={`${id}-title`} className="text-xl font-semibold tracking-tight">
             Crop to the page
           </h2>
           <p id={`${id}-help`} className="mt-1 text-sm text-ink-muted">

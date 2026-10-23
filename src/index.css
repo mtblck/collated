@@ -3,110 +3,111 @@
 @source '../docs-site.ts';
 
 /* ---------------------------------------------------------------------------
-   Type: the portfolio's three faces, self-hosted. Relative URLs so Vite hashes
-   them under /assets/. Latin subsets only — this is a UI, not
-   a document renderer. `optional` + metric-matched fallbacks: a slow font keeps
-   the fallback for the page load instead of swapping under the reader.
+   Type: Geist for everything, Geist Mono for numbers and labels; self-hosted,
+   latin subsets only. Relative URLs so Vite hashes them under /assets/.
+   `optional` + metric-matched fallbacks: a slow font keeps the fallback for the
+   page load instead of swapping under the reader.
    --------------------------------------------------------------------------- */
 @font-face {
-  font-family: 'Instrument Serif';
-  font-style: normal;
-  font-weight: 400;
-  font-display: optional;
-  src: url('./assets/fonts/instrument-serif-latin-400-normal.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'Instrument Serif';
-  font-style: italic;
-  font-weight: 400;
-  font-display: optional;
-  src: url('./assets/fonts/instrument-serif-latin-400-italic.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'Archivo Variable';
+  font-family: 'Geist Variable';
   font-style: normal;
   font-weight: 100 900;
   font-display: optional;
-  src: url('./assets/fonts/archivo-latin-wght-normal.woff2') format('woff2');
+  src: url('./assets/fonts/geist-latin-wght-normal.woff2') format('woff2');
 }
 @font-face {
-  font-family: 'JetBrains Mono Variable';
+  font-family: 'Geist Mono Variable';
   font-style: normal;
-  font-weight: 100 800;
+  font-weight: 100 900;
   font-display: optional;
-  src: url('./assets/fonts/jetbrains-mono-latin-wght-normal.woff2') format('woff2');
+  src: url('./assets/fonts/geist-mono-latin-wght-normal.woff2') format('woff2');
 }
-/* Fallback metrics measured for mb-portfolio; see its src/index.css. */
+/* Fallback metrics: Geist's letter-frequency-weighted width against Arial's
+   (Liberation Sans), and its ascent and descent rescaled to match. */
 @font-face {
-  font-family: 'Instrument Serif Fallback';
-  src: local('Georgia'), local('Times New Roman'), local('Times');
-  size-adjust: 81.78%;
-  ascent-override: 121.06%;
-  descent-override: 37.91%;
+  font-family: 'Geist Fallback';
+  src: local('Arial'), local('Helvetica Neue'), local('Liberation Sans'), local('Roboto');
+  size-adjust: 105.85%;
+  ascent-override: 94.94%;
+  descent-override: 27.87%;
   line-gap-override: 0%;
 }
 @font-face {
-  font-family: 'Archivo Fallback';
-  src: local('Helvetica Neue'), local('Arial'), local('Roboto');
-  size-adjust: 99.14%;
-  ascent-override: 88.76%;
-  descent-override: 21.18%;
-  line-gap-override: 0%;
-}
-@font-face {
-  font-family: 'JetBrains Mono Fallback';
+  font-family: 'Geist Mono Fallback';
   src: local('SF Mono'), local('Menlo'), local('Consolas'), local('DejaVu Sans Mono');
-  size-adjust: 99.66%;
-  ascent-override: 102.35%;
-  descent-override: 30.1%;
+  size-adjust: 99.65%;
+  ascent-override: 100.85%;
+  descent-override: 29.6%;
   line-gap-override: 0%;
 }
 
 /* ---------------------------------------------------------------------------
-   Palette, from mb-portfolio: warm paper, warm ink, one vermillion accent used
-   only for signal (focus, selection, the drop target, warnings) — and as the
-   fill of destructive buttons (Remove), with paper-coloured text. `faint` is set to clear WCAG AA at small sizes.
+   Palette: the light table. Pages lie on a dark, faintly lit ground and glow
+   a little; panels float above it. One amber accent, the safelight, used for
+   signal (focus, selection, the drop target) and the primary action. Removing
+   things has its own red. `faint` clears WCAG AA at small sizes on panels
+   and the ground.
+
+   Light is the same table by daylight: a pale ground, white panels, and the
+   amber darkened to ochre so it holds AA as text.
 
    Pages themselves stay white in both themes, because that's what the PDF
-   will be; in dark mode they're dimmed slightly so they don't glare.
+   will be; on the dark table they're dimmed slightly so they don't glare.
    --------------------------------------------------------------------------- */
 :root {
   color-scheme: light;
-  --c-paper: oklch(0.986 0.005 85);
-  --c-paper-sunk: oklch(0.962 0.007 82);
-  --c-ink: oklch(0.215 0.014 55);
-  --c-ink-muted: oklch(0.445 0.013 55);
-  --c-ink-faint: oklch(0.54 0.012 60);
-  --c-rule: oklch(0.892 0.009 72);
+  --c-ground: oklch(0.935 0.004 265);
+  --c-glow: oklch(0.972 0.003 265);
+  --c-paper: oklch(0.993 0.002 265);
+  --c-paper-sunk: oklch(0.955 0.004 265);
+  --c-ink: oklch(0.205 0.008 265);
+  --c-ink-muted: oklch(0.42 0.01 265);
+  --c-ink-faint: oklch(0.49 0.01 265);
+  --c-rule: oklch(0.885 0.005 265);
   /* Borders that identify a control (fields, segmented controls): ≥ 3:1 on
-     paper (WCAG 1.4.11). Decorative rules stay --c-rule. */
-  --c-control: oklch(0.62 0.012 60);
-  --c-rule-soft: oklch(0.935 0.007 76);
-  --c-accent: oklch(0.552 0.171 38);
-  --c-accent-dim: oklch(0.552 0.171 38 / 0.12);
-  --c-selection: oklch(0.552 0.171 38 / 0.18);
+     panels (WCAG 1.4.11). Decorative rules stay --c-rule. */
+  --c-control: oklch(0.6 0.01 265);
+  --c-rule-soft: oklch(0.925 0.004 265);
+  --c-accent: oklch(0.5 0.115 62);
+  --c-on-accent: oklch(0.993 0.002 265);
+  --c-accent-dim: oklch(0.5 0.115 62 / 0.12);
+  --c-selection: oklch(0.72 0.14 72 / 0.3);
+  --c-danger: oklch(0.52 0.19 27);
+  --c-on-danger: oklch(0.993 0.002 265);
   --c-sheet: #fff;
-  --c-sheet-shadow: 0 1px 2px oklch(0.215 0.014 55 / 0.08), 0 4px 14px oklch(0.215 0.014 55 / 0.07);
+  --c-sheet-shadow:
+    0 0 0 1px oklch(0.205 0.008 265 / 0.05), 0 1px 2px oklch(0.205 0.008 265 / 0.08),
+    0 10px 28px -4px oklch(0.205 0.008 265 / 0.16);
+  --c-panel-shadow:
+    0 0 0 1px oklch(0.205 0.008 265 / 0.06), 0 1px 2px oklch(0.205 0.008 265 / 0.05),
+    0 18px 44px -12px oklch(0.205 0.008 265 / 0.22);
   --sheet-filter: none;
-  --grain-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.42'/%3E%3C/svg%3E");
 }
 
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --c-paper: oklch(0.172 0.008 65);
-  --c-paper-sunk: oklch(0.145 0.007 65);
-  --c-ink: oklch(0.932 0.008 82);
-  --c-ink-muted: oklch(0.775 0.011 75);
-  --c-ink-faint: oklch(0.65 0.011 70);
-  --c-rule: oklch(0.305 0.011 70);
-  --c-control: oklch(0.52 0.011 70);
-  --c-rule-soft: oklch(0.248 0.01 68);
-  --c-accent: oklch(0.702 0.153 42);
-  --c-accent-dim: oklch(0.702 0.153 42 / 0.16);
-  --c-selection: oklch(0.702 0.153 42 / 0.22);
-  --c-sheet: #f4f1ec;
-  --c-sheet-shadow: 0 1px 2px oklch(0 0 0 / 0.4), 0 6px 18px oklch(0 0 0 / 0.35);
-  --sheet-filter: brightness(0.92);
+  --c-ground: oklch(0.19 0.006 265);
+  --c-glow: oklch(0.255 0.008 265);
+  --c-paper: oklch(0.24 0.007 265);
+  --c-paper-sunk: oklch(0.17 0.005 265);
+  --c-ink: oklch(0.95 0.004 265);
+  --c-ink-muted: oklch(0.8 0.008 265);
+  --c-ink-faint: oklch(0.7 0.01 265);
+  --c-rule: oklch(0.33 0.008 265);
+  --c-control: oklch(0.54 0.01 265);
+  --c-rule-soft: oklch(0.285 0.007 265);
+  --c-accent: oklch(0.83 0.145 72);
+  --c-on-accent: oklch(0.21 0.03 70);
+  --c-accent-dim: oklch(0.83 0.145 72 / 0.14);
+  --c-selection: oklch(0.83 0.145 72 / 0.3);
+  --c-danger: oklch(0.72 0.16 27);
+  --c-on-danger: oklch(0.19 0.03 27);
+  --c-sheet: #fff;
+  --c-sheet-shadow:
+    0 0 0 1px oklch(1 0 0 / 0.06), 0 0 40px oklch(0.96 0.05 80 / 0.1),
+    0 12px 30px oklch(0 0 0 / 0.55);
+  --c-panel-shadow: 0 0 0 1px oklch(1 0 0 / 0.07), 0 20px 50px oklch(0 0 0 / 0.5);
+  --sheet-filter: brightness(0.94);
 }
 
 @theme inline {
@@ -120,26 +121,44 @@
   --color-rule-soft: var(--c-rule-soft);
   --color-accent: var(--c-accent);
   --color-accent-dim: var(--c-accent-dim);
+  --color-on-accent: var(--c-on-accent);
+  --color-danger: var(--c-danger);
+  --color-on-danger: var(--c-on-danger);
+  --color-ground: var(--c-ground);
   --color-sheet: var(--c-sheet);
 
-  --font-display: 'Instrument Serif', 'Instrument Serif Fallback', Georgia, serif;
-  --font-sans: 'Archivo Variable', 'Archivo Fallback', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono Fallback', ui-monospace, monospace;
+  --font-display: 'Geist Variable', 'Geist Fallback', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Geist Variable', 'Geist Fallback', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', 'Geist Mono Fallback', ui-monospace, monospace;
 
-  --text-display: clamp(2.75rem, 7vw, 5.75rem);
-  --text-display--line-height: 0.95;
-  --text-display--letter-spacing: -0.022em;
-  --text-label: 0.6875rem;
+  --text-display: clamp(2.5rem, 5.4vw, 4.5rem);
+  --text-display--line-height: 0.98;
+  --text-display--letter-spacing: -0.045em;
+  --text-label: 0.75rem;
   --text-label--line-height: 1;
-  --text-label--letter-spacing: 0.13em;
+  --text-label--letter-spacing: 0.01em;
+  --radius-panel: 1.125rem;
+}
+
+/* Surfaces floating over the table (panels, popovers, dialogs) and the pages
+   on it. Utilities, so breakpoints can apply them. */
+@utility shadow-panel {
+  box-shadow: var(--c-panel-shadow);
+}
+@utility shadow-sheet {
+  box-shadow: var(--c-sheet-shadow);
 }
 
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
   }
+  /* The table: a soft pool of light on the ground, fixed so it stays put
+     while the panes scroll. */
   body {
-    background-color: var(--c-paper);
+    background:
+      radial-gradient(ellipse 70% 60% at 42% 40%, var(--c-glow), transparent 70%) fixed,
+      var(--c-ground);
     color: var(--c-ink);
     font-family: var(--font-sans);
     font-synthesis-weight: none;
@@ -165,24 +184,12 @@
 }
 
 @layer components {
-  /* Mono small caps: the "spec sheet" register that pairs with the serif. */
+  /* Small mono labels: page numbers, section names, sizes. */
   .label {
     font-family: var(--font-mono);
     font-size: var(--text-label);
     letter-spacing: var(--text-label--letter-spacing);
-    text-transform: uppercase;
     font-weight: 500;
-  }
-
-  .grain {
-    background-image: var(--grain-url);
-    background-size: 180px 180px;
-    opacity: 0.5;
-    mix-blend-mode: multiply;
-  }
-  :root[data-theme='dark'] .grain {
-    opacity: 0.3;
-    mix-blend-mode: screen;
   }
 
   /* A page as it will print. */
@@ -190,30 +197,6 @@
     background: var(--c-sheet);
     box-shadow: var(--c-sheet-shadow);
     filter: var(--sheet-filter);
-  }
-
-  /* Printer's crop marks at the corners of the drop target. */
-  .crop-marks {
-    --mark: 18px;
-    --gap: -9px;
-    background:
-      linear-gradient(var(--c-ink-faint), var(--c-ink-faint)) top var(--gap) left 0 / 1px
-        var(--mark),
-      linear-gradient(var(--c-ink-faint), var(--c-ink-faint)) top 0 left var(--gap) / var(--mark)
-        1px,
-      linear-gradient(var(--c-ink-faint), var(--c-ink-faint)) top var(--gap) right 0 / 1px
-        var(--mark),
-      linear-gradient(var(--c-ink-faint), var(--c-ink-faint)) top 0 right var(--gap) / var(--mark)
-        1px,
-      linear-gradient(var(--c-ink-faint), var(--c-ink-faint)) bottom var(--gap) left 0 / 1px
-        var(--mark),
-      linear-gradient(var(--c-ink-faint), var(--c-ink-faint)) bottom 0 left var(--gap) / var(--mark)
-        1px,
-      linear-gradient(var(--c-ink-faint), var(--c-ink-faint)) bottom var(--gap) right 0 / 1px
-        var(--mark),
-      linear-gradient(var(--c-ink-faint), var(--c-ink-faint)) bottom 0 right var(--gap) /
-        var(--mark) 1px;
-    background-repeat: no-repeat;
   }
 
   /* Native range, restyled: hairline track, ink thumb, accent when focused. */
@@ -224,17 +207,19 @@
     background: transparent;
   }
   .range::-webkit-slider-runnable-track {
-    height: 1px;
-    background: var(--c-ink-faint);
+    height: 2px;
+    border-radius: 1px;
+    background: var(--c-control);
   }
   .range::-moz-range-track {
-    height: 1px;
-    background: var(--c-ink-faint);
+    height: 2px;
+    border-radius: 1px;
+    background: var(--c-control);
   }
   .range::-webkit-slider-thumb {
     appearance: none;
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     margin-top: -7px;
     border-radius: 999px;
     background: var(--c-ink);
@@ -264,8 +249,8 @@
   .field {
     height: 2.25rem;
     border: 1px solid var(--c-control);
-    border-radius: 2px;
-    background: var(--c-paper);
+    border-radius: 0.5rem;
+    background: var(--c-paper-sunk);
     padding-inline: 0.625rem;
     font-size: 0.875rem;
     color: var(--c-ink);
@@ -408,12 +393,16 @@
 .doc h1 {
   font-family: var(--font-display);
   font-size: 2.75rem;
+  font-weight: 600;
+  letter-spacing: -0.035em;
   line-height: 1.1;
   margin-bottom: 1.25rem;
 }
 .doc h2 {
   font-family: var(--font-display);
-  font-size: 1.75rem;
+  font-size: 1.625rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
   line-height: 1.2;
   margin: 2.5rem 0 0.75rem;
 }
@@ -449,6 +438,7 @@
   font-size: 0.875em;
   background: var(--c-paper-sunk);
   padding: 0.1em 0.3em;
+  border-radius: 0.25rem;
 }
 .doc em {
   color: var(--c-ink-muted);

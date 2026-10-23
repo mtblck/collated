@@ -63,5 +63,4 @@ for the version used is at
 GPL-3.0 text it incorporates, ship with the site as
 `licenses/LGPL-3.0-and-GPL-3.0.txt` (libheif's own licence file).
 
-Typefaces (Instrument Serif, Archivo, JetBrains Mono) are under the SIL Open
-Font License 1.1.
+Typefaces (Geist, Geist Mono) are under the SIL Open Font License 1.1.

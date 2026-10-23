@@ -638,7 +638,6 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     // page grid and the inspector scroll on their own. On narrower screens the
     // page scrolls as usual and the header scrolls with it.
     <div className="relative flex min-h-dvh flex-col lg:h-dvh lg:overflow-hidden">
-      <div className="grain pointer-events-none fixed inset-0 -z-10" aria-hidden="true" />
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-paper focus:px-3 focus:py-2"
@@ -683,7 +682,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col lg:flex-row">
               <section
                 aria-label="Pages"
-                className="scroll-pane min-w-0 flex-1 px-4 py-6 sm:px-6 lg:overflow-y-auto lg:overscroll-contain"
+                className="scroll-pane min-w-0 flex-1 px-4 py-6 sm:px-6 lg:overflow-y-auto lg:overscroll-contain lg:px-8"
               >
                 {importing && (
                   <p className="label mb-4 text-ink-faint" aria-hidden="true">
@@ -707,7 +706,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
               <aside
                 ref={rail}
                 aria-label="Selected page"
-                className="scroll-pane border-t border-rule px-4 py-6 sm:px-6 lg:w-[22rem] lg:shrink-0 lg:overflow-y-auto lg:overscroll-contain lg:border-t-0 lg:border-l lg:px-8"
+                className="scroll-pane border-t border-rule px-4 py-6 sm:px-6 lg:mr-4 lg:mb-4 lg:w-[23rem] lg:shrink-0 lg:overflow-y-auto lg:overscroll-contain lg:rounded-[1.125rem] lg:border-t-0 lg:bg-paper lg:px-6 lg:shadow-panel"
               >
                 {selected && selectedAsset && inspectorActions ? (
                   <Inspector

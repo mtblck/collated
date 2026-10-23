@@ -19,7 +19,7 @@ export interface ExportState {
 }
 
 /**
- * The workspace toolbar, in the header's one row: page setup (a popover),
+ * The workspace toolbar, a pill floating in the header's one row: page setup (a popover),
  * undo and redo, add, export (a popover of options with the Export button
  * pinned at its foot), and a More menu for the rest. One Tab stop; arrow keys move along it.
  */
@@ -75,15 +75,11 @@ export const DocumentBar = ({
     // the same order as the DOM so the arrow keys go where the eye does.
     <Toolbar
       label="Document"
-      className="min-w-0 flex-1 basis-full flex-wrap gap-x-1.5 gap-y-2 sm:basis-auto sm:flex-nowrap"
+      className="min-w-0 flex-1 basis-full flex-wrap gap-x-1 gap-y-2 sm:flex-none sm:basis-auto sm:flex-nowrap sm:rounded-full sm:bg-paper sm:p-1 sm:shadow-panel"
     >
-      <div className="flex min-w-0 flex-1 sm:mr-auto sm:flex-none xl:mr-0">
+      <div className="flex min-w-0 flex-1 sm:flex-none">
         <PageSetup settings={settings} onSettings={onSettings} />
       </div>
-      <p className="label mx-auto hidden px-4 text-ink-faint xl:block" aria-hidden="true">
-        <span className="mr-2 inline-block size-1.5 rounded-full bg-accent align-middle" />
-        Files stay on this device
-      </p>
       {/* Inactive rather than disabled: undoing the last step mustn't
           drop focus from the button. */}
       <IconButton label={`Undo (${mod}Z)`} inactive={!canUndo} onClick={onUndo} {...TOOLBAR_ITEM}>
@@ -98,8 +94,9 @@ export const DocumentBar = ({
         <RedoIcon />
       </IconButton>
       <span className="basis-full sm:hidden" aria-hidden="true" />
-      <span className="mx-1 hidden h-6 border-l border-rule sm:block" aria-hidden="true" />
+      <span className="mx-1 hidden h-5 border-l border-rule sm:block" aria-hidden="true" />
       <Button
+        variant="quiet"
         onClick={onAdd}
         data-focus-fallback
         {...TOOLBAR_ITEM}

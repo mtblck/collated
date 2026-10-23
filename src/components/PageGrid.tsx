@@ -56,7 +56,7 @@ const PageCard = memo(function PageCard({
       className={cx('group relative flex min-w-0 flex-col', isDragging && 'z-10 opacity-90')}
       data-page-id={page.id}
     >
-      <div className="relative rounded-[3px] p-3 transition-colors hover:bg-ink/[0.035]">
+      <div className="relative rounded-2xl p-3 transition-colors hover:bg-ink/[0.04]">
         <button
           type="button"
           className="block aspect-[4/5] w-full focus-visible:outline-offset-4"
@@ -81,7 +81,7 @@ const PageCard = memo(function PageCard({
           type="button"
           ref={handleRef}
           className={cx(
-            'absolute top-1.5 left-1.5 flex size-8 cursor-grab touch-none items-center justify-center rounded-[2px] bg-paper text-ink-muted shadow-sm hover:text-ink active:cursor-grabbing',
+            'absolute top-1.5 left-1.5 flex size-8 cursor-grab touch-none items-center justify-center rounded-full bg-paper text-ink-muted shadow-panel hover:text-ink active:cursor-grabbing',
             reveal,
           )}
           aria-label={`Reorder page ${index + 1}`}
@@ -91,7 +91,7 @@ const PageCard = memo(function PageCard({
         </button>
         <div
           className={cx(
-            'absolute right-1.5 bottom-1.5 flex rounded-[2px] bg-paper p-0.5 shadow-sm',
+            'absolute right-1.5 bottom-1.5 flex rounded-full bg-paper p-0.5 shadow-panel',
             reveal,
           )}
         >
@@ -126,7 +126,7 @@ const PageCard = memo(function PageCard({
       </div>
       <div className="mt-1.5 flex items-baseline gap-2 px-3">
         <span
-          className={cx('label shrink-0', selected ? 'text-accent' : 'text-ink')}
+          className={cx('label shrink-0', selected ? 'text-accent' : 'text-ink-muted')}
           aria-hidden="true"
         >
           {n}
@@ -208,7 +208,7 @@ export const PageGrid = ({
         Drag to reorder, or press Space to pick up and use the arrow keys to move.
       </p>
       <ol
-        className="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-x-3 gap-y-5 sm:grid-cols-[repeat(auto-fill,minmax(11rem,1fr))]"
+        className="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-x-3 gap-y-5 sm:grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] sm:gap-x-6 sm:gap-y-8"
         aria-label={`${count} ${count === 1 ? 'page' : 'pages'}`}
       >
         {pages.map((page, index) => {

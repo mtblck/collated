@@ -150,13 +150,12 @@ export const renderPage = (spec: PageSpec, css: string): RenderedPage => {
     <link rel="stylesheet" href="${css}" />
   </head>
   <body>
-    <div class="grain pointer-events-none fixed inset-0 -z-10" aria-hidden="true"></div>
     <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-paper focus:px-3 focus:py-2">Skip to content</a>
-    <header class="border-b border-rule bg-paper">
+    <header class="border-b border-rule">
       <div class="mx-auto flex min-h-14 max-w-6xl items-center gap-4 px-4 py-2.5 sm:px-6">
-        <a href="${APP_URL}" class="font-display text-[1.75rem] leading-none text-ink">Collated</a>
+        <a href="${APP_URL}" class="text-xl leading-none font-semibold tracking-[-0.03em] text-ink lowercase">Collated</a>
         <span class="label text-ink-faint">Docs</span>
-        <a href="${APP_URL}" class="ml-auto inline-flex h-9 items-center rounded-[2px] bg-ink px-3.5 text-sm font-medium text-paper hover:bg-ink/85">Open Collated</a>
+        <a href="${APP_URL}" class="ml-auto inline-flex h-9 items-center rounded-full bg-accent px-4 text-sm font-medium text-on-accent hover:bg-[color-mix(in_oklab,var(--c-accent),var(--c-ink)_14%)]">Open Collated</a>
       </div>
     </header>
     <div class="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-14">
