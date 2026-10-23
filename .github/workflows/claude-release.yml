@@ -1,0 +1,82 @@
+name: Release draft
+
+# Every Monday (and on demand from the Actions tab) drafts the next release with
+# the release skill from mtblck/claude-marketplace, in --draft mode: a PR that moves
+# CHANGELOG's Unreleased lines under the new version or date (and bumps version
+# files), plus a *draft* GitHub release with the notes. Nothing is tagged or
+# published unattended. To ship: merge the PR, then publish the draft from the
+# Releases page, which creates the tag on the default branch.
+#
+# Quiet weeks cost nothing: a scheduled run stops before Claude when Unreleased in
+# CHANGELOG.md is empty (changelog.yml keeps it filled). A manual run always drafts,
+# from merged PRs if need be. Remove the schedule for repos nobody else uses.
+on:
+  schedule:
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version, or patch / minor / major (blank: let the skill pick)'
+        required: false
+        default: ''
+
+concurrency:
+  group: claude-release
+  cancel-in-progress: false
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Write is for the release branch, its PR and the draft release. The PR is opened
+    # with the Claude app's token (not GITHUB_TOKEN), so CI and the Claude review run on it.
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+      id-token: write
+    env:
+      HAS_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - if: env.HAS_TOKEN != 'true'
+        run: echo "::notice::CLAUDE_CODE_OAUTH_TOKEN is not set; skipping the release draft."
+      # Only scheduled and manual triggers, both on the default branch, so .claude/
+      # already comes from main.
+      - if: env.HAS_TOKEN == 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - if: env.HAS_TOKEN == 'true'
+        id: gate
+        run: |
+          re='^(patch|minor|major|v?[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?|[0-9]{4}-[0-9]{2}-[0-9]{2}(\.[0-9]+)?)$'
+          if [ -n "$VERSION" ] && ! [[ "$VERSION" =~ $re ]]; then
+            echo "::error::version must be blank, patch, minor, major, a semver or a YYYY-MM-DD date."
+            exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            entries=0
+            if [ -f CHANGELOG.md ]; then
+              entries=$(awk 'tolower($0) ~ /^## \[?unreleased\]?[[:space:]]*$/ {on=1; next} /^## / {on=0} on && /^[-*] / {n++} END {print n+0}' CHANGELOG.md)
+            fi
+            if [ "$entries" -eq 0 ]; then
+              echo "::notice::Nothing under Unreleased in CHANGELOG.md; no release to draft this week."
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+      - if: env.HAS_TOKEN == 'true' && steps.gate.outputs.run == 'true'
+        uses: anthropics/claude-code-action@e4a6faad497d33dbc7144135c75e41f82f0bf6c0 # v1, pinned: it runs with the token
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: https://github.com/mtblck/claude-marketplace.git
+          plugins: maintenance@mtblck
+          prompt: '/maintenance:release --draft ${{ env.VERSION }}'
+          # git push is limited to the one release branch; the skill never tags,
+          # publishes a release or merges.
+          claude_args: >-
+            --allowedTools "Read,Edit,Write,Grep,Glob,Bash(gh api:*),Bash(jq:*),Bash(git fetch:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),Bash(git status:*),Bash(git tag --list:*),Bash(git describe:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git checkout -B claude/release-draft:*),Bash(git add:*),Bash(git commit:*),Bash(git push --force origin claude/release-draft)"
+          show_full_output: true

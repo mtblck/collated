@@ -21,6 +21,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The PR merge commit and its base parent, for coverage of the changed lines.
+          fetch-depth: 2
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -31,8 +33,30 @@ jobs:
       # tesseract.js's donation banner and macOS-only fsevents. Playwright's
       # browser is installed in its own step.
       - run: npm ci --ignore-scripts
-      - run: npm run check
+      # `npm run check`, with the tests run through `coverage` so CI can report it.
+      - run: npm run format:check && npm run lint && npm run typecheck
+      - run: npm run coverage
       - run: npm run build
+      # Report only: whole-repo and changed-line coverage in the job summary, plus
+      # coverage/diff-coverage.json for the Claude review. Fails only below the
+      # COVERAGE_MIN / DIFF_COVERAGE_MIN repository variables, when they are set.
+      - name: Coverage report
+        if: ${{ !cancelled() && hashFiles('coverage/lcov.info') != '' }}
+        run: node .github/scripts/coverage-report.mjs
+        env:
+          COVERAGE_MIN: ${{ vars.COVERAGE_MIN }}
+          DIFF_COVERAGE_MIN: ${{ vars.DIFF_COVERAGE_MIN }}
+      - name: Upload coverage
+        if: ${{ !cancelled() && hashFiles('coverage/lcov.info') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: |
+            coverage/lcov.info
+            coverage/coverage-summary.json
+            coverage/diff-coverage.json
+          retention-days: 14
+          if-no-files-found: ignore
 
   e2e:
     name: Browser verify (Chromium, axe, preview ≡ PDF)

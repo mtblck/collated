@@ -6,7 +6,8 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import jsxA11y from 'eslint-plugin-jsx-a11y'
 
 export default tseslint.config(
-  { ignores: ['dist', 'coverage', 'shots'] },
+  // .github/scripts is copied as-is from repo-setup (mtblck/claude-marketplace).
+  { ignores: ['dist', 'coverage', 'shots', '.github/scripts'] },
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
