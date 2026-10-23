@@ -1,0 +1,128 @@
+name: Changelog
+
+# Keeps CHANGELOG.md's Unreleased section current: when a PR merges into the
+# default branch, adds one line for it, sorted by labels and title. No Claude, just
+# a script; the release skill (maintenance plugin) rewrites lines for users when it
+# drafts a release, so a terse title here is fine.
+#
+# Skipped when: the PR already edited CHANGELOG.md, it has a `skip-changelog` label,
+# its title starts with chore/ci/docs/test/refactor/build/style, it's from
+# Dependabot (the release skill picks up security fixes from the PRs themselves),
+# it's from a fork, or the repo has no CHANGELOG.md.
+# Sections: label `security` or a `security:` title → Security; `bug`/`fix:` → Fixed;
+# `enhancement`/`feature`/`feat:`/"Add …" → Added; label `breaking` or `feat!:` →
+# Changed, marked Breaking; anything else → Changed.
+#
+# It commits straight to the default branch. If a ruleset requires PRs there, the
+# push is refused and the run ends with a warning; the release skill still fills
+# the gap from merged PRs.
+on:
+  pull_request:
+    types: [closed]
+
+concurrency:
+  group: changelog
+  cancel-in-progress: false
+
+jobs:
+  entry:
+    # Merged into the default branch, from this repo (fork runs get a read-only token).
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == github.event.repository.default_branch &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: read
+    env:
+      # PR text goes through env, never into the script itself.
+      PR: ${{ github.event.pull_request.number }}
+      TITLE: ${{ github.event.pull_request.title }}
+      LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+      BRANCH: ${{ github.event.repository.default_branch }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Skip if the PR wrote its own entry
+        id: own
+        run: |
+          if gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename' | grep -qx 'CHANGELOG.md'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::#$PR edited CHANGELOG.md itself; nothing to add."
+          fi
+      - name: Add the line
+        if: steps.own.outputs.skip != 'true'
+        run: |
+          cat > "$RUNNER_TEMP/entry.js" <<'EOF'
+          const fs = require('fs');
+          const file = 'CHANGELOG.md';
+          if (!fs.existsSync(file)) { console.log('::notice::No CHANGELOG.md; skipping.'); process.exit(0); }
+          const pr = process.env.PR;
+          const labels = JSON.parse(process.env.LABELS || '[]').map(l => l.toLowerCase());
+          let title = process.env.TITLE.trim();
+          const text = fs.readFileSync(file, 'utf8');
+          if (text.includes(`(#${pr})`)) { console.log(`::notice::#${pr} is already in the changelog.`); process.exit(0); }
+          if (labels.some(l => ['skip-changelog', 'no-changelog', 'skip changelog', 'no changelog'].includes(l))) process.exit(0);
+
+          const m = title.match(/^(\w+)(\([^)]*\))?(!)?:\s*/);
+          const type = m ? m[1].toLowerCase() : '';
+          if (['chore', 'ci', 'docs', 'test', 'tests', 'refactor', 'build', 'style'].includes(type)) {
+            console.log(`::notice::"${type}:" PR; not user-facing, skipping.`); process.exit(0);
+          }
+          if (m) title = title.slice(m[0].length);
+          const breaking = labels.includes('breaking') || (m && m[3] === '!');
+          let section = 'Changed';
+          if (labels.includes('security') || type === 'security') section = 'Security';
+          else if (breaking) section = 'Changed';
+          else if (labels.some(l => ['bug', 'fix', 'bugfix'].includes(l)) || type === 'fix') section = 'Fixed';
+          else if (labels.some(l => ['enhancement', 'feature'].includes(l)) || type === 'feat') section = 'Added';
+          else if (/^(add|adds|added|new|introduce)\b/i.test(title)) section = 'Added';
+          else if (/^(fix|fixes|fixed)\b/i.test(title)) section = 'Fixed';
+          title = title.charAt(0).toUpperCase() + title.slice(1);
+          const entry = `- ${breaking ? '**Breaking:** ' : ''}${title} (#${pr})`;
+
+          const lines = text.split('\n');
+          let start = lines.findIndex(l => /^## \[?unreleased\]?\s*$/i.test(l));
+          if (start === -1) {
+            // No Unreleased section: add one above the newest release (or at the end).
+            let at = lines.findIndex(l => /^## /.test(l));
+            if (at === -1) at = lines.length;
+            lines.splice(at, 0, '## Unreleased', '');
+            start = at;
+          }
+          let end = lines.findIndex((l, i) => i > start && /^## /.test(l));
+          if (end === -1) end = lines.length;
+          const h = lines.findIndex((l, i) => i > start && i < end && l.trim().toLowerCase() === `### ${section.toLowerCase()}`);
+          if (h === -1) {
+            while (end > start + 1 && lines[end - 1].trim() === '') end--;
+            lines.splice(end, 0, '', `### ${section}`, '', entry, '');
+          } else {
+            let b = lines.findIndex((l, i) => i > h && /^#{2,3} /.test(l));
+            if (b === -1) b = lines.length;
+            const body = lines.slice(h + 1, b);
+            while (body.length && body[0].trim() === '') body.shift();
+            while (body.length && body[body.length - 1].trim() === '') body.pop();
+            body.push(entry);
+            lines.splice(h + 1, b - h - 1, '', ...body, '');
+          }
+          fs.writeFileSync(file, lines.join('\n').replace(/\n{3,}/g, '\n\n'));
+          console.log(`Added under ${section}: ${entry}`);
+          EOF
+          git config user.name "mtblck"
+          git config user.email "105079242+mtblck@users.noreply.github.com"
+          # Retry against a fresh main if someone else pushed in between.
+          for attempt in 1 2 3; do
+            git fetch --no-tags origin "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+            node "$RUNNER_TEMP/entry.js"
+            git diff --quiet && exit 0
+            git commit -qam "changelog: add #$PR"
+            git push origin "HEAD:$BRANCH" && exit 0
+            sleep $((attempt * 5))
+          done
+          echo "::warning::Couldn't push the changelog line for #$PR to $BRANCH (a ruleset may require PRs). The release skill will pick it up from the PR."

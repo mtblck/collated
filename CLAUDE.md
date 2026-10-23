@@ -22,4 +22,8 @@ Images → one PDF, client-only, at https://collatedpdf.com/ (own Vercel project
 - **Button sizes are a prop**, not class overrides (two padding utilities resolve by stylesheet order; it once squashed icons to 6px).
 - `@dnd-kit/*` is 0.x and pinned exactly; check announcements and keyboard reorder in verify after upgrading.
 
+The full reasoning behind these, and every other decision worth keeping, is in
+`docs/adr/` (one short record per decision; copy `0000-template.md`). Reversing
+one means a new ADR that supersedes it, in the same PR.
+
 Tickets: GitHub Issues here (shown at mattblack.space/boards/collated). Commit as `mtblck <105079242+mtblck@users.noreply.github.com>`.
