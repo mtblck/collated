@@ -185,6 +185,14 @@
     mix-blend-mode: screen;
   }
 
+  /* The work area: a cutting-mat dot grid (from Inlaytrace), so the pages
+     sit on a surface distinct from the plain-paper rail beside them. */
+  .mat {
+    background-color: var(--c-paper-sunk);
+    background-image: radial-gradient(var(--c-rule) 1px, transparent 1.2px);
+    background-size: 16px 16px;
+  }
+
   /* A page as it will print. */
   .sheet {
     background: var(--c-sheet);

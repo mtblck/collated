@@ -683,7 +683,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col lg:flex-row">
               <section
                 aria-label="Pages"
-                className="scroll-pane min-w-0 flex-1 px-4 py-6 sm:px-6 lg:overflow-y-auto lg:overscroll-contain"
+                className="mat scroll-pane min-w-0 flex-1 px-4 py-6 sm:px-6 lg:overflow-y-auto lg:overscroll-contain"
               >
                 {importing && (
                   <p className="label mb-4 text-ink-faint" aria-hidden="true">
