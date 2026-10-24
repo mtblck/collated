@@ -220,11 +220,12 @@ export const Inspector = ({
           </p>
         ) : (
           <div className="flex flex-wrap gap-2" role="group" aria-labelledby={`${id}-crop`}>
-            {/* Inactive while looking, rather than disabled, so focus stays put. */}
+            {/* Inactive while looking (here or for all pages), rather than disabled,
+                so focus stays put; a crop made mid-run would be overwritten. */}
             <Button
               ref={cropButton}
               className="flex-1"
-              inactive={finding}
+              inactive={finding || autoCropping}
               onClick={() => {
                 void openCropEditor()
               }}

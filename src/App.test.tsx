@@ -898,6 +898,30 @@ describe('App', () => {
       expect(auto).toHaveFocus()
     })
 
+    it('holds the crop editor while auto-crop runs, so its result cannot overwrite a new crop', async () => {
+      let finish: (value: null) => void = () => undefined
+      const { user, upload } = setup({
+        findPaper: () =>
+          new Promise((resolve) => {
+            finish = resolve
+          }),
+      })
+      await upload('a.jpg', 'b.jpg')
+      const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+      await user.click(panel.getByRole('button', { name: 'Auto-crop all pages' }))
+      const crop = panel.getByRole('button', { name: 'Crop to the page…' })
+      expect(crop).toHaveAttribute('aria-disabled', 'true')
+      await user.click(crop)
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      await act(async () => {
+        finish(null)
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        finish(null)
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      })
+      expect(crop).not.toHaveAttribute('aria-disabled')
+    })
+
     it('says "no clear lines" once, as a notice, not again in the status', async () => {
       const { user, upload } = setup()
       await upload('blank.jpg')
