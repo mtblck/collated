@@ -35,7 +35,9 @@ const TAP_SLOP = 6
  * The image is shown as the page shows it, turned by the page's quarter turns,
  * so "top" is the top you see; corners are stored upright (core/cropFrame.ts).
  * Each edge has a handle at its middle that moves its two corners together,
- * straight in or out, for crops with straight sides.
+ * straight in or out, for crops with straight sides. A page not yet cropped
+ * opens with the corners on the paper found in the photo (`suggested`), if
+ * one was; nothing is applied until Apply crop.
  *
  * Three ways to move a handle: drag it; tap it, then tap where it goes (a
  * single-pointer alternative to dragging, WCAG 2.5.7); or focus it and use the
@@ -47,6 +49,7 @@ export const CropEditor = ({
   asset,
   turns = 0,
   initial,
+  suggested = null,
   onApply,
   onClose,
 }: {
@@ -54,6 +57,8 @@ export const CropEditor = ({
   /** The page's quarter turns, clockwise: the editor shows the image turned. */
   turns?: number
   initial: Quad | null
+  /** Where the paper was found, if it was: the start when there's no crop yet. */
+  suggested?: Quad | null
   onApply: (corners: Quad | null) => void
   onClose: () => void
 }) => {
@@ -65,7 +70,10 @@ export const CropEditor = ({
   const width = sideways ? asset.height : asset.width
   const height = sideways ? asset.width : asset.height
   // Corners as seen, in screen order; converted back to upright on apply.
-  const [corners, setCorners] = useState<Quad>(() => quadToView(initial ?? FULL_IMAGE, turns))
+  const found = initial === null && suggested !== null
+  const [corners, setCorners] = useState<Quad>(() =>
+    quadToView(initial ?? suggested ?? FULL_IMAGE, turns),
+  )
   const [dragging, setDragging] = useState<Handle | null>(null)
   /** The handle a tap on the image will move. */
   const [picked, setPicked] = useState<Handle | null>(null)
@@ -183,7 +191,7 @@ export const CropEditor = ({
     <dialog
       ref={dialog}
       aria-labelledby={`${id}-title`}
-      aria-describedby={`${id}-help`}
+      aria-describedby={found ? `${id}-found ${id}-help` : `${id}-help`}
       className="m-auto max-h-[calc(100dvh-2rem)] w-[min(60rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl bg-paper p-0 text-ink shadow-panel backdrop:bg-black/50"
       onClose={onClose}
     >
@@ -198,6 +206,11 @@ export const CropEditor = ({
             side, for a straight crop. With a keyboard, focus a handle and use the arrow keys (hold
             Shift for bigger steps).
           </p>
+          {found && (
+            <p id={`${id}-found`} className="mt-2 text-sm font-medium text-ink">
+              The corners are on the paper found in the photo. Check them, then apply.
+            </p>
+          )}
         </div>
 
         <div className="flex justify-center bg-paper-sunk p-4 sm:p-6">

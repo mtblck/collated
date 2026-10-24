@@ -157,3 +157,113 @@ try:
     Image.new("RGB", (1100, 700)).save(HERE / "grid-1100x700.heic", "HEIF", quality=50)
 except ImportError:
     print("pillow-heif not installed: skipped the AVIF and HEIF size fixtures")
+
+# Phone photos of the document page lying on a table, for finding the paper's
+# corners (#69): on dark wood, on a light desk (low contrast), and shot at an
+# angle (turned and foreshortened). The paper's true corners, as fractions of
+# the photo, go to paper-corners.json for the tests to check against.
+import json
+from PIL import ImageFilter
+
+
+def perspective_coeffs(src, dst):
+    """PIL's PERSPECTIVE takes the map from output (dst) back to input (src)."""
+    rows, rhs = [], []
+    for (x, y), (u, v) in zip(dst, src):
+        rows.append([x, y, 1, 0, 0, 0, -u * x, -u * y])
+        rows.append([0, 0, 0, x, y, 1, -v * x, -v * y])
+        rhs += [u, v]
+    n = 8
+    a = [row[:] + [b] for row, b in zip(rows, rhs)]
+    for c in range(n):
+        p = max(range(c, n), key=lambda r: abs(a[r][c]))
+        a[c], a[p] = a[p], a[c]
+        for r in range(n):
+            if r != c:
+                f = a[r][c] / a[c][c]
+                a[r] = [x - f * y for x, y in zip(a[r], a[c])]
+    return [a[i][n] / a[i][i] for i in range(n)]
+
+
+def table(size, base, grain, seed):
+    """A table top: a base colour with long soft streaks of grain and noise."""
+    random.seed(seed)
+    w, h = size
+    im = Image.new("RGB", size, base)
+    d = ImageDraw.Draw(im)
+    for _ in range(140):
+        y = random.uniform(-50, h + 50)
+        k = random.uniform(-grain, grain)
+        c = tuple(max(0, min(255, int(ch + k))) for ch in base)
+        d.line([(0, y), (w, y + random.uniform(-40, 40))], fill=c, width=random.randint(2, 9))
+    im = im.filter(ImageFilter.GaussianBlur(2))
+    return Image.blend(im, Image.effect_noise(size, 40).convert("RGB"), 0.04)
+
+
+def lit(im, strength):
+    """Uneven light: brighter at the top left, falling off to the bottom right."""
+    w, h = im.size
+    ramp = Image.new("L", (64, 64))
+    ramp.putdata([(x + y) * 255 // 126 for y in range(64) for x in range(64)])
+    ramp = ramp.resize((w, h), Image.Resampling.BILINEAR)
+    dark = Image.new("RGB", (w, h), (0, 0, 0))
+    return Image.composite(dark, im, ramp.point(lambda v: int(v * strength)))
+
+
+def photo(name, size, corners, base, grain, light, seed):
+    w, h = size
+    shot = table(size, base, grain, seed)
+    page = doc.resize((900, 1200))
+    src = [(0, 0), (900, 0), (900, 1200), (0, 1200)]
+    pixels = [(x * w, y * h) for x, y in corners]
+    coeffs = perspective_coeffs(src, pixels)
+    warped = page.transform(size, Image.Transform.PERSPECTIVE, coeffs, Image.Resampling.BICUBIC)
+    mask = Image.new("L", size, 0)
+    ImageDraw.Draw(mask).polygon(pixels, fill=255)
+    # A soft shadow below and right of the sheet, then the sheet itself.
+    shadow = mask.transform(size, Image.Transform.AFFINE, (1, 0, -6, 0, 1, -9))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(10)).point(lambda v: int(v * 0.45))
+    shot = Image.composite(Image.new("RGB", size, (0, 0, 0)), shot, shadow)
+    shot = Image.composite(warped, shot, mask.filter(ImageFilter.GaussianBlur(0.8)))
+    shot = lit(shot, light).filter(ImageFilter.GaussianBlur(0.6))
+    shot = Image.blend(shot, Image.effect_noise(size, 60).convert("RGB"), 0.03)
+    shot.save(HERE / name, quality=85)
+    return [[round(x, 4), round(y, 4)] for x, y in corners]
+
+
+truth = {
+    "paper-dark-table.jpg": photo(
+        "paper-dark-table.jpg",
+        (900, 1200),
+        [(0.17, 0.14), (0.84, 0.12), (0.89, 0.88), (0.12, 0.9)],
+        base=(72, 52, 40),
+        grain=22,
+        light=0.35,
+        seed=21,
+    ),
+    "paper-light-table.jpg": photo(
+        "paper-light-table.jpg",
+        (900, 1200),
+        [(0.13, 0.1), (0.87, 0.11), (0.86, 0.9), (0.14, 0.89)],
+        base=(214, 208, 196),
+        grain=6,
+        light=0.25,
+        seed=22,
+    ),
+    # Turned about 15° and shot from below: the far edge is much shorter.
+    "paper-skewed.jpg": photo(
+        "paper-skewed.jpg",
+        (1200, 900),
+        [(0.36, 0.08), (0.73, 0.15), (0.79, 0.93), (0.16, 0.8)],
+        base=(120, 96, 70),
+        grain=14,
+        light=0.3,
+        seed=23,
+    ),
+}
+# Laid out as Prettier would, one corner per line.
+entries = [
+    f"  {json.dumps(name)}: [\n" + ",\n".join(f"    {json.dumps(c)}" for c in corners) + "\n  ]"
+    for name, corners in truth.items()
+]
+(HERE / "paper-corners.json").write_text("{\n" + ",\n".join(entries) + "\n}\n")

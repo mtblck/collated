@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { Asset, Page, Settings } from './core/model'
+import { isVector, type Asset, type Page, type Settings } from './core/model'
 import { pdfFilename } from './core/filename'
 import { compressionFor, estimateBytes } from './core/compression'
 import type { Skew } from './core/deskew'
 import { skewOf } from './lib/skew'
 import { looksBlank } from './lib/blank'
 import { useBlankPages } from './hooks/useBlankPages'
+import { paperOf } from './lib/paper'
+import type { Quad } from './core/perspective'
 import { forgetPageWords, pageWords } from './lib/pageText'
 import { forgetPageThumbs } from './hooks/usePageThumb'
 import { forgetLayered, layeredImage } from './export/layered'
@@ -61,6 +63,8 @@ export interface AppDeps {
   estimateSkew: (asset: Asset) => Promise<Skew | null>
   /** Whether a page looks blank (#68); null if it can't tell. */
   detectBlank: (asset: Asset, page: Page) => Promise<boolean | null>
+  /** The paper's corners in a photo, to suggest as its crop (null: no clear sheet). */
+  findPaper: (asset: Asset) => Promise<Quad | null>
   /**
    * Recognises a page's words (fractions of its content image); from
    * `drawn` instead for a PDF page exported as a drawing.
@@ -91,6 +95,7 @@ const defaultDeps = (): AppDeps => ({
   newId: () => crypto.randomUUID(),
   estimateSkew: skewOf,
   detectBlank: looksBlank,
+  findPaper: paperOf,
   recognizeText: pageWords,
   drawnPage: (asset) => layeredImage(asset),
   storage: safeStorage(),
@@ -711,6 +716,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       `Removed ${ids.length === 1 ? '1 blank page' : `${ids.length} blank pages`}. Undo to bring ${ids.length === 1 ? 'it' : 'them'} back.`,
     )
   }, [act, announce, blankIds, pages, requestFocus, selectOnly, selection.ids])
+  const selectedAsset = selected ? assets[selected.assetId] : undefined
 
   const [straightening, setStraightening] = useState(false)
   /**
@@ -763,6 +769,60 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     [act, assets, deps, notify, pages],
   )
 
+  const [autoCropping, setAutoCropping] = useState(false)
+  /**
+   * Finds the paper in every photo not yet cropped and crops to it, as one
+   * undo step. Pages already cropped keep their corners; pages with no clear
+   * sheet are left alone and counted in the status. PDF pages can't be
+   * cropped and aren't counted.
+   */
+  const autoCropAll = useCallback(async () => {
+    setAutoCropping(true)
+    setStatus('Looking for the paper…')
+    const started = generation.current
+    try {
+      const photos = pages.filter((p) => {
+        const asset = assets[p.assetId]
+        return asset && !isVector(asset)
+      })
+      const todo = photos.filter((p) => p.corners === null)
+      if (todo.length === 0) {
+        setStatus('Every page is already cropped.')
+        return
+      }
+      const patches: { id: string; patch: { corners: Quad } }[] = []
+      for (const page of todo) {
+        const asset = assets[page.assetId]
+        if (!asset) continue
+        const corners = await deps.findPaper(asset)
+        if (corners) patches.push({ id: page.id, patch: { corners } })
+      }
+      if (generation.current !== started) return
+      act({ type: 'transformPages', patches })
+      const unclear = todo.length - patches.length
+      const kept = photos.length - todo.length
+      setStatus(
+        [
+          `Cropped ${patches.length} of ${plural(todo.length, 'page')} to the paper.`,
+          unclear === 1
+            ? '1 page had no clear edges and was left as it is.'
+            : unclear > 1
+              ? `${unclear} pages had no clear edges and were left as they are.`
+              : '',
+          kept === 1
+            ? '1 page you had already cropped was kept.'
+            : kept > 1
+              ? `${kept} pages you had already cropped were kept.`
+              : '',
+        ]
+          .filter(Boolean)
+          .join(' '),
+      )
+    } finally {
+      setAutoCropping(false)
+    }
+  }, [act, assets, deps, pages])
+
   const inspectorActions = useMemo<InspectorActions | null>(() => {
     if (!selected) return null
     const id = selected.id
@@ -796,10 +856,15 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       onAutoStraighten: (scope) => {
         void autoStraighten(scope === 'all' ? pages.map((p) => p.id) : [id])
       },
+      onFindPaper: () => (selectedAsset ? deps.findPaper(selectedAsset) : Promise.resolve(null)),
+      onAutoCropAll: () => {
+        void autoCropAll()
+      },
     }
   }, [
     act,
     announce,
+    autoCropAll,
     autoStraighten,
     deps,
     endGesture,
@@ -807,6 +872,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     pages,
     selectOnly,
     selected,
+    selectedAsset,
     selectedIndex,
   ])
 
@@ -879,8 +945,6 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     selectOnly,
     selection,
   ])
-
-  const selectedAsset = selected ? assets[selected.assetId] : undefined
 
   const estimate = useMemo(
     () =>
@@ -1038,7 +1102,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             onStartOver={onStartOver}
             keepWork={keepWork}
             onKeepWork={onKeepWork}
-            busy={importing !== null || straightening}
+            busy={importing !== null || straightening || autoCropping}
             onAdd={chooseFiles}
             onExport={() => void onExport()}
             estimate={estimate}
@@ -1157,6 +1221,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
                     settings={settings}
                     actions={inspectorActions}
                     straightening={straightening}
+                    autoCropping={autoCropping}
                   />
                 ) : (
                   <p className="text-sm text-ink-muted">
