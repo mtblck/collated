@@ -16,9 +16,12 @@ import {
   RotateRightIcon,
   TrashIcon,
   ExpandIcon,
+  RedactIcon,
 } from './Icons'
 import { usePageThumb } from '../hooks/usePageThumb'
 import { CropEditor } from './CropEditor'
+import { RedactEditor } from './RedactEditor'
+import { pageCovers } from '../core/redact'
 import { PageViewer } from './PageViewer'
 import { detailImage } from '../lib/detailImage'
 import { PagePreview } from './PagePreview'
@@ -119,6 +122,15 @@ export const Inspector = ({
     }
   }
   const [viewing, setViewing] = useState(false)
+  const [redacting, setRedacting] = useState(false)
+  const redactButton = useRef<HTMLButtonElement>(null)
+  const boxes = page.redactions ?? []
+  const covers = useMemo(() => pageCovers(page, { [asset.id]: asset }), [page, asset])
+  // The whole image, sharp enough to find a number on.
+  const loadWhole = useCallback(
+    () => detailImage(asset, { filter: 'original', corners: null }),
+    [asset],
+  )
   // Stable per image and look, so the viewer loads it once.
   const { filter, corners } = page
   const loadDetail = useCallback(
@@ -175,7 +187,13 @@ export const Inspector = ({
         className="relative w-full rounded-xl bg-paper-sunk p-5"
         style={{ aspectRatio: boxRatio }}
       >
-        <PagePreview sheet={singleSheet(layout)} thumbUrls={[thumbUrl]} showMargins mark={mark} />
+        <PagePreview
+          sheet={singleSheet(layout)}
+          thumbUrls={[thumbUrl]}
+          covers={covers}
+          showMargins
+          mark={mark}
+        />
         {/* Over the preview rather than around it: a button can't hold the
             preview's blocks, and this keeps one clear name. */}
         <button
@@ -200,6 +218,7 @@ export const Inspector = ({
           layout={layout}
           thumbUrl={thumbUrl}
           mark={mark}
+          covers={covers[0] ?? []}
           loadDetail={loadDetail}
           onClose={() => {
             setViewing(false)
@@ -268,6 +287,57 @@ export const Inspector = ({
             }}
             onClose={() => {
               setCropping(false)
+            }}
+          />
+        )}
+      </div>
+
+      <div>
+        <p className="label mb-2 text-ink-faint" id={`${id}-redact`}>
+          Black out
+        </p>
+        <div className="flex flex-wrap gap-2" role="group" aria-labelledby={`${id}-redact`}>
+          <Button
+            ref={redactButton}
+            className="flex-1"
+            onClick={() => {
+              setRedacting(true)
+            }}
+          >
+            <RedactIcon width={16} height={16} />
+            {boxes.length
+              ? `Edit ${String(boxes.length)} blacked-out ${boxes.length === 1 ? 'area' : 'areas'}…`
+              : 'Black out part of the page…'}
+          </Button>
+          {boxes.length > 0 && (
+            <Button
+              onClick={() => {
+                redactButton.current?.focus()
+                actions.onTransform({ redactions: [] })
+              }}
+            >
+              Remove all
+            </Button>
+          )}
+        </div>
+        {boxes.length > 0 && (
+          <p className="mt-2 text-xs text-ink-muted">
+            {vector
+              ? 'This PDF page will be exported as a picture, so nothing under a box stays in the file. Its text can’t be selected or searched unless “Make text searchable” is on when you export.'
+              : 'What’s under each box is painted over in the exported image, and its text is left out of the searchable layer.'}
+          </p>
+        )}
+        {redacting && (
+          <RedactEditor
+            asset={asset}
+            turns={page.turns}
+            initial={boxes}
+            loadDetail={loadWhole}
+            onApply={(redactions) => {
+              actions.onTransform({ redactions })
+            }}
+            onClose={() => {
+              setRedacting(false)
             }}
           />
         )}

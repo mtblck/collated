@@ -1,5 +1,5 @@
 import type { Compression } from '../core/compression'
-import { picturesOf, type DocState } from '../core/model'
+import { isRedacted, picturesOf, type DocState } from '../core/model'
 import type { OutlineItem } from '../core/outline'
 import type { SplitPart } from '../core/splitBuild'
 import type { OcrWord } from '../core/textLayer'
@@ -21,13 +21,23 @@ export interface Exported {
 const usedAssets = (state: DocState) =>
   new Set(state.pages.flatMap((p) => picturesOf(p).map((slot) => slot.assetId)))
 
-/** Drawn JPEGs for the PDF pages that hide something, by asset id (see layered.ts). */
+/**
+ * Drawn JPEGs for the PDF pages that hide something, and those with
+ * something blacked out (#77), by asset id (see layered.ts).
+ */
 const drawLayered = async (state: DocState) => {
   const drawn: Record<string, Uint8Array> = {}
   const used = usedAssets(state)
+  const redacted = new Set(
+    state.pages.flatMap((p) =>
+      picturesOf(p)
+        .filter(isRedacted)
+        .map((slot) => slot.assetId),
+    ),
+  )
   for (const asset of Object.values(state.assets)) {
     if (asset.format !== 'pdf' || !used.has(asset.id)) continue
-    const jpeg = await layeredImage(asset)
+    const jpeg = await layeredImage(asset, redacted.has(asset.id))
     if (jpeg) drawn[asset.id] = jpeg
   }
   return drawn

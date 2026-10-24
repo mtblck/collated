@@ -16,9 +16,10 @@ order: 6
 | ← → Home End                         | Move along the toolbar                                                        |
 | Space or Enter on a page's handle    | Pick the page up; arrow keys move it; Space or Enter drops it; Escape cancels |
 | Arrow keys on a crop corner or edge  | Move it; hold Shift for bigger steps                                          |
+| Arrow keys on a black-out box        | Move it (on its corner: size it); Shift for bigger steps; Delete removes it   |
 | ↑ ↓ in a number field                | Step the value                                                                |
 | Enter in a number field              | Apply the value; Escape restores it                                           |
 | + − 0, arrow keys in the page viewer | Zoom in, out, fit; move around when zoomed                                    |
 | Escape                               | Close a menu or dialog, go back to one selected page, or dismiss a message    |
 
-Everything else works with Tab, Shift+Tab, Space and Enter as usual. Undo and redo don't act while the crop editor is open.
+Everything else works with Tab, Shift+Tab, Space and Enter as usual. Undo and redo don't act while the crop or black-out editor is open.

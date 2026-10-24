@@ -26,7 +26,7 @@ import { tmpdir } from 'node:os'
 import { dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import AxeBuilder from '@axe-core/playwright'
-import { PDFDocument, PDFName } from '@cantoo/pdf-lib'
+import { PDFDocument, PDFName, StandardFonts } from '@cantoo/pdf-lib'
 import { unzipSync } from 'fflate'
 import { chromium } from 'playwright'
 
@@ -2855,6 +2855,167 @@ await context.close()
         JSON.stringify(['quad-landscape@1', 'quad-3pages@2', 'Receipts@5', 'quad-portrait@5']),
       'poppler reads the files and the section, each at its page',
       items.join(', '),
+    )
+  }
+  await ctx.close()
+}
+
+// 30. Black out (#77): drawn and keyboard boxes; what's under them is gone
+//     from the file, not covered; preview ≡ PDF; OCR leaves them out.
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  // A Letter page with real text: a number to hide and a line to keep.
+  const statement = await PDFDocument.create()
+  const sheetPage = statement.addPage([612, 792])
+  const font = await statement.embedFont(StandardFonts.Helvetica)
+  sheetPage.drawText('ACCOUNT 12345678', { x: 72, y: 700, size: 18, font })
+  sheetPage.drawText('KEEP THIS LINE', { x: 72, y: 400, size: 28, font })
+  const dir = mkdtempSync(join(tmpdir(), 'collated-verify-redact-'))
+  const statementPath = join(dir, 'statement.pdf')
+  writeFileSync(statementPath, await statement.save())
+  await p.setInputFiles('[data-testid="file-input"]', [
+    statementPath,
+    join(fixtures, 'quad-landscape.png'),
+  ])
+  await p.waitForSelector('ol[aria-label="2 pages"]', { timeout: 20_000 })
+  const panel = p.locator('aside[aria-label="Selected page"]')
+  const card = (n) => p.locator(`ol[aria-label] > li:nth-child(${n}) [data-page-select]`)
+  // The number's box, as fractions of the page (y down).
+  const SECRET = { x0: 60 / 612, y0: 64 / 792, x1: 300 / 612, y1: 100 / 792 }
+
+  // Page 1: drag a box over the number.
+  await card(1).click()
+  await panel.getByRole('button', { name: 'Black out part of the page…' }).click()
+  const editor = p.getByRole('dialog', { name: 'Black out' })
+  await editor.waitFor()
+  const stage = editor.locator('.cursor-crosshair')
+  const at = async (fx, fy) => {
+    const box = await stage.boundingBox()
+    return [box.x + fx * box.width, box.y + fy * box.height]
+  }
+  await p.mouse.move(...(await at(SECRET.x0, SECRET.y0)))
+  await p.mouse.down()
+  await p.mouse.move(...(await at((SECRET.x0 + SECRET.x1) / 2, SECRET.y1)), { steps: 4 })
+  await p.mouse.move(...(await at(SECRET.x1, SECRET.y1)), { steps: 4 })
+  await p.mouse.up()
+  check(
+    (await editor.getByRole('button', { name: 'Box 1', exact: true }).count()) === 1,
+    'dragging on the image draws a box',
+  )
+  await p.screenshot({ path: join(shots, 'redact-editor.png') })
+  await axe(p, 'black out editor')
+  await editor.getByRole('button', { name: 'Apply' }).click()
+  await editor.waitFor({ state: 'hidden' })
+  check(
+    (await panel.getByRole('button', { name: 'Edit 1 blacked-out area…' }).count()) === 1,
+    'the page has one blacked-out area',
+  )
+
+  // Page 2: a box from the keyboard alone.
+  await card(2).click()
+  await panel.getByRole('button', { name: 'Black out part of the page…' }).focus()
+  await p.keyboard.press('Enter')
+  await editor.waitFor()
+  await editor.getByRole('button', { name: 'Add a box' }).focus()
+  await p.keyboard.press('Enter')
+  const added = editor.getByRole('button', { name: 'Box 1', exact: true })
+  check(
+    await added.evaluate((el) => el === document.activeElement),
+    'Add a box focuses the new box',
+  )
+  await p.keyboard.press('Shift+ArrowUp')
+  await editor.getByRole('button', { name: 'Apply' }).click()
+  await editor.waitFor({ state: 'hidden' })
+
+  const exported = async (label) => {
+    const [dl] = await Promise.all([p.waitForEvent('download', { timeout: 120_000 }), exportNow(p)])
+    const out = join(dir, `${label}.pdf`)
+    await dl.saveAs(out)
+    return out
+  }
+  const out = await exported('redacted')
+  if (hasPoppler) {
+    const text = execFileSync('pdftotext', [out, '-']).toString()
+    check(
+      !text.includes('ACCOUNT') && !text.includes('12345678'),
+      'nothing under the box is left as text',
+      text.trim(),
+    )
+    const fonts = execFileSync('pdffonts', [out]).toString().trim().split('\n').slice(2)
+    check(
+      fonts.length === 0,
+      'the blacked-out PDF page is exported as a picture, no fonts',
+      fonts.join('\n'),
+    )
+    const render = (n) => {
+      const prefix = join(dir, `page-${n}`)
+      execFileSync('pdftoppm', [
+        '-png',
+        '-r',
+        '72',
+        '-f',
+        String(n),
+        '-l',
+        String(n),
+        '-singlefile',
+        out,
+        prefix,
+      ])
+      return readFileSync(`${prefix}.png`).toString('base64')
+    }
+    /** Mean brightness (0–255) of a rectangle of a PNG, in fractions. */
+    const meanOf = (png, r) =>
+      p.evaluate(
+        async ([src, r]) => {
+          const img = new Image()
+          img.src = `data:image/png;base64,${src}`
+          await img.decode()
+          const c = document.createElement('canvas')
+          c.width = img.width
+          c.height = img.height
+          const g = c.getContext('2d')
+          g.drawImage(img, 0, 0)
+          const x = Math.ceil(r.x0 * img.width) + 1
+          const y = Math.ceil(r.y0 * img.height) + 1
+          const w = Math.floor((r.x1 - r.x0) * img.width) - 2
+          const h = Math.floor((r.y1 - r.y0) * img.height) - 2
+          const { data } = g.getImageData(x, y, w, h)
+          let sum = 0
+          for (let i = 0; i < data.length; i += 4) sum += (data[i] + data[i + 1] + data[i + 2]) / 3
+          return sum / (data.length / 4)
+        },
+        [png, r],
+      )
+    const page1 = render(1)
+    const dark = await meanOf(page1, SECRET)
+    check(dark < 10, `the PDF page's box is solid black (mean ${dark.toFixed(1)})`)
+    await card(1).click()
+    const diff = await compareImages(
+      page1,
+      (await panel.locator('.sheet').first().screenshot(sheetShot)).toString('base64'),
+    )
+    check(
+      diff.farShare < 0.03,
+      `the blacked-out page matches its preview (${(diff.farShare * 100).toFixed(2)}% of pixels differ)`,
+    )
+    // The keyboard box: 40% × 8% in the middle, nudged up 5%.
+    const image = await meanOf(render(2), { x0: 0.3, y0: 0.41, x1: 0.7, y1: 0.49 })
+    check(image < 10, `the image page's box is burned into its pixels (mean ${image.toFixed(1)})`)
+  }
+
+  // With OCR on, the rest of the drawn page is searchable again; the number isn't.
+  await exportMenu(p).click()
+  const options = p.getByRole('dialog', { name: 'Export options' })
+  await options.getByRole('checkbox', { name: 'Make text searchable (OCR)' }).check()
+  await p.keyboard.press('Escape')
+  const ocrOut = await exported('redacted-ocr')
+  if (hasPoppler) {
+    const text = execFileSync('pdftotext', ['-f', '1', '-l', '1', ocrOut, '-']).toString()
+    check(
+      /KEEP/.test(text) && !text.includes('12345678') && !text.includes('ACCOUNT'),
+      'with OCR the page is searchable except under the box',
+      text.trim(),
     )
   }
   await ctx.close()
