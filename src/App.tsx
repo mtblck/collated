@@ -19,7 +19,8 @@ import { download as saveFile, exportPdf, prepareExport, type Exported } from '.
 import { STALE_BUILD_MESSAGE, isStaleBuild } from './lib/staleBuild'
 import { assetStore } from './import/assetStore'
 import { ImportError, importFile, type Imported } from './import/importFile'
-import { loadSettings, saveSettings } from './state/settingsStorage'
+import { loadKeepWork, loadSettings, saveKeepWork, saveSettings } from './state/settingsStorage'
+import { deviceWorkStore, type SavedSummary, type WorkStore } from './state/workStore'
 import { useDocument } from './state/useDocument'
 import type { DocState } from './core/model'
 
@@ -52,6 +53,8 @@ export interface AppDeps {
   locale: string
   /** Loads the export code ahead of time (see exportPdf.ts). */
   prepareExport: () => void
+  /** The document kept on this device across a reload (#74). */
+  work: WorkStore
 }
 
 const safeStorage = (): AppDeps['storage'] => {
@@ -73,6 +76,7 @@ const defaultDeps = (): AppDeps => ({
   storage: safeStorage(),
   locale: navigator.language,
   prepareExport,
+  work: deviceWorkStore(),
 })
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
@@ -107,9 +111,20 @@ const isEditable = (target: EventTarget | null) =>
 
 export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const deps = useMemo(() => ({ ...defaultDeps(), ...injected }), [injected])
-  const { doc, previous, next, act, undo, redo, canUndo, canRedo, endGesture, reset } = useDocument(
-    () => loadSettings(deps.storage, deps.locale),
-  )
+  const {
+    doc,
+    history,
+    previous,
+    next,
+    act,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    endGesture,
+    reset,
+    restore,
+  } = useDocument(() => loadSettings(deps.storage, deps.locale))
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [importing, setImporting] = useState<{
     file: number
@@ -132,6 +147,18 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     setStatus((current) => (current === text ? `${text}\u00a0` : text))
   }, [])
   const [notices, setNotices] = useState<Notice[]>([])
+  const [keepWork, setKeepWork] = useState(() => loadKeepWork(deps.storage))
+  /**
+   * Last visit's document, offered until it's restored or discarded; `pending`
+   * until we've looked. Nothing is saved meanwhile, so the empty document
+   * this page starts with can't overwrite it.
+   */
+  const [offer, setOffer] = useState<SavedSummary | null | 'pending'>(() =>
+    keepWork ? 'pending' : null,
+  )
+  const [restoring, setRestoring] = useState(false)
+  /** The browser refused to store this document (quota): stop trying until Start over. */
+  const tooBig = useRef(false)
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   // The inspector scrolls on its own; a newly selected page starts at its top.
@@ -197,9 +224,56 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     setNotices((list) => [...list.slice(-3), { id, text }])
   }, [])
 
+  // Is there a document from last time to offer?
+  useEffect(() => {
+    if (!keepWork) return
+    let live = true
+    void deps.work.peek().then((saved) => {
+      if (live) setOffer((current) => (current === 'pending' ? saved : current))
+    })
+    return () => {
+      live = false
+    }
+    // Turning the setting on later finds `offer` already settled: it saves instead.
+  }, [deps.work, keepWork])
+
+  // Keep the document on this device as it changes: shortly after each
+  // change, and straight away when the tab is hidden (a phone switching apps
+  // may never bring it back).
+  const saving = offer === null && keepWork
+  useEffect(() => {
+    if (!saving || tooBig.current) return
+    let pending = true
+    const save = () => {
+      if (!pending) return
+      pending = false
+      void deps.work.save(history, selectedId).then((result) => {
+        if (result !== 'too-big' || tooBig.current) return
+        tooBig.current = true
+        notify(
+          'This document is too large for this browser to keep on this device, so it won’t come back after a reload. Export it before you close the tab.',
+        )
+      })
+    }
+    const timer = setTimeout(save, 400)
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') save()
+    }
+    document.addEventListener('visibilitychange', onHide)
+    window.addEventListener('pagehide', save)
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onHide)
+      window.removeEventListener('pagehide', save)
+    }
+  }, [deps.work, history, notify, saving, selectedId])
+
   const addFiles = useCallback(
     async (files: File[]) => {
       if (files.length === 0) return
+      // Adding files instead of restoring starts a new document; it replaces
+      // the saved one once it's saved.
+      setOffer((current) => (current === 'pending' ? current : null))
       setImporting({ file: 1, files: files.length })
       setStatus(`Reading ${plural(files.length, 'file')}…`)
       const added: Asset[] = []
@@ -617,6 +691,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     const count = pages.length
     generation.current += 1
     reset(loadSettings(deps.storage, deps.locale))
+    tooBig.current = false
+    void deps.work.clear()
     assetStore.clear()
     forgetPageThumbs()
     forgetPageWords()
@@ -629,7 +705,49 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     announce(
       `Started over: removed ${plural(count, 'page')} and the undo history. Add files to begin again.`,
     )
-  }, [announce, deps.locale, deps.storage, pages.length, requestFocus, reset])
+  }, [announce, deps.locale, deps.storage, deps.work, pages.length, requestFocus, reset])
+
+  const onRestore = useCallback(async () => {
+    if (restoring) return
+    setRestoring(true)
+    const saved = await deps.work.restore()
+    setRestoring(false)
+    setOffer(null)
+    if (!saved) {
+      void deps.work.clear()
+      notify('The document saved on this device couldn’t be read back, so it was discarded.')
+      return
+    }
+    const restored = saved.history.present.pages
+    const select = restored.some((p) => p.id === saved.selectedId)
+      ? saved.selectedId
+      : (restored[0]?.id ?? null)
+    restore(saved.history)
+    setSelectedId(select)
+    requestFocus(select, true)
+    announce(`Restored ${plural(restored.length, 'page')}.`)
+  }, [announce, deps.work, notify, requestFocus, restore, restoring])
+
+  const onDiscard = useCallback(() => {
+    setOffer(null)
+    void deps.work.clear()
+    announce('Discarded the saved document.')
+  }, [announce, deps.work])
+
+  const onKeepWork = useCallback(
+    (keep: boolean) => {
+      setKeepWork(keep)
+      saveKeepWork(deps.storage, keep)
+      tooBig.current = false
+      if (!keep) void deps.work.clear()
+      announce(
+        keep
+          ? 'Work is kept on this device, so a reload won’t lose it.'
+          : 'Work is no longer kept on this device; the saved copy was deleted.',
+      )
+    },
+    [announce, deps.storage, deps.work],
+  )
 
   const workspace = pages.length > 0 || importing !== null
 
@@ -659,6 +777,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
               act({ type: 'rotateAll', by })
             }}
             onStartOver={onStartOver}
+            keepWork={keepWork}
+            onKeepWork={onKeepWork}
             busy={importing !== null || straightening}
             onAdd={chooseFiles}
             onExport={() => void onExport()}
@@ -673,7 +793,19 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       <main id="main" className="flex min-h-0 flex-1 flex-col">
         {!workspace ? (
           <div className="scroll-pane lg:overflow-y-auto">
-            <EmptyState onChoose={chooseFiles} />
+            <EmptyState
+              onChoose={chooseFiles}
+              restore={
+                offer && offer !== 'pending'
+                  ? {
+                      ...offer,
+                      busy: restoring,
+                      onRestore: () => void onRestore(),
+                      onDiscard,
+                    }
+                  : null
+              }
+            />
             <Footer />
           </div>
         ) : (

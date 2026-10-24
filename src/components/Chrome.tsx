@@ -3,6 +3,7 @@ import { Button, IconButton } from './controls'
 import { cx } from './cx'
 import { CloseIcon, MoonIcon, SunIcon } from './Icons'
 import { DOCS_URL, FOOTER, SOURCE_URL, SUPPORT_URL } from './links'
+import { savedWhen } from './format'
 import { useTheme } from './theme'
 
 /** The landing view's theme switch; in the workspace it lives in More. */
@@ -80,8 +81,54 @@ const Sheet = ({ className, lines = 11 }: { className: string; lines?: number })
   </div>
 )
 
-export const EmptyState = ({ onChoose }: { onChoose: () => void }) => (
+export interface RestoreOfferProps {
+  pages: number
+  savedAt: number
+  /** Restoring is under way (reading the bytes back). */
+  busy: boolean
+  onRestore: () => void
+  onDiscard: () => void
+}
+
+/**
+ * The document kept on this device from last time (#74), offered before
+ * anything else on the landing view. A region, so it can be found by
+ * landmark; Restore comes first, as the likely choice.
+ */
+export const RestoreOffer = ({ pages, savedAt, busy, onRestore, onDiscard }: RestoreOfferProps) => (
+  <section
+    aria-labelledby="restore-title"
+    className="flex flex-col gap-4 rounded-[1.125rem] bg-paper p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between sm:p-6"
+  >
+    <div className="flex flex-col gap-1">
+      <h2 id="restore-title" className="text-lg font-semibold tracking-tight text-ink">
+        Restore your last document?
+      </h2>
+      <p className="text-sm text-ink-muted">
+        {pages} {pages === 1 ? 'page' : 'pages'}, saved on this device {savedWhen(savedAt)}. Undo
+        history comes back too; the password doesn’t.
+      </p>
+    </div>
+    <div className="flex shrink-0 gap-2">
+      <Button variant="primary" onClick={onRestore} inactive={busy}>
+        {busy ? 'Restoring…' : 'Restore'}
+      </Button>
+      <Button onClick={onDiscard} inactive={busy}>
+        Discard
+      </Button>
+    </div>
+  </section>
+)
+
+export const EmptyState = ({
+  onChoose,
+  restore,
+}: {
+  onChoose: () => void
+  restore?: RestoreOfferProps | null
+}) => (
   <div className="mx-auto flex max-w-6xl flex-col gap-14 px-4 pt-10 pb-20 sm:px-6 sm:pt-16">
+    {restore && <RestoreOffer {...restore} />}
     <div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-14">
       <div className="flex flex-col gap-6">
         <h1 className="text-display font-semibold text-ink">

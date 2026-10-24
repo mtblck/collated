@@ -27,12 +27,16 @@ export const MoreMenu = ({
   onRotateAll,
   busy,
   onStartOver,
+  keepWork,
+  onKeepWork,
 }: {
   pageCount: number
   onRotateAll: (by: -1 | 1) => void
   /** Importing or exporting: Start over waits until that's done. */
   busy: boolean
   onStartOver: () => void
+  keepWork: boolean
+  onKeepWork: (keep: boolean) => void
 }) => {
   const id = useId()
   const panelId = `${id}-more`
@@ -98,6 +102,41 @@ export const MoreMenu = ({
               Start over…
             </button>
           </Group>
+          <Group label="On this device">
+            {/* A switch, not a checkbox in a label: it reads as one control and
+                the whole row is the target. */}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={keepWork}
+              aria-describedby={`${id}-keep-help`}
+              className={ITEM}
+              onClick={() => {
+                onKeepWork(!keepWork)
+              }}
+            >
+              <span
+                aria-hidden="true"
+                className={cx(
+                  'relative h-[18px] w-8 shrink-0 rounded-full transition-colors',
+                  keepWork ? 'bg-accent' : 'bg-control',
+                )}
+              >
+                <span
+                  className={cx(
+                    'absolute top-0.5 left-0.5 size-3.5 rounded-full bg-paper transition-transform',
+                    keepWork && 'translate-x-3.5',
+                  )}
+                />
+              </span>
+              Keep work after a reload
+            </button>
+            <p id={`${id}-keep-help`} className="px-3 pb-1 text-xs text-ink-muted">
+              {keepWork
+                ? 'Saved in this browser only, never uploaded. The password is never saved.'
+                : 'Off: closing or reloading the tab loses this document.'}
+            </p>
+          </Group>
           <Group label="Appearance">
             <button
               type="button"
@@ -155,7 +194,8 @@ export const MoreMenu = ({
           </h2>
           <p id={`${id}-start-over-help`} className="text-sm text-ink-muted">
             This removes all {pageCount} {pageCount === 1 ? 'page' : 'pages'} and their undo
-            history, and clears the password. It can't be undone. Your page setup is kept.
+            history, clears the password and deletes the copy kept on this device. It can't be
+            undone. Your page setup is kept.
           </p>
           <div className="flex justify-end gap-2">
             {/* First, so the dialog opens on it: Enter or a stray tap keeps the work. */}

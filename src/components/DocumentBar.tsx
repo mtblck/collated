@@ -34,6 +34,8 @@ export const DocumentBar = ({
   onRedo,
   onRotateAll,
   onStartOver,
+  keepWork,
+  onKeepWork,
   busy = false,
   onAdd,
   onExport,
@@ -54,6 +56,9 @@ export const DocumentBar = ({
   onRotateAll: (by: -1 | 1) => void
   /** Clears the document, its undo history and everything kept for it. */
   onStartOver: () => void
+  /** Whether the document is kept on this device across a reload. */
+  keepWork: boolean
+  onKeepWork: (keep: boolean) => void
   /** Importing or straightening: Start over waits (export is `exporting`). */
   busy?: boolean
   onAdd: () => void
@@ -127,6 +132,8 @@ export const DocumentBar = ({
         onRotateAll={onRotateAll}
         busy={exporting.busy || busy}
         onStartOver={onStartOver}
+        keepWork={keepWork}
+        onKeepWork={onKeepWork}
       />
     </Toolbar>
   )
