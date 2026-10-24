@@ -17,6 +17,7 @@ import { useTouchDevice } from './hooks/useTouchDevice'
 import { forgetLayered, layeredImage } from './export/layered'
 import type { OcrWord } from './core/textLayer'
 import type { SplitPart } from './core/splitBuild'
+import { buildOutline, sectionBefore, type OutlineItem } from './core/outline'
 import { layoutSheet } from './core/geometry'
 import { formatBytes } from './core/units'
 import { describeChange } from './core/describeChange'
@@ -67,6 +68,8 @@ export interface AppDeps {
       readDrawn?: (assetId: string, jpeg: Uint8Array) => Promise<Record<string, OcrWord[]>>
       /** Several files, as one ZIP (#66); see exportPdf.ts. */
       parts?: SplitPart[]
+      /** Bookmarks for a single file (#75); each part carries its own. */
+      outline?: OutlineItem[]
     },
   ) => Promise<Exported>
   download: (blob: Blob, filename: string) => void
@@ -609,16 +612,33 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     if (passwordError || 'error' in plan) return
     const total = plan.parts.reduce((n, part) => n + part.pageIds.length, 0)
     const byId = new Map(pages.map((p) => [p.id, p]))
+    /** A file's bookmarks: it opens under the section its first page is in. */
+    const outlineOf = (pageIds: readonly string[]) => {
+      const [first] = pageIds
+      return buildOutline(
+        pageIds.flatMap((id) => byId.get(id) ?? []),
+        assets,
+        {
+          files: settings.bookmarkFiles,
+          carried: first === undefined ? null : sectionBefore(pages, first),
+        },
+      )
+    }
     // One file is built as before, from just its pages; several go to the
     // worker as parts and come back as one ZIP.
     const [single] = plan.parts.length === 1 ? plan.parts : []
+    const outline = single ? outlineOf(single.pageIds) : []
     const parts = single
       ? undefined
-      : plan.parts.map((part, i) => ({
-          name: partFilename(settings.title, i, plan.parts.length),
-          pageIds: part.pageIds,
-          start: part.start,
-        }))
+      : plan.parts.map((part, i) => {
+          const own = outlineOf(part.pageIds)
+          return {
+            name: partFilename(settings.title, i, plan.parts.length),
+            pageIds: part.pageIds,
+            start: part.start,
+            ...(own.length ? { outline: own } : {}),
+          }
+        })
     const exportDoc = single
       ? {
           ...doc,
@@ -691,6 +711,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           ...(text ? { text } : {}),
           ...(readDrawn ? { readDrawn } : {}),
           ...(parts ? { parts } : {}),
+          ...(outline.length ? { outline } : {}),
         },
       )
       const filename = parts ? zipFilename(settings.title) : pdfFilename(settings.title)
@@ -1017,6 +1038,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       onAutoCropAll: () => {
         void autoCropAll()
       },
+      onSection: (title) => {
+        act({ type: 'setSection', id, title }, `section:${id}`)
+      },
     }
   }, [
     act,
@@ -1149,11 +1173,16 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       onRemove: () => {
         onRemove(id)
       },
+      onSection: (title) => {
+        act({ type: 'setSection', id, title }, `section:${id}`)
+      },
+      onGestureEnd: endGesture,
     }
   }, [
     act,
     announce,
     deps,
+    endGesture,
     onRemove,
     pages.length,
     requestFocus,

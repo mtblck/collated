@@ -1,5 +1,5 @@
 import type { History } from '../core/history'
-import { picturesOf, type Asset, type DocState } from '../core/model'
+import { picturesOf, type Asset, type DocState, type Settings } from '../core/model'
 import { assetStore } from '../import/assetStore'
 
 /**
@@ -86,12 +86,17 @@ const mapAssets = (
   history: History<DocState>,
   thumbUrl: (asset: Asset) => string,
 ): History<DocState> => {
-  const mapState = (state: DocState): DocState => ({
-    ...state,
-    assets: Object.fromEntries(
-      Object.entries(state.assets).map(([id, a]) => [id, { ...a, thumbUrl: thumbUrl(a) }]),
-    ),
-  })
+  const mapState = (state: DocState): DocState => {
+    // Settings added since the work was saved start at their defaults.
+    const saved: Partial<Settings> = state.settings
+    return {
+      ...state,
+      settings: { ...state.settings, bookmarkFiles: saved.bookmarkFiles ?? false },
+      assets: Object.fromEntries(
+        Object.entries(state.assets).map(([id, a]) => [id, { ...a, thumbUrl: thumbUrl(a) }]),
+      ),
+    }
+  }
   return {
     past: history.past.map(mapState),
     present: mapState(history.present),

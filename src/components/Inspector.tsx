@@ -22,6 +22,7 @@ import { CropEditor } from './CropEditor'
 import { PageViewer } from './PageViewer'
 import { detailImage } from '../lib/detailImage'
 import { PagePreview } from './PagePreview'
+import { SectionField } from './SectionField'
 import { pageNumber } from './format'
 
 /** Below this a scan starts to look soft on paper. */
@@ -52,6 +53,8 @@ export interface InspectorActions {
   /** The paper's corners in this page's photo, if there's a clear sheet. */
   onFindPaper: () => Promise<Quad | null>
   onAutoCropAll: () => void
+  /** Names the section that starts at this page; blank removes it. */
+  onSection: (title: string) => void
 }
 
 const Stat = ({ term, children }: { term: string; children: ReactNode }) => (
@@ -400,6 +403,12 @@ export const Inspector = ({
             ' Part of the image is off the page, so the PDF keeps only the part that shows (re-encoded once, to leave the rest out of the file).'}
         </p>
       </div>
+
+      <SectionField
+        value={page.section ?? ''}
+        onChange={actions.onSection}
+        onDone={actions.onGestureEnd}
+      />
 
       <dl className="divide-y divide-rule-soft border-y border-rule">
         {vector ? (

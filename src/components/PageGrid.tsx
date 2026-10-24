@@ -13,10 +13,18 @@ import { picturesOf, type Asset, type Page, type Settings } from '../core/model'
 import { IconButton } from './controls'
 import { cx } from './cx'
 import { pageName, pageNumber } from './format'
-import { CheckIcon, GripIcon, RotateLeftIcon, RotateRightIcon, TrashIcon } from './Icons'
+import {
+  BookmarkIcon,
+  CheckIcon,
+  GripIcon,
+  RotateLeftIcon,
+  RotateRightIcon,
+  TrashIcon,
+} from './Icons'
 import { pickModeOf, type PickMode } from '../core/selection'
 import { usePageThumbs } from '../hooks/usePageThumb'
 import { PagePreview } from './PagePreview'
+import { sectionTitle } from '../core/outline'
 
 const NONE: readonly string[] = []
 
@@ -64,6 +72,7 @@ const PageCard = memo(function PageCard({
   )
   const name = pageName(page, assets)
   const n = pageNumber(index)
+  const section = sectionTitle(page)
 
   const reveal =
     'opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100'
@@ -95,7 +104,7 @@ const PageCard = memo(function PageCard({
             ? { 'aria-pressed': selected }
             : { 'aria-current': selected ? 'true' : undefined })}
           data-page-select
-          aria-label={`Page ${index + 1}: ${name}${blank ? ', looks blank' : ''}`}
+          aria-label={`Page ${index + 1}: ${name}${section ? `, starts section ${section}` : ''}${blank ? ', looks blank' : ''}`}
           onClick={(event) => {
             const mode = pickModeOf(event)
             onSelect(page.id, selecting && mode === 'only' ? 'toggle' : mode)
@@ -110,6 +119,16 @@ const PageCard = memo(function PageCard({
         >
           <PagePreview sheet={sheet} thumbUrls={thumbUrls} selected={selected} mark={mark} />
         </button>
+        {section && (
+          <span
+            className="label pointer-events-none absolute top-1.5 left-1.5 flex max-w-[calc(100%-3rem)] items-center gap-1 rounded-full bg-paper py-1 pr-2 pl-1.5 text-ink shadow-panel"
+            aria-hidden="true"
+            title={section}
+          >
+            <BookmarkIcon width={14} height={14} className="shrink-0" />
+            <span className="truncate">{section}</span>
+          </span>
+        )}
         {blank && (
           <span
             className="label pointer-events-none absolute bottom-2.5 left-2.5 rounded-full bg-paper px-2 py-1 text-ink-muted shadow-panel"
