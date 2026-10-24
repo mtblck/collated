@@ -46,9 +46,11 @@ The toolbar's **More** menu reorders the whole document at once, or just the sel
 
 ## Crop to the paper
 
-For a photo of a document taken at an angle, **Crop to the page…** opens an editor where you drag each corner onto a corner of the paper. The page is then flattened into a straight rectangle. The editor shows the page turned the way you turned it. To crop with straight sides, drag the handle in the middle of an edge: it moves that whole side in or out.
+For a photo of a document taken at an angle, **Crop to the page…** opens an editor where you drag each corner onto a corner of the paper. The page is then flattened into a straight rectangle. Collated looks for the paper first: if it finds a sheet, the editor opens with the corners already on it, so you only check them and apply. If it doesn't, they start at the corners of the whole photo. Nothing is cropped until you choose **Apply crop**. The editor shows the page turned the way you turned it. To crop with straight sides, drag the handle in the middle of an edge: it moves that whole side in or out.
 
 Without dragging: tap or click a corner to select it, then tap or click where it should go. With the keyboard, select a corner and use the arrow keys (hold Shift for bigger steps).
+
+**Auto-crop all pages** crops every photo to the paper it finds, in one step that a single Undo takes back. Pages you've already cropped keep their corners, and pages where no clear sheet is found are left as they are; the status line says how many of each.
 
 ## Filters
 
