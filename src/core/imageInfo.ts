@@ -89,18 +89,10 @@ const readExifOrientation = (view: DataView, tiff: number): number | null => {
   const order = view.getUint16(tiff)
   const little = order === 0x4949 // "II"
   if (!little && order !== 0x4d4d) return null // "MM"
-  const ifd = tiff + view.getUint32(tiff + 4, little)
-  if (ifd + 2 > view.byteLength) return null
-  const count = view.getUint16(ifd, little)
-  for (let i = 0; i < count; i++) {
-    const entry = ifd + 2 + i * 12
-    if (entry + 12 > view.byteLength) return null
-    if (view.getUint16(entry, little) === 0x0112) {
-      const value = view.getUint16(entry + 8, little)
-      return value >= 1 && value <= 8 ? value : null
-    }
-  }
-  return null
+  const entry = ifdEntry(view, tiff, view.getUint32(tiff + 4, little), 0x0112, little)
+  if (entry === null) return null
+  const value = view.getUint16(entry + 8, little)
+  return value >= 1 && value <= 8 ? value : null
 }
 
 /** Where the EXIF TIFF header starts in a JPEG, or null without one. */

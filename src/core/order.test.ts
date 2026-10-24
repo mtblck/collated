@@ -78,6 +78,21 @@ describe('interleave', () => {
     })
   })
 
+  it('takes two separate runs of selected pages as the two piles', () => {
+    expect(duplexGroups(doc(6), ['p0', 'p1', 'p3', 'p4', 'p5'])).toMatchObject({
+      fronts: ['p0', 'p1'],
+      backs: ['p3', 'p4', 'p5'],
+      by: 'imports',
+    })
+    // One run, or three, is split in half.
+    expect(duplexGroups(doc(6), ['p1', 'p2', 'p3'])).toMatchObject({
+      fronts: ['p1', 'p2'],
+      backs: ['p3'],
+      by: 'halves',
+    })
+    expect(duplexGroups(doc(6), ['p0', 'p2', 'p4', 'p5'])).toMatchObject({ by: 'halves' })
+  })
+
   it('works on two groups inside a document, leaving the other pages alone', () => {
     const state = doc(6)
     const next = docReducer(state, {

@@ -185,6 +185,14 @@ describe('readExifDate', () => {
     )
   })
 
+  it('is null, never an error, for EXIF cut short anywhere', () => {
+    const whole = withDate('2024:03:09 14:05:30')
+    // Up to the last digit of the date (then a NUL and the end marker).
+    for (let end = 0; end < whole.length - 3; end++) {
+      expect(readExifDate(whole.subarray(0, end))).toBeNull()
+    }
+  })
+
   it('is null for an unset clock, a malformed date, no EXIF, or not a JPEG', () => {
     expect(readExifDate(withDate('0000:00:00 00:00:00'))).toBeNull()
     expect(readExifDate(withDate('yesterday'))).toBeNull()

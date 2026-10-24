@@ -32,13 +32,15 @@ const pagesWord = (n: number) => `${n} ${n === 1 ? 'page' : 'pages'}`
 const range = (from: number, to: number) => (from === to ? `page ${from}` : `pages ${from}–${to}`)
 
 /** What the interleave dialog says it will pair, so nobody is surprised. */
-const describeGroups = (groups: DuplexGroups) => {
+const describeGroups = (groups: DuplexGroups, scoped: boolean) => {
   const f = groups.fronts.length
   const b = groups.backs.length
   const [frontName, backName] = groups.names ?? []
   return groups.by === 'imports'
     ? `Fronts: ${frontName ?? ''} (${pagesWord(f)}). Backs: ${backName ?? ''} (${pagesWord(b)}).`
-    : `Fronts: ${range(1, f)}. Backs: ${range(f + 1, f + b)}.`
+    : scoped
+      ? `Fronts: the first ${pagesWord(f)} selected. Backs: the other ${pagesWord(b)}.`
+      : `Fronts: ${range(1, f)}. Backs: ${range(f + 1, f + b)}.`
 }
 
 const Group = ({ label, children }: { label: string; children: ReactNode }) => (
@@ -57,6 +59,7 @@ export const MoreMenu = ({
   pageCount,
   onRotateAll,
   duplex,
+  orderScope,
   onArrange,
   busy,
   onStartOver,
@@ -65,6 +68,8 @@ export const MoreMenu = ({
   onRotateAll: (by: -1 | 1) => void
   /** How Interleave would split the document; null with under two pages. */
   duplex: DuplexGroups | null
+  /** How many selected pages page order works on; null for every page. */
+  orderScope: number | null
   onArrange: (arrange: Arrange) => void
   /** Importing or exporting: Start over waits until that's done. */
   busy: boolean
@@ -125,6 +130,11 @@ export const MoreMenu = ({
             ))}
           </Group>
           <Group label="Page order">
+            {orderScope !== null && (
+              <p className="px-3 pt-1 pb-0.5 text-xs text-ink-muted">
+                For the {orderScope} selected pages
+              </p>
+            )}
             <button
               type="button"
               className={ITEM}
@@ -230,7 +240,7 @@ export const MoreMenu = ({
               For a two-sided scan made one side at a time: the pages are put in order front 1, back
               1, front 2, back 2, and so on.
             </p>
-            {duplex && <p className="text-ink">{describeGroups(duplex)}</p>}
+            {duplex && <p className="text-ink">{describeGroups(duplex, orderScope !== null)}</p>}
             {duplex && duplex.fronts.length !== duplex.backs.length && (
               <p>The counts differ, so the extra pages will go at the end.</p>
             )}

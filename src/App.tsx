@@ -809,7 +809,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     )
   }, [announce, deps.locale, deps.storage, pages.length, requestFocus, reset, selectOnly])
 
-  const duplex = useMemo(() => duplexGroups(doc), [doc])
+  // With several pages selected, page order works on those alone.
+  const orderScope = useMemo(() => (group ? selection.ids : undefined), [group, selection.ids])
+  const duplex = useMemo(() => duplexGroups(doc, orderScope), [doc, orderScope])
   const onArrange = useCallback(
     (arrange: Arrange) => {
       if (arrange.type === 'interleave') {
@@ -827,14 +829,15 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           `Interleaved ${plural(fronts.length + backs.length, 'page')}. Undo to put them back.`,
         )
       } else if (arrange.type === 'reverse') {
-        act({ type: 'reversePages' })
-        announce('Reversed the page order.')
+        act({ type: 'reversePages', ...(orderScope ? { ids: orderScope } : {}) })
+        announce(orderScope ? 'Reversed the selected pages.' : 'Reversed the page order.')
       } else {
-        act({ type: 'sortPages', by: arrange.by })
-        announce(arrange.by === 'name' ? 'Sorted by file name.' : 'Sorted by date taken.')
+        act({ type: 'sortPages', by: arrange.by, ...(orderScope ? { ids: orderScope } : {}) })
+        const what = orderScope ? 'Sorted the selected pages' : 'Sorted'
+        announce(`${what} by ${arrange.by === 'name' ? 'file name' : 'date taken'}.`)
       }
     },
-    [act, announce, duplex, notify],
+    [act, announce, duplex, notify, orderScope],
   )
 
   const workspace = pages.length > 0 || importing !== null
@@ -865,6 +868,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
               act({ type: 'rotateAll', by })
             }}
             duplex={duplex}
+            orderScope={orderScope?.length ?? null}
             onArrange={onArrange}
             onStartOver={onStartOver}
             busy={importing !== null || straightening}

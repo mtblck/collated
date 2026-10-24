@@ -89,29 +89,34 @@ export interface DuplexGroups {
   backs: string[]
   /** How the piles were chosen, for the dialog to say so. */
   by: 'imports' | 'halves'
-  /** Names of the two imports, when chosen by imports. */
+  /** Names of the two blocks (by their first file), when chosen by blocks. */
   names?: [string, string]
 }
 
 /**
- * How to split the whole document into fronts and backs. Two imports one
- * after the other (fronts.pdf then backs.pdf, or two batches of photos) are
- * the two piles; otherwise the first half is fronts (the extra page, if the
- * count is odd) and the second half backs. Null with fewer than two pages.
+ * How to split pages into fronts and backs: the given pages (selected, #65)
+ * or the whole document. Two blocks are the two piles: two separate runs of
+ * selected pages, or for the whole document two imports one after the other
+ * (fronts.pdf then backs.pdf, or two batches of photos). Otherwise the first half
+ * is fronts (the extra page, if the count is odd) and the second half backs.
+ * Null with fewer than two pages.
  */
-export const duplexGroups = (state: DocState): DuplexGroups | null => {
-  const { pages } = state
+export const duplexGroups = (state: DocState, ids?: readonly string[]): DuplexGroups | null => {
+  const pages = pagesIn(state, ids)
   if (pages.length < 2) return null
+  const index = new Map(state.pages.map((p, i) => [p.id, i]))
   const runs: Page[][] = []
   for (const page of pages) {
     const run = runs.at(-1)
-    const first = run?.[0]
-    if (
-      run &&
-      first &&
-      sourceOf(state.assets[first.assetId]) === sourceOf(state.assets[page.assetId])
-    )
-      run.push(page)
+    const last = run?.at(-1)
+    // Selected pages split where the selection has a gap; the whole
+    // document where one import ends and the next begins.
+    const together =
+      last &&
+      (ids
+        ? index.get(last.id) === (index.get(page.id) ?? 0) - 1
+        : sourceOf(state.assets[last.assetId]) === sourceOf(state.assets[page.assetId]))
+    if (run && together) run.push(page)
     else runs.push([page])
   }
   const [a, b] = runs

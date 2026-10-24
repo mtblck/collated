@@ -711,6 +711,42 @@ describe('App', () => {
       expect(status()).toHaveTextContent('Selection cleared.')
     })
 
+    it('interleaves and reverses just the selected pages (#67)', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'b.jpg', 'c.jpg', 'd.jpg', 'e.jpg')
+      await screen.findByRole('list', { name: '5 pages' })
+      // Two separate groups: 1–2 are fronts, 4–5 backs.
+      await user.click(card(1))
+      await withKey(user, 'Shift', 2)
+      await withKey(user, 'Control', 4)
+      await withKey(user, 'Control', 5)
+      await user.click(screen.getByRole('button', { name: 'More' }))
+      expect(screen.getByText('For the 4 selected pages')).toBeInTheDocument()
+      await user.click(
+        screen.getByRole('button', { name: 'Interleave fronts and backs…', hidden: true }),
+      )
+      const dialog = screen.getByRole('dialog', { name: 'Interleave fronts and backs' })
+      expect(dialog).toHaveTextContent('Fronts: a.jpg and others (2 pages).')
+      await user.click(within(dialog).getByRole('button', { name: 'Interleave' }))
+      expect(pageLabels()).toEqual([
+        'Page 1: a.jpg',
+        'Page 2: e.jpg',
+        'Page 3: c.jpg',
+        'Page 4: b.jpg',
+        'Page 5: d.jpg',
+      ])
+      // The same four pages are still selected; reverse them in their places.
+      await user.click(screen.getByRole('button', { name: 'Reverse page order', hidden: true }))
+      expect(pageLabels()).toEqual([
+        'Page 1: d.jpg',
+        'Page 2: b.jpg',
+        'Page 3: c.jpg',
+        'Page 4: e.jpg',
+        'Page 5: a.jpg',
+      ])
+      expect(status()).toHaveTextContent('Reversed the selected pages.')
+    })
+
     it('rotates and removes the selected pages, each as one undo step', async () => {
       const { user, upload } = setup()
       await upload('a.jpg', 'b.jpg', 'c.jpg')

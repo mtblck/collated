@@ -35,6 +35,7 @@ export const DocumentBar = ({
   onRedo,
   onRotateAll,
   duplex,
+  orderScope = null,
   onArrange,
   onStartOver,
   busy = false,
@@ -56,6 +57,8 @@ export const DocumentBar = ({
   onRedo: () => void
   onRotateAll: (by: -1 | 1) => void
   duplex: DuplexGroups | null
+  /** How many selected pages page order works on; null for every page. */
+  orderScope?: number | null
   onArrange: (arrange: Arrange) => void
   /** Clears the document, its undo history and everything kept for it. */
   onStartOver: () => void
@@ -131,6 +134,7 @@ export const DocumentBar = ({
         pageCount={pageCount}
         onRotateAll={onRotateAll}
         duplex={duplex}
+        orderScope={orderScope}
         onArrange={onArrange}
         busy={exporting.busy || busy}
         onStartOver={onStartOver}
