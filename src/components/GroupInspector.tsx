@@ -1,6 +1,7 @@
 import { useId, type ReactNode } from 'react'
-import type { Asset, Filter, FitMode, Page, PageTransform } from '../core/model'
+import type { Asset, Filter, FitMode, Page, PageTransform, SheetKind } from '../core/model'
 import { ANGLE_LIMIT, DEFAULT_TRANSFORM, SCALE_MAX, SCALE_MIN, isVector } from '../core/model'
+import { SHEET_CAPACITY, picturesOf } from '../core/model'
 import { Button, IconButton, Segmented } from './controls'
 import {
   ArrowLeftIcon,
@@ -35,7 +36,15 @@ export interface GroupActions {
   onReset: () => void
   onRemove: () => void
   onClear: () => void
+  /** Puts the selected pages' pictures onto shared pages (#76). */
+  onCombine: (kind: SheetKind) => void
 }
+
+const COMBINE: readonly { kind: SheetKind; label: string }[] = [
+  { kind: 'two', label: '2 per page' },
+  { kind: 'four', label: '4 per page' },
+  { kind: 'id-card', label: 'ID card' },
+]
 
 /** The one value every page shares, else null (shown as "Mixed"). */
 const shared = <T,>(values: readonly T[]): T | null => {
@@ -119,6 +128,8 @@ export const GroupInspector = ({
   // A group moves while any selected page has an unselected page beside it.
   const canEarlier = indices.some((i, k) => i > k)
   const canLater = indices.some((i, k) => i < count - n + k)
+  const pictures = pages.reduce((sum, p) => sum + picturesOf(p).length, 0)
+  const made = (kind: SheetKind) => Math.ceil(pictures / SHEET_CAPACITY[kind])
   const gesture = (name: string) => `${name}:${pages.map((p) => p.id).join(',')}`
 
   return (
@@ -248,6 +259,36 @@ export const GroupInspector = ({
               : filter === null
                 ? 'These pages use different filters.'
                 : 'Greyscale and B&W clean up photographed paper.'}
+        </p>
+      </div>
+
+      <div>
+        <p className="label mb-2 text-ink-faint" id={`${id}-combine`}>
+          {pictures > 2 ? 'Combine onto shared pages' : 'Combine onto one page'}
+        </p>
+        <div className="grid grid-cols-3 gap-2" role="group" aria-labelledby={`${id}-combine`}>
+          {COMBINE.map(({ kind, label }) => (
+            <Button
+              key={kind}
+              size="sm"
+              aria-describedby={`${id}-combine-${kind}`}
+              onClick={() => {
+                actions.onCombine(kind)
+              }}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs leading-relaxed text-ink-muted">
+          For both sides of an ID, or several receipts on a sheet. Each picture keeps its rotation,
+          crop and filter, and ID card prints them at real card size.{' '}
+          {COMBINE.map(({ kind }) => (
+            <span key={kind} id={`${id}-combine-${kind}`} className="sr-only">
+              Makes {made(kind) === 1 ? 'one page' : `${String(made(kind))} pages`} from {pictures}{' '}
+              pictures.
+            </span>
+          ))}
         </p>
       </div>
 

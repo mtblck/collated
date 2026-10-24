@@ -129,7 +129,41 @@ export interface Page {
    * The page then shows that quadrilateral flattened to a rectangle.
    */
   corners: Quad | null
+  /**
+   * Set when several pictures share this page (#76). The page's own
+   * `assetId` is then its first picture's and its own look is unused: each
+   * picture keeps its rotation, crop and filter in its slot.
+   */
+  sheet?: Sheet
 }
+
+/**
+ * How a combined page is laid out: `two` stacked along the page's long side,
+ * `four` in a 2 × 2 grid, `id-card` both sides of a card at real size.
+ */
+export type SheetKind = 'two' | 'four' | 'id-card'
+
+/** How many pictures each kind of sheet holds. */
+export const SHEET_CAPACITY: Record<SheetKind, number> = { two: 2, four: 4, 'id-card': 2 }
+
+/** One picture on a combined page: what a page is, less its id. */
+export type Slot = Pick<Page, 'assetId'> & PageTransform
+
+export interface Sheet {
+  kind: SheetKind
+  /** In reading order: left to right, then top to bottom. */
+  slots: Slot[]
+}
+
+/** The pictures a page shows: its slots when combined, else the page itself. */
+export const picturesOf = (page: Page): readonly Slot[] => page.sheet?.slots ?? [page]
+
+/**
+ * The key a picture's recognised words go under: the page id, plus the
+ * slot's position on a combined page.
+ */
+export const pictureKey = (page: Pick<Page, 'id' | 'sheet'>, slot: number) =>
+  page.sheet ? `${page.id}/${String(slot)}` : page.id
 
 export type PageTransform = Pick<Page, 'turns' | 'angle' | 'scale' | 'fit' | 'filter' | 'corners'>
 

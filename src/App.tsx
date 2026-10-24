@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { Asset, Page, Settings } from './core/model'
+import type { Asset, Settings, SheetKind, Slot } from './core/model'
+import { SHEET_CAPACITY, pictureKey, picturesOf } from './core/model'
 import { pdfFilename } from './core/filename'
 import { compressionFor, estimateBytes } from './core/compression'
 import type { Skew } from './core/deskew'
@@ -8,7 +9,7 @@ import { forgetPageWords, pageWords } from './lib/pageText'
 import { forgetPageThumbs } from './hooks/usePageThumb'
 import { forgetLayered, layeredImage } from './export/layered'
 import type { OcrWord } from './core/textLayer'
-import { layoutPage } from './core/geometry'
+import { layoutSheet } from './core/geometry'
 import { formatBytes } from './core/units'
 import { describeChange } from './core/describeChange'
 import { duplexGroups } from './core/order'
@@ -19,6 +20,7 @@ import { Inspector, type InspectorActions } from './components/Inspector'
 import { PageGrid } from './components/PageGrid'
 import { GroupInspector, type GroupActions } from './components/GroupInspector'
 import { SelectionBar } from './components/SelectionBar'
+import { SheetInspector, type SheetActions } from './components/SheetInspector'
 import {
   EMPTY_SELECTION,
   blockDropIndex,
@@ -59,7 +61,7 @@ export interface AppDeps {
    * Recognises a page's words (fractions of its content image); from
    * `drawn` instead for a PDF page exported as a drawing.
    */
-  recognizeText: (asset: Asset, page: Page, drawn?: Uint8Array) => Promise<OcrWord[]>
+  recognizeText: (asset: Asset, page: Slot, drawn?: Uint8Array) => Promise<OcrWord[]>
   /** A PDF page drawn as the preview shows it, if it hides a layer (else null). */
   drawnPage: (asset: Asset) => Promise<Uint8Array | null>
   storage: Pick<Storage, 'getItem' | 'setItem'> | undefined
@@ -477,20 +479,24 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       let text: Record<string, OcrWord[]> | undefined
       if (settings.ocr) {
         text = {}
-        const readable: { page: Page; asset: Asset; drawn?: Uint8Array }[] = []
+        // Each picture of a combined page is read on its own (#76).
+        const readable: { key: string; slot: Slot; asset: Asset; drawn?: Uint8Array }[] = []
         for (const page of pages) {
-          const asset = assets[page.assetId]
-          if (!asset) continue
-          if (asset.format !== 'pdf') readable.push({ page, asset })
-          else {
-            const drawn = await deps.drawnPage(asset)
-            if (drawn) readable.push({ page, asset, drawn })
+          for (const [i, slot] of picturesOf(page).entries()) {
+            const asset = assets[slot.assetId]
+            if (!asset) continue
+            const key = pictureKey(page, i)
+            if (asset.format !== 'pdf') readable.push({ key, slot, asset })
+            else {
+              const drawn = await deps.drawnPage(asset)
+              if (drawn) readable.push({ key, slot, asset, drawn })
+            }
           }
         }
-        for (const [i, { page, asset, drawn }] of readable.entries()) {
-          setStatus(`Reading text on page ${i + 1} of ${readable.length}…`)
+        for (const [i, { key, slot, asset, drawn }] of readable.entries()) {
+          setStatus(`Reading text on picture ${i + 1} of ${readable.length}…`)
           setExporting({ busy: true, done: i, total: readable.length, phase: 'ocr' })
-          text[page.id] = await deps.recognizeText(asset, page, drawn)
+          text[key] = await deps.recognizeText(asset, slot, drawn)
         }
       }
       // Pages the export finds it must draw after all are read then.
@@ -499,11 +505,15 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             const words: Record<string, OcrWord[]> = {}
             const asset = assets[assetId]
             if (!asset) return words
-            const reading = pages.filter((p) => p.assetId === assetId)
-            for (const [i, page] of reading.entries()) {
+            const reading = pages.flatMap((page) =>
+              picturesOf(page).flatMap((slot, i) =>
+                slot.assetId === assetId ? [{ key: pictureKey(page, i), slot }] : [],
+              ),
+            )
+            for (const [i, { key, slot }] of reading.entries()) {
               setStatus(`Reading text on drawn page ${i + 1} of ${reading.length}…`)
               setExporting({ busy: true, done: i, total: reading.length, phase: 'ocr' })
-              words[page.id] = await deps.recognizeText(asset, page, jpeg)
+              words[key] = await deps.recognizeText(asset, slot, jpeg)
             }
             // The build runs again next.
             setStatus('Building PDF…')
@@ -616,7 +626,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         let unclear = 0
         for (const id of ids) {
           const page = pages.find((p) => p.id === id)
-          const asset = page ? assets[page.assetId] : undefined
+          // A combined page's pictures are straightened before combining.
+          const asset = page && !page.sheet ? assets[page.assetId] : undefined
           if (!asset) continue
           const skew = await deps.estimateSkew(asset)
           if (skew) patches.push({ id, patch: { angle: skew.angle } })
@@ -752,6 +763,20 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         clearGroup()
         requestFocus(selection.anchor, true)
       },
+      onCombine: (kind) => {
+        const chosen = pages.filter((p) => ids.includes(p.id))
+        const pictures = chosen.reduce((sum, p) => sum + picturesOf(p).length, 0)
+        const made = Math.ceil(pictures / SHEET_CAPACITY[kind])
+        const newIds = Array.from({ length: made }, () => deps.newId())
+        act({ type: 'combinePages', ids, kind, newIds })
+        // The new pages are selected: one shows in the inspector.
+        setSelection({ ids: newIds, anchor: newIds[0] ?? null })
+        setSelecting(false)
+        requestFocus(newIds[0] ?? null, true)
+        announce(
+          `Combined ${plural(pictures, 'picture')} onto ${made === 1 ? 'one page' : `${String(made)} pages`}.`,
+        )
+      },
     }
   }, [
     act,
@@ -770,14 +795,62 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
 
   const selectedAsset = selected ? assets[selected.assetId] : undefined
 
+  const sheetActions = useMemo<SheetActions | null>(() => {
+    if (!selected?.sheet) return null
+    const id = selected.id
+    const { slots } = selected.sheet
+    return {
+      onKind: (kind: SheetKind) => {
+        act({ type: 'setSheetKind', id, kind })
+      },
+      onRotate: (by) => {
+        act({ type: 'rotatePage', id, by })
+      },
+      onMove: (by) => {
+        act({ type: 'movePage', from: selectedIndex, to: selectedIndex + by })
+        announce(`Moved to position ${selectedIndex + by + 1} of ${pages.length}.`)
+      },
+      onDuplicate: () => {
+        const newId = deps.newId()
+        act({ type: 'duplicatePage', id, newId })
+        selectOnly(newId)
+      },
+      onSplit: () => {
+        const newIds = slots.map(() => deps.newId())
+        act({ type: 'splitPage', id, newIds })
+        // The pictures, back as pages, stay selected together.
+        setSelection({ ids: newIds, anchor: newIds[0] ?? null })
+        requestFocus(newIds[0] ?? null, true)
+        announce(`Split page ${selectedIndex + 1} into ${plural(newIds.length, 'page')}.`)
+      },
+      onRemove: () => {
+        onRemove(id)
+      },
+    }
+  }, [
+    act,
+    announce,
+    deps,
+    onRemove,
+    pages.length,
+    requestFocus,
+    selectOnly,
+    selected,
+    selectedIndex,
+  ])
+
   const estimate = useMemo(
     () =>
       estimateBytes(
         pages.flatMap((page) => {
-          const asset = assets[page.assetId]
-          return asset
-            ? [{ asset, drawnWidthPt: layoutPage(settings, asset, page).image.width }]
-            : []
+          const pictures = picturesOf(page)
+          if (pictures.some((slot) => !assets[slot.assetId])) return []
+          const sheet = layoutSheet(settings, assets, page)
+          return pictures.flatMap((slot, i) => {
+            const asset = assets[slot.assetId]
+            const layout = sheet.pictures[i]
+            return asset && layout ? [{ asset, drawnWidthPt: layout.image.width }] : []
+          })
         }),
         compressionFor(settings.quality),
       ),
@@ -955,6 +1028,15 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
                     count={pages.length}
                     actions={groupActions}
                     straightening={straightening}
+                  />
+                ) : selected?.sheet && sheetActions ? (
+                  <SheetInspector
+                    page={{ ...selected, sheet: selected.sheet }}
+                    assets={assets}
+                    index={selectedIndex}
+                    count={pages.length}
+                    settings={settings}
+                    actions={sheetActions}
                   />
                 ) : selected && selectedAsset && inspectorActions ? (
                   <Inspector

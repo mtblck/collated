@@ -42,7 +42,17 @@ export const describeChange = (before: DocState, after: DocState): string | null
       ? `removed page ${first + 1}`
       : `removed ${plural(removed.length, 'page')}`
   }
-  if (added.length > 0) return 'changed the pages'
+  if (added.length > 0) {
+    // Combined pages (#76): pictures went onto fewer pages, or came back off one.
+    if (added.every((p) => p.sheet) && removed.length > added.length) {
+      return `combined ${plural(removed.length, 'page')}`
+    }
+    const [split] = removed
+    if (split && removed.length === 1 && added.length === split.sheet?.slots.length) {
+      return `split page ${was.indexOf(split) + 1}`
+    }
+    return 'changed the pages'
+  }
 
   if (was.some((p, i) => now[i]?.id !== p.id)) {
     // Several pages moved together (#65): the fewest that could have moved

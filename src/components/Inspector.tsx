@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { layoutPage, visiblePart } from '../core/geometry'
+import { layoutPage, singleSheet, visiblePart } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
 import type { Asset, Filter, FitMode, Page, PageTransform, Settings } from '../core/model'
 import { ANGLE_LIMIT, SCALE_MAX, SCALE_MIN, isVector } from '../core/model'
@@ -139,8 +139,8 @@ export const Inspector = ({
         style={{ aspectRatio: boxRatio }}
       >
         <PagePreview
-          layout={layout}
-          thumbUrl={thumbUrl}
+          sheet={singleSheet(layout)}
+          thumbUrls={[thumbUrl]}
           boxRatio={boxRatio}
           showMargins
           mark={mark}

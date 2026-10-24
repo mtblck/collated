@@ -837,6 +837,112 @@ describe('App', () => {
     })
   })
 
+  describe('several pictures on one page (#76)', () => {
+    const card = (n: number) => screen.getByRole('button', { name: new RegExp(`^Page ${n}:`) })
+    const panel = () => within(screen.getByRole('complementary', { name: 'Selected page' }))
+    const selectAllPages = async (user: ReturnType<typeof userEvent.setup>) => {
+      await user.click(card(1))
+      await user.keyboard('{Control>}a{/Control}')
+    }
+
+    it('combines the selection onto one page, changes its layout, and splits it back', async () => {
+      const { user, upload } = setup()
+      await upload('front.jpg', 'back.jpg', 'c.jpg')
+      await screen.findByRole('list', { name: '3 pages' })
+      await user.click(card(1))
+      await user.keyboard('{Shift>}')
+      await user.click(card(2))
+      await user.keyboard('{/Shift}')
+      await user.click(panel().getByRole('button', { name: 'ID card' }))
+
+      expect(pageLabels()).toEqual(['Page 1: ID card: front.jpg, back.jpg', 'Page 2: c.jpg'])
+      expect(status()).toHaveTextContent('Combined 2 pictures onto one page.')
+      expect(card(1)).toHaveFocus()
+      expect(panel().getByRole('heading', { level: 2, name: 'ID card' })).toBeInTheDocument()
+      expect(panel().getByText(/real card size, 3.37 in × 2.13 in/)).toBeInTheDocument()
+
+      await user.click(panel().getByRole('radio', { name: '2' }))
+      expect(pageLabels()[0]).toBe('Page 1: 2 per page: front.jpg, back.jpg')
+
+      await user.click(panel().getByRole('button', { name: 'Split' }))
+      expect(pageLabels()).toEqual(['Page 1: front.jpg', 'Page 2: back.jpg', 'Page 3: c.jpg'])
+      expect(status()).toHaveTextContent('Split page 1 into 2 pages.')
+      expect(
+        panel().getByRole('heading', { level: 2, name: '2 pages selected' }),
+      ).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      expect(status()).toHaveTextContent('Undone: split page 1.')
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      expect(status()).toHaveTextContent('Undone: combined 2 pages.')
+      expect(pageLabels()).toEqual(['Page 1: front.jpg', 'Page 2: back.jpg', 'Page 3: c.jpg'])
+    })
+
+    it('fills as many pages as it takes, and a 3-picture page keeps the grid', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'b.jpg', 'c.jpg', 'd.jpg', 'e.jpg')
+      await screen.findByRole('list', { name: '5 pages' })
+      await selectAllPages(user)
+      expect(panel().getByText('Combine onto shared pages')).toBeInTheDocument()
+      await user.click(panel().getByRole('button', { name: '4 per page' }))
+      expect(pageLabels()).toEqual([
+        'Page 1: 4 per page: a.jpg, b.jpg, c.jpg, d.jpg',
+        'Page 2: 4 per page: e.jpg',
+      ])
+      expect(status()).toHaveTextContent('Combined 5 pictures onto 2 pages.')
+
+      await user.click(card(1))
+      // Four pictures only fit the grid.
+      expect(panel().getByRole('radio', { name: '2' })).toBeDisabled()
+      expect(panel().getByText(/4 pictures need the 4-per-page layout/)).toBeInTheDocument()
+    })
+
+    it('rotates, duplicates and removes a combined page as one page', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'b.jpg')
+      await screen.findByRole('list', { name: '2 pages' })
+      await selectAllPages(user)
+      await user.click(panel().getByRole('button', { name: '2 per page' }))
+      await user.click(panel().getByRole('button', { name: 'Right' }))
+      expect(status()).not.toHaveTextContent('Undone')
+      await user.click(panel().getByRole('button', { name: 'Duplicate' }))
+      expect(pageLabels()).toHaveLength(2)
+      expect(card(2)).toHaveAttribute('aria-current', 'true')
+      await user.click(panel().getByRole('button', { name: 'Remove' }))
+      expect(pageLabels()).toEqual(['Page 1: 2 per page: a.jpg, b.jpg'])
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      expect(status()).toHaveTextContent('Undone: removed page 2.')
+    })
+
+    it('exports the combined page, reading text from each picture', async () => {
+      const exportPdf = vi.fn<AppDeps['exportPdf']>(() =>
+        Promise.resolve({ blob: new Blob(['%PDF']), compression: null, fits: true }),
+      )
+      const { user, deps, upload } = setup({ exportPdf })
+      await upload('a.jpg', 'b.jpg')
+      await screen.findByRole('list', { name: '2 pages' })
+      await selectAllPages(user)
+      await user.click(panel().getByRole('button', { name: '2 per page' }))
+      await user.click(
+        await screen.findByRole('checkbox', { name: 'Make text searchable (OCR)', hidden: true }),
+      )
+      expect(exportMenu()).toHaveAccessibleName('Export · 1 page, options')
+      await user.click(exportButton())
+      await waitFor(() => {
+        expect(exportPdf).toHaveBeenCalled()
+      })
+      expect(deps.recognizeText).toHaveBeenCalledTimes(2)
+      const [doc, , options] = exportPdf.mock.calls[0] ?? []
+      const [sheet] = doc?.pages ?? []
+      expect(sheet?.sheet?.slots).toHaveLength(2)
+      expect(Object.keys(options?.text ?? {})).toEqual([
+        `${sheet?.id ?? ''}/0`,
+        `${sheet?.id ?? ''}/1`,
+      ])
+    })
+  })
+
   describe('focus and announcements', () => {
     it('moves focus to the next page (else the previous) after removing one', async () => {
       const { user, upload } = setup()
