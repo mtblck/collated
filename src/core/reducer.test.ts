@@ -120,4 +120,66 @@ describe('docReducer', () => {
     expect(next.pages).toEqual([])
     expect(next.assets).toEqual({})
   })
+
+  describe('several pages at once (#65)', () => {
+    it('removes, duplicates and rotates just the given pages', () => {
+      const start = doc(4)
+      expect(ids(docReducer(start, { type: 'removePages', ids: ['p1', 'p3'] }))).toEqual([
+        'p0',
+        'p2',
+      ])
+      expect(docReducer(start, { type: 'removePages', ids: ['nope'] })).toBe(start)
+      expect(
+        ids(docReducer(start, { type: 'duplicatePages', ids: ['p0', 'p2'], newIds: ['c0', 'c2'] })),
+      ).toEqual(['p0', 'c0', 'p1', 'p2', 'c2', 'p3'])
+      const turned = docReducer(start, { type: 'rotatePages', ids: ['p1', 'p2'], by: -1 })
+      expect(turned.pages.map((p) => p.turns)).toEqual([0, 3, 3, 0])
+    })
+
+    it('moves a block to an index among the pages left', () => {
+      const start = doc(5)
+      expect(ids(docReducer(start, { type: 'movePages', ids: ['p3', 'p1'], at: 0 }))).toEqual([
+        'p1',
+        'p3',
+        'p0',
+        'p2',
+        'p4',
+      ])
+      expect(ids(docReducer(start, { type: 'movePages', ids: ['p0', 'p2'], at: 9 }))).toEqual([
+        'p1',
+        'p3',
+        'p4',
+        'p0',
+        'p2',
+      ])
+      expect(docReducer(start, { type: 'movePages', ids: ['p0', 'p1'], at: 0 })).toBe(start)
+    })
+
+    it('shifts each page one place past its unselected neighbour', () => {
+      const start = doc(5)
+      expect(ids(docReducer(start, { type: 'shiftPages', ids: ['p1', 'p2'], by: -1 }))).toEqual([
+        'p1',
+        'p2',
+        'p0',
+        'p3',
+        'p4',
+      ])
+      expect(ids(docReducer(start, { type: 'shiftPages', ids: ['p0', 'p3'], by: 1 }))).toEqual([
+        'p1',
+        'p0',
+        'p2',
+        'p4',
+        'p3',
+      ])
+      // Pages already at the end stay; the others still move.
+      expect(ids(docReducer(start, { type: 'shiftPages', ids: ['p0', 'p2'], by: -1 }))).toEqual([
+        'p0',
+        'p2',
+        'p1',
+        'p3',
+        'p4',
+      ])
+      expect(docReducer(start, { type: 'shiftPages', ids: ['p0', 'p1'], by: -1 })).toBe(start)
+    })
+  })
 })

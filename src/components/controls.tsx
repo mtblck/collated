@@ -110,7 +110,8 @@ export const Segmented = <T extends string>({
   describedBy,
 }: {
   legend: string
-  value: T
+  /** Null when no option applies, such as pages that differ (#65). */
+  value: T | null
   options: readonly { value: T; label: ReactNode }[]
   onChange: (value: T) => void
   hideLegend?: boolean
