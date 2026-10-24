@@ -37,6 +37,10 @@ export const describeChange = (before: DocState, after: DocState): string | null
         moved = { id: p.id, from, to, distance: Math.abs(to - from) }
       }
     }
+    // Anything more than one page moving (interleave, reverse, sort) is a reorder.
+    const rest = (list: typeof was) => list.filter((p) => p.id !== moved.id)
+    const others = rest(now)
+    if (rest(was).some((p, i) => others[i]?.id !== p.id)) return 'reordered the pages'
     return `moved page ${moved.from + 1} to position ${moved.to + 1}`
   }
 

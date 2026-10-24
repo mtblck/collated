@@ -1,5 +1,5 @@
 import type { Asset } from '../core/model'
-import { headerSize, passthrough, type SniffedType } from '../core/imageInfo'
+import { headerSize, passthrough, readExifDate, type SniffedType } from '../core/imageInfo'
 import { assetStore } from './assetStore'
 import { ImportError, assertImportPixels } from './errors'
 
@@ -168,6 +168,7 @@ export const importImage = async (
           storedTurns,
           thumbUrl: assetStore.thumbUrl(thumb),
           byteLength: bytes.byteLength,
+          capturedAt: readExifDate(original) ?? file.lastModified,
         },
       ],
     }

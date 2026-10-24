@@ -1,4 +1,5 @@
 import { PAGE_MAX, PAGE_MIN } from './limits'
+import { interleave, reverse, sort, type SortKey } from './order'
 import { isConvex, type Point, type Quad } from './perspective'
 import type { Asset, DocState, Page, PageTransform, QuarterTurns, Settings } from './model'
 import { ANGLE_LIMIT, DEFAULT_TRANSFORM, SCALE_MAX, SCALE_MIN } from './model'
@@ -15,6 +16,11 @@ export type Action =
   | { type: 'transformPage'; id: string; patch: Partial<PageTransform> }
   /** Several pages at once, as one undo step (e.g. auto-straighten all). */
   | { type: 'transformPages'; patches: { id: string; patch: Partial<PageTransform> }[] }
+  /** Alternates two piles of pages (a two-sided scan), in the slots they hold. */
+  | { type: 'interleavePages'; fronts: string[]; backs: string[]; backsReversed: boolean }
+  /** Reverses these pages, or every page, in the slots they hold. */
+  | { type: 'reversePages'; ids?: string[] }
+  | { type: 'sortPages'; by: SortKey; ids?: string[] }
   | { type: 'resetPage'; id: string }
   | { type: 'applyToAll'; id: string }
   | { type: 'setSettings'; patch: Partial<Settings> }
@@ -116,6 +122,15 @@ export const docReducer = (state: DocState, action: Action): DocState => {
         }),
       }
     }
+
+    case 'interleavePages':
+      return interleave(state, action.fronts, action.backs, action.backsReversed)
+
+    case 'reversePages':
+      return reverse(state, action.ids)
+
+    case 'sortPages':
+      return sort(state, action.by, action.ids)
 
     case 'resetPage':
       return mapPage(state, action.id, (p) => ({ ...p, ...DEFAULT_TRANSFORM }))

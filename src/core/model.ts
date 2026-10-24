@@ -97,6 +97,16 @@ export interface Asset {
   thumbUrl: string
   /** Size of the stored bytes, for display (the whole file for a PDF page). */
   byteLength: number
+  /**
+   * When it was taken, in ms since the epoch: the photo's EXIF
+   * DateTimeOriginal, else the file's modified date. For sorting.
+   */
+  capturedAt?: number
+  /**
+   * Which import it came from, for telling a pile of fronts from a pile of
+   * backs: images added together share one. PDF pages go by `bytesId`.
+   */
+  source?: string
 }
 
 /** PDF pages are vector: printed resolution doesn't apply. */

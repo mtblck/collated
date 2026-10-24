@@ -33,6 +33,13 @@ describe('describeChange', () => {
     )
   })
 
+  it('calls a change of many positions a reorder', () => {
+    const before = doc(['p1', 'p2', 'p3', 'p4'])
+    expect(describeChange(before, { ...before, pages: before.pages.toReversed() })).toBe(
+      'reordered the pages',
+    )
+  })
+
   it('names edited pages and changed settings', () => {
     const before = doc(['p1', 'p2'])
     const [p1, p2] = before.pages

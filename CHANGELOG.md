@@ -10,6 +10,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Two-sided scans: **Interleave fronts and backs** in the More menu puts a pile of fronts and a pile of backs (reversed or not) into page order in one step. Also there: **Reverse page order**, **Sort by file name** and **Sort by date taken**.
+
 ### Changed
 
 - A new look, the light table: pages lie on a softly lit dark ground (or a pale one in the light theme), the toolbar and the selected page's settings float above them, and the landing page matches. New type (Geist) and an amber accent.

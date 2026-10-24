@@ -164,3 +164,23 @@ export const PageIcon = (p: P) => (
     <path d="M12 2.5V6h3.5" />
   </Icon>
 )
+
+export const InterleaveIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M3.5 4.5h5M3.5 10h5M3.5 15.5h5" />
+    <path d="M11.5 7.25h5M11.5 12.75h5" />
+  </Icon>
+)
+
+export const ReverseIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M6.5 16V4M3.5 7l3-3 3 3" />
+    <path d="M13.5 4v12M10.5 13l3 3 3-3" />
+  </Icon>
+)
+
+export const SortIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M3.5 5h13M3.5 10h9M3.5 15h5" />
+  </Icon>
+)

@@ -1,9 +1,10 @@
 import { useId } from 'react'
 import type { Settings } from '../core/model'
+import type { DuplexGroups } from '../core/order'
 import { Button, IconButton } from './controls'
 import { ExportOptions } from './ExportOptions'
 import { PlusIcon, RedoIcon, UndoIcon } from './Icons'
-import { MoreMenu } from './MoreMenu'
+import { MoreMenu, type Arrange } from './MoreMenu'
 import { PageSetup } from './PageSetup'
 import { Toolbar } from './Toolbar'
 import { TOOLBAR_ITEM } from './toolbarItem'
@@ -33,6 +34,8 @@ export const DocumentBar = ({
   onUndo,
   onRedo,
   onRotateAll,
+  duplex,
+  onArrange,
   onStartOver,
   busy = false,
   onAdd,
@@ -52,6 +55,8 @@ export const DocumentBar = ({
   onUndo: () => void
   onRedo: () => void
   onRotateAll: (by: -1 | 1) => void
+  duplex: DuplexGroups | null
+  onArrange: (arrange: Arrange) => void
   /** Clears the document, its undo history and everything kept for it. */
   onStartOver: () => void
   /** Importing or straightening: Start over waits (export is `exporting`). */
@@ -125,6 +130,8 @@ export const DocumentBar = ({
       <MoreMenu
         pageCount={pageCount}
         onRotateAll={onRotateAll}
+        duplex={duplex}
+        onArrange={onArrange}
         busy={exporting.busy || busy}
         onStartOver={onStartOver}
       />

@@ -13,6 +13,12 @@ Select a page to edit it in the panel on the right. The large preview there is e
 - Or, with the keyboard: Tab to the handle, press Space to pick the page up, use the arrow keys to move it, and Space to drop it (Escape cancels).
 - Or use **Move earlier** / **Move later** in the panel.
 
+The toolbar's **More** menu reorders the whole document at once. Each is one step, so **Undo** puts the pages back.
+
+- **Interleave fronts and backs…** is for a two-sided scan made one side at a time: a pile of fronts, then a pile of backs. It puts them in order front 1, back 1, front 2, back 2, and so on. If you added the two piles as two files (or two batches of photos), those are the piles; otherwise the first half of the pages are taken as fronts. **Backs are in reverse order** is on by default, because turning the stack over and scanning it again brings the last back out first. If one pile has more pages, the extra pages go at the end.
+- **Reverse page order** turns the document back to front.
+- **Sort by file name** puts numbers in order (scan 2 before scan 10). **Sort by date taken** uses the date the photo was taken, if the camera recorded one, and otherwise the file's date.
+
 ## Rotate, straighten and scale
 
 - **Rotate** turns the page a quarter turn left or right. To turn every page at once, use **Rotate all pages** in the toolbar's **More** menu.
