@@ -318,8 +318,6 @@ export const PageViewer = ({
     }
   }, [])
 
-  const boxRatio = size.width / size.height
-
   return (
     <dialog
       ref={dialog}
@@ -403,12 +401,7 @@ export const PageViewer = ({
               transform: `translate(${String(view.x)}px, ${String(view.y)}px) scale(${String(view.scale)})`,
             }}
           >
-            <PagePreview
-              layout={layout}
-              thumbUrl={detail ?? thumbUrl}
-              boxRatio={boxRatio}
-              mark={mark}
-            />
+            <PagePreview layout={layout} thumbUrl={detail ?? thumbUrl} mark={mark} />
           </div>
         </div>
         <p className="sr-only" role="status" aria-live="polite">

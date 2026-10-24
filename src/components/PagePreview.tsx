@@ -9,12 +9,12 @@ const pct = (part: number, whole: number) => `${(part / whole) * 100}%`
  * output: the image is centred on the printable area, rotated with CSS (both
  * are clockwise in y-down space) and clipped to the margins.
  *
- * The sheet is sized to fit a box of aspect `boxRatio` (width / height).
+ * The sheet is fitted to its box with container-query units, so it keeps the
+ * page's exact aspect whatever padding the box has.
  */
 export const PagePreview = ({
   layout,
   thumbUrl,
-  boxRatio,
   showMargins = false,
   selected = false,
   mark = null,
@@ -22,7 +22,6 @@ export const PagePreview = ({
 }: {
   layout: Layout
   thumbUrl: string
-  boxRatio: number
   showMargins?: boolean
   /** Rings the sheet itself: the page, not its card, is what's selected. */
   selected?: boolean
@@ -31,16 +30,22 @@ export const PagePreview = ({
   className?: string
 }) => {
   const { page, content, image } = layout
-  const wide = page.width / page.height > boxRatio
   return (
-    <div className={cx('flex h-full w-full items-center justify-center', className)}>
+    <div
+      className={cx('flex h-full w-full items-center justify-center', className)}
+      style={{ containerType: 'size' }}
+    >
       <div
         className={cx(
           'sheet relative transition-[outline-color]',
-          wide ? 'h-auto w-full' : 'h-full w-auto',
           selected ? 'outline-2 outline-offset-4 outline-accent' : 'outline-transparent',
         )}
-        style={{ aspectRatio: `${page.width} / ${page.height}`, containerType: 'size' }}
+        style={{
+          // As wide as the box allows, or as the box's height at the page's aspect.
+          width: `min(100cqw, ${String(page.width / page.height)} * 100cqh)`,
+          aspectRatio: `${page.width} / ${page.height}`,
+          containerType: 'size',
+        }}
       >
         <div
           data-margin-guide={showMargins || undefined}
