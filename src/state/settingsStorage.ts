@@ -1,11 +1,15 @@
 import type { Settings } from '../core/model'
 import { PAGE_NUMBER_START_MAX } from '../core/limits'
+import { defaultOcrLanguage, isOcrLanguage } from '../core/ocrLanguages'
 import { PAGE_SIZES, localeDefaults } from '../core/pageSizes'
 import { NO_WATERMARK, WATERMARK_OPACITY_MIN } from '../core/watermark'
 
 const KEY = 'collated:settings'
 
-/** Fresh settings for this visitor: their locale's paper, auto orientation, no margin. */
+/**
+ * Fresh settings for this visitor: their locale's paper and OCR language,
+ * auto orientation, no margin.
+ */
 export const defaultSettings = (locale: string): Settings => {
   const { size, unit } = localeDefaults(locale)
   const preset = PAGE_SIZES.find((p) => p.id === size) ?? PAGE_SIZES[0]
@@ -22,6 +26,7 @@ export const defaultSettings = (locale: string): Settings => {
     pageNumbers: { show: false, position: 'bottom-center', start: 1 },
     watermark: NO_WATERMARK,
     ocr: false,
+    ocrLanguage: defaultOcrLanguage(locale),
     bookmarkFiles: false,
   }
 }
@@ -76,6 +81,7 @@ export const loadSettings = (
           ? raw.maxBytes
           : null,
       ocr: raw.ocr === true,
+      ocrLanguage: isOcrLanguage(raw.ocrLanguage) ? raw.ocrLanguage : fallback.ocrLanguage,
       bookmarkFiles: raw.bookmarkFiles === true,
       imageDpi: Math.min(1200, Math.max(36, finite(raw.imageDpi, fallback.imageDpi))),
       pageNumbers: {

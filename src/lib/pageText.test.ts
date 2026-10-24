@@ -26,16 +26,16 @@ describe('pageWords cache', () => {
   it('reads a page once, and again after its image is gone', async () => {
     const a = asset('a')
     assetStore.putBytes('a', new Uint8Array(1))
-    await pageWords(a, upright)
-    await pageWords(a, upright)
+    await pageWords(a, upright, 'eng')
+    await pageWords(a, upright, 'eng')
     expect(recognizeWords).toHaveBeenCalledTimes(1)
 
     // Another page's miss prunes entries whose bytes are no longer stored.
     assetStore.clear()
     assetStore.putBytes('b', new Uint8Array(1))
-    await pageWords(asset('b'), upright)
+    await pageWords(asset('b'), upright, 'eng')
     assetStore.putBytes('a', new Uint8Array(1))
-    await pageWords(a, upright)
+    await pageWords(a, upright, 'eng')
     expect(recognizeWords).toHaveBeenCalledTimes(3)
   })
 
@@ -50,14 +50,14 @@ describe('pageWords cache', () => {
       { x: 0.1, y: 0.9 },
     ] as const
     displayedToBlob.mockClear()
-    await pageWords(a, { ...upright, corners: [...corners] }, drawn)
-    await pageWords(a, upright, drawn)
+    await pageWords(a, { ...upright, corners: [...corners] }, 'eng', drawn)
+    await pageWords(a, upright, 'eng', drawn)
     expect(recognizeWords).toHaveBeenCalledTimes(1)
     // Read from the drawing's bytes, uncropped.
     const [source, usedCorners] = displayedToBlob.mock.calls[0] ?? [new Blob(), undefined]
     expect(new Uint8Array(await source.arrayBuffer())).toEqual(drawn)
     expect(usedCorners).toBeNull()
-    await pageWords(a, upright)
+    await pageWords(a, upright, 'eng')
     expect(recognizeWords).toHaveBeenCalledTimes(2)
   })
 
@@ -67,18 +67,27 @@ describe('pageWords cache', () => {
     const first = assets[0]
     const second = assets[1]
     if (!first || !second) throw new Error('no assets')
-    await pageWords(first, upright)
-    await pageWords(second, upright)
-    for (const a of assets.slice(2, 200)) await pageWords(a, upright)
-    await pageWords(first, upright) // a hit: now the most recent
+    await pageWords(first, upright, 'eng')
+    await pageWords(second, upright, 'eng')
+    for (const a of assets.slice(2, 200)) await pageWords(a, upright, 'eng')
+    await pageWords(first, upright, 'eng') // a hit: now the most recent
     expect(recognizeWords).toHaveBeenCalledTimes(200)
 
     const last = assets[200]
     if (!last) throw new Error('no asset')
-    await pageWords(last, upright) // the 201st entry evicts the oldest: `second`
-    await pageWords(first, upright)
+    await pageWords(last, upright, 'eng') // the 201st entry evicts the oldest: `second`
+    await pageWords(first, upright, 'eng')
     expect(recognizeWords).toHaveBeenCalledTimes(201)
-    await pageWords(second, upright)
+    await pageWords(second, upright, 'eng')
     expect(recognizeWords).toHaveBeenCalledTimes(202)
+  })
+
+  it('reads a page again in another language', async () => {
+    const a = asset('a')
+    assetStore.putBytes('a', new Uint8Array(1))
+    await pageWords(a, upright, 'eng')
+    await pageWords(a, upright, 'fra')
+    await pageWords(a, upright, 'fra')
+    expect(recognizeWords.mock.calls.map((call: unknown[]) => call[3])).toEqual(['eng', 'fra'])
   })
 })
