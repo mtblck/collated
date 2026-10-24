@@ -15,6 +15,16 @@ Select a page to edit it in the panel on the right. The large preview there is e
 
 With more than one page selected, the panel changes everything you've selected at once: rotate, straighten (or auto-straighten), scale, placement, filter, move earlier or later, duplicate, reset and remove. Each change is one step for **Undo**. A filter changes only image pages; PDF pages keep their vector content. Dragging any selected page moves them all, together, to where you drop it, and so does picking one up with the keyboard.
 
+## Several pictures on one page
+
+For both sides of an ID card on one page, or a few receipts on a sheet: select the pages, then under **Combine onto one page** choose
+
+- **2 per page:** two pictures along the page's long side, stacked or side by side, whichever shows them larger (with **Auto** orientation).
+- **4 per page:** four pictures in a 2 × 2 grid.
+- **ID card:** both sides at real card size, 85.6 × 54 mm, one above the other in the middle of the page. Crop each side to the card's edges first (**Crop to the page…**) for an exact-size copy.
+
+More pictures than fit make more pages; a page that isn't full keeps its empty space, so every picture is the same size. Each picture keeps its own rotation, straightening, crop and filter. The combined page is one page: move, duplicate or remove it like any other, and **Rotate** turns each picture on it. Change its layout in the panel, or **Split** it to get the pictures back as separate pages (to edit one, split, change it, and combine again). With **Match image** page size, the page is made big enough to hold each picture at its own size.
+
 ## Order
 
 - Drag a page by its handle (⠿).
@@ -52,3 +62,9 @@ Without dragging: tap or click a corner to select it, then tap or click where it
 ## Duplicate, reset and remove
 
 **Duplicate** copies the page (it doesn't add to the file size). **Reset** undoes this page's changes. **Apply to all pages** copies this page's rotation, straightening, scale, placement and filter to every page. **Remove** takes the page out; **Undo** brings it back. To clear everything and begin a new document, use **Start over…** in the toolbar's **More** menu (this can't be undone).
+
+## Blank pages
+
+Scanning single-sided paper on both sides leaves every other page blank. Collated checks each page as it arrives and marks the ones that look blank with **Looks blank** (a screen reader hears it in the page's name). Faint show-through from the other side, punch holes, specks of dust and the scanner's shadow at the edge don't count as content; a single line of text or a signature does. Dark or coloured paper is never marked.
+
+Nothing is removed on its own. Above the pages, **Remove N blank pages** takes out every marked page at once, as one step for **Undo**. To check them first, or keep one, use **Select them**, deselect any page you want to keep (⌘/Ctrl-click), and **Remove** the rest from the panel.

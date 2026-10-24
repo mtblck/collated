@@ -1,5 +1,5 @@
 import type { Compression } from '../core/compression'
-import type { DocState } from '../core/model'
+import { picturesOf, type DocState } from '../core/model'
 import type { SplitPart } from '../core/splitBuild'
 import type { OcrWord } from '../core/textLayer'
 import { assetStore } from '../import/assetStore'
@@ -16,10 +16,14 @@ export interface Exported {
   fits: boolean
 }
 
+/** Every asset a page shows, combined pages' pictures included. */
+const usedAssets = (state: DocState) =>
+  new Set(state.pages.flatMap((p) => picturesOf(p).map((slot) => slot.assetId)))
+
 /** Drawn JPEGs for the PDF pages that hide something, by asset id (see layered.ts). */
 const drawLayered = async (state: DocState) => {
   const drawn: Record<string, Uint8Array> = {}
-  const used = new Set(state.pages.map((p) => p.assetId))
+  const used = usedAssets(state)
   for (const asset of Object.values(state.assets)) {
     if (asset.format !== 'pdf' || !used.has(asset.id)) continue
     const jpeg = await layeredImage(asset)
@@ -35,7 +39,7 @@ const request = (
   drawn: Record<string, Uint8Array> = {},
   parts?: SplitPart[],
 ): ExportRequest => {
-  const used = new Set(state.pages.map((p) => p.assetId))
+  const used = usedAssets(state)
   const assets = Object.fromEntries(Object.entries(state.assets).filter(([id]) => used.has(id)))
   const rendered = Object.fromEntries(Object.keys(drawn).map((id) => [id, `drawn:${id}`]))
   // Pages of one PDF share its bytes: send each file once, and not at all
@@ -124,7 +128,7 @@ export const exportPdf = (
 ): Promise<Exported> => {
   const { parts } = options
   const type = parts ? 'application/zip' : 'application/pdf'
-  const hasPdf = state.pages.some((p) => state.assets[p.assetId]?.format === 'pdf')
+  const hasPdf = [...usedAssets(state)].some((id) => state.assets[id]?.format === 'pdf')
   const finish = (result: Exported | { draw: string[] }) => {
     if ('draw' in result) throw new Error('A PDF page that hides a layer could not be drawn.')
     return result

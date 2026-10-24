@@ -1,5 +1,5 @@
 import type { History } from '../core/history'
-import type { Asset, DocState } from '../core/model'
+import { picturesOf, type Asset, type DocState } from '../core/model'
 import { assetStore } from '../import/assetStore'
 
 /**
@@ -73,7 +73,8 @@ const statesOf = (history: History<DocState>) => [
 export const reachableAssets = (history: History<DocState>): Map<string, Asset> => {
   const assets = new Map<string, Asset>()
   for (const state of statesOf(history)) {
-    for (const { assetId } of state.pages) {
+    // A combined page (#76) needs every picture on it, not just the first.
+    for (const { assetId } of state.pages.flatMap((p) => picturesOf(p))) {
       const asset = state.assets[assetId]
       if (asset) assets.set(asset.id, asset)
     }

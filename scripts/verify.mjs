@@ -2299,6 +2299,82 @@ await context.close()
   await ctx.close()
 }
 
+// 24. Several pictures on one page (#76): 4 per page and ID card, preview ≡ PDF.
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles(
+    '[data-testid="file-input"]',
+    ['quad-landscape.jpg', 'quad-exif6.jpg', 'quad-portrait.jpg', 'quad-rotate90.pdf'].map((f) =>
+      join(fixtures, f),
+    ),
+  )
+  await p.waitForSelector('ol[aria-label="4 pages"]', { timeout: 20_000 })
+  const panel = p.locator('aside[aria-label="Selected page"]')
+  const card = (n) => p.locator(`ol[aria-label] > li:nth-child(${n}) [data-page-select]`)
+  /** Exports, renders page `n` and compares it with the inspector's sheet. */
+  const matchesExport = async (label, n = 1) => {
+    const [dl] = await Promise.all([p.waitForEvent('download'), exportNow(p)])
+    const out = join(mkdtempSync(join(tmpdir(), 'collated-verify-sheet-')), 'sheet.pdf')
+    await dl.saveAs(out)
+    if (!hasPoppler) return out
+    const prefix = out.replace(/\.pdf$/, '')
+    execFileSync('pdftoppm', [
+      '-png',
+      '-r',
+      '72',
+      '-f',
+      String(n),
+      '-l',
+      String(n),
+      '-singlefile',
+      out,
+      prefix,
+    ])
+    const rendered = readFileSync(`${prefix}.png`).toString('base64')
+    const preview = (await panel.locator('.sheet').first().screenshot(sheetShot)).toString('base64')
+    writeFileSync(join(shots, `sheet-${label}-pdf.png`), Buffer.from(rendered, 'base64'))
+    writeFileSync(join(shots, `sheet-${label}-preview.png`), Buffer.from(preview, 'base64'))
+    const diff = await compareImages(rendered, preview)
+    check(
+      diff.farShare < 0.03,
+      `${label}: preview matches the export (${(diff.farShare * 100).toFixed(2)}% of pixels differ)`,
+    )
+    return out
+  }
+
+  await card(1).click()
+  await p.keyboard.press('Control+a')
+  await panel.getByRole('button', { name: '4 per page' }).click()
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  check(
+    (await pageNames(p))[0] ===
+      '4 per page: quad-landscape.jpg, quad-exif6.jpg, quad-portrait.jpg, quad-rotate90.pdf',
+    'four pages combine onto one',
+    (await pageNames(p)).join(' | '),
+  )
+  await p.screenshot({ path: join(shots, 'sheet-4up.png') })
+  await axe(p, 'combined page')
+  const fourUp = await PDFDocument.load(readFileSync(await matchesExport('4 per page')))
+  check(fourUp.getPageCount() === 1, '4 per page exports as one page')
+
+  await panel.getByRole('button', { name: 'Split' }).click()
+  await p.waitForSelector('ol[aria-label="4 pages"]')
+  await card(1).click()
+  await card(2).click({ modifiers: ['Shift'] })
+  await panel.getByRole('button', { name: 'ID card' }).click()
+  await p.waitForSelector('ol[aria-label="3 pages"]')
+  const idPdf = await PDFDocument.load(readFileSync(await matchesExport('ID card')))
+  const { width, height } = idPdf.getPage(0).getSize()
+  check(
+    idPdf.getPageCount() === 3 && width === 612 && height === 792,
+    'the ID card page is a Letter page (en-US) among the others',
+    `${idPdf.getPageCount()} pages, ${width} × ${height}`,
+  )
+  await p.screenshot({ path: join(shots, 'sheet-id-card.png') })
+  await ctx.close()
+}
+
 // 23. Work survives a reload (#74): restore with undo, bytes once, cleared on request.
 {
   const { context: ctx, page: p } = await open({ viewport: { width: 1280, height: 900 } })
@@ -2456,6 +2532,56 @@ await context.close()
     (await p.getByRole('region', { name: 'Restore your last document?' }).count()) === 0,
     'turning Keep work off deletes the copy',
   )
+  await ctx.close()
+}
+
+// 25. Blank pages (#68): flagged from real scans, removed together, undone. --
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  // A printed page, the back of a sheet (show-through, punch holes, dust, lid
+  // shadow), a sparse page of four lines, and that back again.
+  await p.setInputFiles(
+    '[data-testid="file-input"]',
+    [
+      'scan-letter-300dpi.jpg',
+      'scan-blank-back.jpg',
+      'text-page-sideways.jpg',
+      'scan-blank-back.jpg',
+    ].map((f) => join(fixtures, f)),
+  )
+  await p.waitForSelector('ol[aria-label="4 pages"]')
+  const remove = p.getByRole('button', { name: 'Remove 2 blank pages' })
+  await remove.waitFor({ timeout: 10_000 }).catch(() => undefined)
+  const flagged = await p
+    .locator('[data-page-select]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')?.endsWith('looks blank')))
+  check(
+    JSON.stringify(flagged) === '[false,true,false,true]',
+    'only the blank backs are flagged (show-through, punch holes and dust ignored)',
+    JSON.stringify(flagged),
+  )
+  check(
+    (await p.getByText('Looks blank', { exact: true }).count()) === 2,
+    'each blank page carries a visible badge',
+  )
+  await p.waitForFunction(() =>
+    /2 pages look blank/.test(document.getElementById('status')?.textContent ?? ''),
+  )
+  check(true, 'the blank pages are announced')
+  await axe(p, 'blank pages flagged')
+  await p.screenshot({ path: join(shots, 'blank-pages.png') })
+  await remove.click()
+  await p.waitForSelector('ol[aria-label="2 pages"]')
+  check(
+    JSON.stringify(await pageNames(p)) ===
+      JSON.stringify(['scan-letter-300dpi.jpg', 'text-page-sideways.jpg']),
+    'Remove blank pages takes out only the flagged pages',
+    (await pageNames(p)).join(', '),
+  )
+  await p.getByRole('button', { name: /^Undo/ }).click()
+  await p.waitForSelector('ol[aria-label="4 pages"]')
+  check(true, 'one undo brings both blank pages back')
   await ctx.close()
 }
 

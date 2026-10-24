@@ -1,4 +1,4 @@
-import type { Layout } from '../core/geometry'
+import type { SheetLayout } from '../core/geometry'
 import { NUMBER_GREY, type NumberMark } from '../core/pageNumbers'
 import { cx } from './cx'
 
@@ -10,18 +10,20 @@ const pct = (part: number, whole: number) => `${(part / whole) * 100}%`
  * are clockwise in y-down space) and clipped to the margins.
  *
  * The sheet is fitted to its box with container-query units, so it keeps the
- * page's exact aspect whatever padding the box has.
+ * page's exact aspect whatever padding the box has. A combined page (#76)
+ * draws each picture the same way, clipped to its cell.
  */
 export const PagePreview = ({
-  layout,
-  thumbUrl,
+  sheet,
+  thumbUrls,
   showMargins = false,
   selected = false,
   mark = null,
   className,
 }: {
-  layout: Layout
-  thumbUrl: string
+  sheet: SheetLayout
+  /** One per picture, in `sheet.pictures` order. */
+  thumbUrls: readonly string[]
   showMargins?: boolean
   /** Rings the sheet itself: the page, not its card, is what's selected. */
   selected?: boolean
@@ -29,7 +31,12 @@ export const PagePreview = ({
   mark?: NumberMark | null
   className?: string
 }) => {
-  const { page, content, image } = layout
+  const { page, content } = sheet
+  const single = sheet.pictures.length === 1
+  const guide = (rect: { x: number }) =>
+    showMargins &&
+    rect.x > 0 &&
+    'outline outline-1 outline-offset-0 outline-[#9a8f84]/40 outline-dashed'
   return (
     <div
       className={cx('flex h-full w-full items-center justify-center', className)}
@@ -47,36 +54,50 @@ export const PagePreview = ({
           containerType: 'size',
         }}
       >
-        <div
-          data-margin-guide={showMargins || undefined}
-          className={cx(
-            'absolute overflow-hidden',
-            showMargins &&
-              content.x > 0 &&
-              'outline outline-1 outline-offset-0 outline-[#9a8f84]/40 outline-dashed',
-          )}
-          style={{
-            left: pct(content.x, page.width),
-            top: pct(content.y, page.height),
-            width: pct(content.width, page.width),
-            height: pct(content.height, page.height),
-          }}
-        >
-          <img
-            src={thumbUrl}
-            alt=""
-            draggable={false}
-            decoding="async"
-            className="absolute max-w-none select-none"
+        {/* On a combined page the margins get their own guide; the cells
+            only clip. */}
+        {!single && showMargins && (
+          <div
+            data-margin-guide
+            aria-hidden="true"
+            className={cx('pointer-events-none absolute', guide(content))}
             style={{
-              left: pct(image.cx - content.x, content.width),
-              top: pct(image.cy - content.y, content.height),
-              width: pct(image.width, content.width),
-              height: pct(image.height, content.height),
-              transform: `translate(-50%, -50%) rotate(${image.rotation}deg)`,
+              left: pct(content.x, page.width),
+              top: pct(content.y, page.height),
+              width: pct(content.width, page.width),
+              height: pct(content.height, page.height),
             }}
           />
-        </div>
+        )}
+        {sheet.pictures.map(({ content: cell, image }, i) => (
+          <div
+            // A cell is its position on the sheet.
+            key={i}
+            data-margin-guide={(single && showMargins) || undefined}
+            className={cx('absolute overflow-hidden', single && guide(cell))}
+            style={{
+              left: pct(cell.x, page.width),
+              top: pct(cell.y, page.height),
+              width: pct(cell.width, page.width),
+              height: pct(cell.height, page.height),
+            }}
+          >
+            <img
+              src={thumbUrls[i]}
+              alt=""
+              draggable={false}
+              decoding="async"
+              className="absolute max-w-none select-none"
+              style={{
+                left: pct(image.cx - cell.x, cell.width),
+                top: pct(image.cy - cell.y, cell.height),
+                width: pct(image.width, cell.width),
+                height: pct(image.height, cell.height),
+                transform: `translate(-50%, -50%) rotate(${image.rotation}deg)`,
+              }}
+            />
+          </div>
+        ))}
         {mark && (
           <span
             aria-hidden="true"

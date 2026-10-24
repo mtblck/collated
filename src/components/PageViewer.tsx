@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
-import type { Layout } from '../core/geometry'
+import { singleSheet, type Layout } from '../core/geometry'
 import type { NumberMark } from '../core/pageNumbers'
 import { FIT, clampView, stepFrom, zoomAt, type View } from '../core/zoom'
 import { Button, IconButton } from './controls'
@@ -401,7 +401,7 @@ export const PageViewer = ({
               transform: `translate(${String(view.x)}px, ${String(view.y)}px) scale(${String(view.scale)})`,
             }}
           >
-            <PagePreview layout={layout} thumbUrl={detail ?? thumbUrl} mark={mark} />
+            <PagePreview sheet={singleSheet(layout)} thumbUrls={[detail ?? thumbUrl]} mark={mark} />
           </div>
         </div>
         <p className="sr-only" role="status" aria-live="polite">

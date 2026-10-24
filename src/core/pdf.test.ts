@@ -6,8 +6,9 @@ import { join } from 'node:path'
 import { PDFDocument, PDFName } from '@cantoo/pdf-lib'
 import { afterAll, describe, expect, it } from 'vitest'
 import { asset, fixture, page, settings } from '../../tests/helpers'
-import { layoutPage } from './geometry'
-import type { Asset, Page, Settings } from './model'
+import { layoutPage, layoutSheet, type Layout } from './geometry'
+import { DEFAULT_TRANSFORM } from './model'
+import type { Asset, Page, PageTransform, Settings, SheetKind, Slot } from './model'
 import { passthrough } from './imageInfo'
 import { pdfFilename } from './filename'
 import { buildPdf, imageJob, pageTurns, placement, visibleBox, type ImageJob } from './pdf'
@@ -431,6 +432,76 @@ const rasterise = (bytes: Uint8Array) => {
 const close = (a: readonly number[], b: readonly number[]) =>
   a.every((v, i) => Math.abs(v - (b[i] ?? 0)) < 40)
 
+/**
+ * Checks a rendered page against one picture's layout: the fixture's four
+ * coloured quadrants where the layout puts them, white where it puts none
+ * inside the picture's printable area (its cell, on a combined page).
+ */
+const expectDrawn = (pixel: (x: number, y: number) => number[], layout: Layout) => {
+  const { cx, cy, width, height, rotation } = layout.image
+  const r = (rotation * Math.PI) / 180
+  for (const [quadrant, { at, rgb }] of Object.entries(QUADRANTS)) {
+    const dx = (at[0] - 0.5) * width
+    const dy = (at[1] - 0.5) * height
+    // Clockwise rotation in y-down screen space — what CSS rotate() does.
+    const x = cx + dx * Math.cos(r) - dy * Math.sin(r)
+    const y = cy + dx * Math.sin(r) + dy * Math.cos(r)
+    const inside =
+      x > layout.content.x + 2 &&
+      x < layout.content.x + layout.content.width - 2 &&
+      y > layout.content.y + 2 &&
+      y < layout.content.y + layout.content.height - 2
+    const got = pixel(x, y)
+    if (inside)
+      expect(
+        close(got, rgb),
+        `${quadrant} at ${x.toFixed(0)},${y.toFixed(0)} was ${got.join(',')}`,
+      ).toBe(true)
+  }
+  // A grid over the printable area, each point checked against the colour
+  // the layout puts there: catches content shifted or scaled by a little.
+  const quadrantColour = (u: number, v: number) =>
+    u < 0.5
+      ? v < 0.5
+        ? QUADRANTS.tl.rgb
+        : QUADRANTS.bl.rgb
+      : v < 0.5
+        ? QUADRANTS.tr.rgb
+        : QUADRANTS.br.rgb
+  const band = 0.04
+  for (let gx = 1; gx < 16; gx++) {
+    for (let gy = 1; gy < 16; gy++) {
+      const x = layout.content.x + (layout.content.width * gx) / 16
+      const y = layout.content.y + (layout.content.height * gy) / 16
+      const dx = x - cx
+      const dy = y - cy
+      const u = (dx * Math.cos(r) + dy * Math.sin(r)) / width + 0.5
+      const v = (-dx * Math.sin(r) + dy * Math.cos(r)) / height + 0.5
+      // Skip points near an edge or a quadrant boundary, where resampling blurs.
+      const near = (n: number) =>
+        Math.abs(n) < band || Math.abs(n - 0.5) < band || Math.abs(n - 1) < band
+      if (near(u) || near(v)) continue
+      const want = u < 0 || u > 1 || v < 0 || v > 1 ? [255, 255, 255] : quadrantColour(u, v)
+      const got = pixel(x, y)
+      expect(
+        close(got, want),
+        `grid ${gx},${gy} (u ${u.toFixed(2)}, v ${v.toFixed(2)}) was ${got.join(',')}`,
+      ).toBe(true)
+    }
+  }
+  // Margins (and gaps between cells) stay blank: the image is clipped to
+  // its printable area.
+  const { x, y, height: h } = layout.content
+  const off = Math.min(8, x / 2)
+  if (x > 4) {
+    const got = pixel(x - off, y + h / 2)
+    expect(
+      close(got, [255, 255, 255]),
+      `left of ${String(x)},${String(y)} was ${got.join(',')}`,
+    ).toBe(true)
+  }
+}
+
 describe.skipIf(!hasPdftoppm)('rendered output matches the layout', () => {
   const cases: { name: string; file: string; s?: Partial<Settings>; p?: Partial<Page> }[] = [
     // The filter fake returns an upright PNG; EXIF turns must not apply twice.
@@ -486,60 +557,126 @@ describe.skipIf(!hasPdftoppm)('rendered output matches the layout', () => {
     if (!pageModel || !meta) throw new Error('setup')
     const layout = layoutPage(docSettings, meta, pageModel)
     const pixel = rasterise(bytes)
-    const { cx, cy, width, height, rotation } = layout.image
-    const r = (rotation * Math.PI) / 180
-    for (const [quadrant, { at, rgb }] of Object.entries(QUADRANTS)) {
-      const dx = (at[0] - 0.5) * width
-      const dy = (at[1] - 0.5) * height
-      // Clockwise rotation in y-down screen space — what CSS rotate() does.
-      const x = cx + dx * Math.cos(r) - dy * Math.sin(r)
-      const y = cy + dx * Math.sin(r) + dy * Math.cos(r)
-      const inside =
-        x > layout.content.x + 2 &&
-        x < layout.content.x + layout.content.width - 2 &&
-        y > layout.content.y + 2 &&
-        y < layout.content.y + layout.content.height - 2
-      const got = pixel(x, y)
-      if (inside)
-        expect(
-          close(got, rgb),
-          `${quadrant} at ${x.toFixed(0)},${y.toFixed(0)} was ${got.join(',')}`,
-        ).toBe(true)
+    expectDrawn(pixel, layout)
+  })
+})
+
+describe.skipIf(!hasPdftoppm)('combined pages match the layout (#76)', () => {
+  interface Picture {
+    file: string
+    look?: Partial<PageTransform>
+  }
+  const buildSheet = async (s: Settings, kind: SheetKind, pictures: Picture[]) => {
+    const files = new Map(
+      await Promise.all(pictures.map(async ({ file }) => [file, await fileAsset(file)] as const)),
+    )
+    const assets = Object.fromEntries([...files].map(([k, v]) => [k, v.meta]))
+    const bytesById = new Map([...files.values()].map((v) => [v.meta.bytesId, v.bytes]))
+    const slots: Slot[] = pictures.map(({ file, look }) => ({
+      assetId: file,
+      ...DEFAULT_TRANSFORM,
+      ...look,
+    }))
+    const sheet: Page = {
+      id: 'sheet',
+      assetId: pictures[0]?.file ?? '',
+      ...DEFAULT_TRANSFORM,
+      sheet: { kind, slots },
     }
-    // A grid over the printable area, each point checked against the colour
-    // the layout puts there: catches content shifted or scaled by a little.
-    const quadrantColour = (u: number, v: number) =>
-      u < 0.5
-        ? v < 0.5
-          ? QUADRANTS.tl.rgb
-          : QUADRANTS.bl.rgb
-        : v < 0.5
-          ? QUADRANTS.tr.rgb
-          : QUADRANTS.br.rgb
-    const band = 0.04
-    for (let gx = 1; gx < 16; gx++) {
-      for (let gy = 1; gy < 16; gy++) {
-        const x = layout.content.x + (layout.content.width * gx) / 16
-        const y = layout.content.y + (layout.content.height * gy) / 16
-        const dx = x - cx
-        const dy = y - cy
-        const u = (dx * Math.cos(r) + dy * Math.sin(r)) / width + 0.5
-        const v = (-dx * Math.sin(r) + dy * Math.cos(r)) / height + 0.5
-        // Skip points near an edge or a quadrant boundary, where resampling blurs.
-        const near = (n: number) =>
-          Math.abs(n) < band || Math.abs(n - 0.5) < band || Math.abs(n - 1) < band
-        if (near(u) || near(v)) continue
-        const want = u < 0 || u > 1 || v < 0 || v > 1 ? [255, 255, 255] : quadrantColour(u, v)
-        const got = pixel(x, y)
-        expect(
-          close(got, want),
-          `grid ${gx},${gy} (u ${u.toFixed(2)}, v ${v.toFixed(2)}) was ${got.join(',')}`,
-        ).toBe(true)
+    const bytes = await buildPdf(
+      { settings: s, pages: [sheet], assets },
+      {
+        getBytes: (id) => bytesById.get(id) ?? new Uint8Array(),
+        processImage: (bytes, job) => Promise.resolve(canvasStandIn(bytes, job)),
+        now: NOW,
+      },
+    )
+    return { bytes, layout: layoutSheet(s, assets, sheet) }
+  }
+
+  const cases: { name: string; kind: SheetKind; s?: Partial<Settings>; pictures: Picture[] }[] = [
+    {
+      name: '2-up: a photo and an EXIF-rotated photo, turned',
+      kind: 'two',
+      pictures: [{ file: 'quad-landscape.jpg' }, { file: 'quad-exif6.jpg', look: { turns: 1 } }],
+    },
+    {
+      name: '2-up, landscape, with a margin and a straightened PDF page',
+      kind: 'two',
+      s: { orientation: 'landscape', margin: 36 },
+      pictures: [
+        { file: 'quad-portrait.jpg' },
+        { file: 'quad-rotate90.pdf#0', look: { angle: 8 } },
+      ],
+    },
+    {
+      name: '4-up: photo, PDF page, filled PNG, scaled EXIF photo',
+      kind: 'four',
+      pictures: [
+        { file: 'quad-landscape.jpg' },
+        { file: 'quad-3pages.pdf#1' },
+        { file: 'quad-landscape.png', look: { fit: 'cover' } },
+        { file: 'quad-exif6.jpg', look: { scale: 1.3, angle: -10 } },
+      ],
+    },
+    {
+      name: '4-up with three pictures, match-image page',
+      kind: 'four',
+      s: { size: 'image', margin: 20, imageDpi: 40 },
+      pictures: [
+        { file: 'quad-landscape.jpg' },
+        { file: 'quad-portrait.jpg', look: { turns: 2 } },
+        { file: 'quad-exif3.jpg' },
+      ],
+    },
+    {
+      name: 'ID card: both sides at card size, one filled',
+      kind: 'id-card',
+      pictures: [
+        { file: 'quad-landscape.jpg', look: { fit: 'cover' } },
+        { file: 'quad-exif6.jpg' },
+      ],
+    },
+  ]
+
+  it.each(cases)('$name', async ({ kind, s, pictures }) => {
+    const docSettings = settings({ size: 'letter', ...s })
+    const { bytes, layout } = await buildSheet(docSettings, kind, pictures)
+    expect(layout.pictures).toHaveLength(pictures.length)
+    const pixel = rasterise(bytes)
+    for (const picture of layout.pictures) expectDrawn(pixel, picture)
+    // Cells don't overlap: each picture is clipped to its own.
+    for (const [i, a] of layout.pictures.entries()) {
+      for (const b of layout.pictures.slice(i + 1)) {
+        const apart =
+          a.content.x + a.content.width <= b.content.x + 0.01 ||
+          b.content.x + b.content.width <= a.content.x + 0.01 ||
+          a.content.y + a.content.height <= b.content.y + 0.01 ||
+          b.content.y + b.content.height <= a.content.y + 0.01
+        expect(apart).toBe(true)
       }
     }
-    // Margins stay blank: the image is clipped to the printable area.
-    if (layout.content.x > 4)
-      expect(close(pixel(2, layout.page.height / 2), [255, 255, 255])).toBe(true)
+  })
+
+  it('prints an ID card at 85.6 × 54 mm', async () => {
+    const { bytes, layout } = await buildSheet(settings({ size: 'a4' }), 'id-card', [
+      { file: 'quad-landscape.jpg', look: { fit: 'cover' } },
+      { file: 'quad-landscape.png', look: { fit: 'cover' } },
+    ])
+    const mm = (pt: number) => (pt / 72) * 25.4
+    for (const { content } of layout.pictures) {
+      expect(mm(content.width)).toBeCloseTo(85.6, 1)
+      expect(mm(content.height)).toBeCloseTo(54, 1)
+    }
+    // Filled to the card's edges, and nothing outside them.
+    const pixel = rasterise(bytes)
+    const [front] = layout.pictures
+    if (!front) throw new Error('setup')
+    const { x, y, width, height } = front.content
+    expect(close(pixel(x + 3, y + 3), QUADRANTS.tl.rgb)).toBe(true)
+    expect(close(pixel(x + width - 3, y + height - 3), QUADRANTS.br.rgb)).toBe(true)
+    expect(close(pixel(x - 3, y + height / 2), [255, 255, 255])).toBe(true)
+    expect(close(pixel(x + width / 2, y + height + 3), [255, 255, 255])).toBe(true)
   })
 })
 

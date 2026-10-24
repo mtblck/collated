@@ -43,32 +43,45 @@ const previewOf = (asset: Pick<Asset, 'id' | 'thumbUrl'>, look: Look) => {
   return made
 }
 
-export const usePageThumb = (
-  asset: Pick<Asset, 'id' | 'thumbUrl' | 'format'>,
-  page: Partial<Look> & Pick<Page, 'filter'>,
-) => {
-  const look: Look = { filter: page.filter, corners: page.corners ?? null }
-  const active = asset.format !== 'pdf' && (look.filter !== 'original' || look.corners !== null)
-  const key = keyOf(asset, look)
-  const [ready, setReady] = useState<{ key: string; url: string } | null>(null)
+type Thumbed = Pick<Asset, 'id' | 'thumbUrl' | 'format'>
+
+/**
+ * Previews for several pictures at once (a combined page, #76): one URL per
+ * entry, the plain thumbnail until its filtered or cropped preview is ready.
+ */
+export const usePageThumbs = (
+  pictures: readonly { asset: Thumbed; page: Partial<Look> & Pick<Page, 'filter'> }[],
+): string[] => {
+  const items = pictures.map(({ asset, page }) => {
+    const look: Look = { filter: page.filter, corners: page.corners ?? null }
+    const active = asset.format !== 'pdf' && (look.filter !== 'original' || look.corners !== null)
+    return { asset, look, active, key: keyOf(asset, look) }
+  })
+  const keys = items.map((item) => (item.active ? item.key : '')).join('|')
+  const [ready, setReady] = useState<Readonly<Record<string, string>>>({})
 
   useEffect(() => {
-    if (!active) return
     let current = true
-    previewOf(asset, look).then(
-      (url) => {
-        if (current) setReady({ key, url })
-      },
-      () => {
-        /* keep showing the plain thumbnail */
-      },
-    )
+    for (const { asset, look, active, key } of items) {
+      if (!active) continue
+      previewOf(asset, look).then(
+        (url) => {
+          if (current) setReady((made) => (made[key] === url ? made : { ...made, [key]: url }))
+        },
+        () => {
+          /* keep showing the plain thumbnail */
+        },
+      )
+    }
     return () => {
       current = false
     }
-    // `look` is captured by `key`, which changes whenever it does.
+    // `items` is captured by `keys`, which changes whenever a look does.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, asset, key])
+  }, [keys])
 
-  return active && ready?.key === key ? ready.url : asset.thumbUrl
+  return items.map(({ asset, active, key }) => (active ? ready[key] : undefined) ?? asset.thumbUrl)
 }
+
+export const usePageThumb = (asset: Thumbed, page: Partial<Look> & Pick<Page, 'filter'>): string =>
+  usePageThumbs([{ asset, page }])[0] ?? asset.thumbUrl

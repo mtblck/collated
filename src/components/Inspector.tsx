@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { layoutPage, visiblePart } from '../core/geometry'
+import { layoutPage, singleSheet, visiblePart } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
 import type { Asset, Filter, FitMode, Page, PageTransform, Settings } from '../core/model'
 import type { Quad } from '../core/perspective'
@@ -172,7 +172,7 @@ export const Inspector = ({
         className="relative w-full rounded-xl bg-paper-sunk p-5"
         style={{ aspectRatio: boxRatio }}
       >
-        <PagePreview layout={layout} thumbUrl={thumbUrl} showMargins mark={mark} />
+        <PagePreview sheet={singleSheet(layout)} thumbUrls={[thumbUrl]} showMargins mark={mark} />
         {/* Over the preview rather than around it: a button can't hold the
             preview's blocks, and this keeps one clear name. */}
         <button
