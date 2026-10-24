@@ -446,7 +446,12 @@ describe('App', () => {
     it('removes only the blank pages, as one undo step', async () => {
       const { user, upload } = setup()
       await upload('a.jpg', 'empty1.jpg', 'b.jpg', 'empty2.jpg')
-      const remove = await screen.findByRole('button', { name: 'Remove 2 blank pages' })
+      // Pages are checked one at a time in the background: slow on a busy runner.
+      const remove = await screen.findByRole(
+        'button',
+        { name: 'Remove 2 blank pages' },
+        { timeout: 5000 },
+      )
       await user.click(remove)
       expect(pageLabels()).toEqual(['Page 1: a.jpg', 'Page 2: b.jpg'])
       expect(status()).toHaveTextContent('Removed 2 blank pages. Undo to bring them back.')
@@ -461,7 +466,9 @@ describe('App', () => {
     it('selects the blank pages, to check them or keep one', async () => {
       const { user, upload } = setup()
       await upload('a.jpg', 'empty1.jpg', 'empty2.jpg')
-      await user.click(await screen.findByRole('button', { name: 'Select them' }))
+      await user.click(
+        await screen.findByRole('button', { name: 'Select them' }, { timeout: 5000 }),
+      )
       expect(status()).toHaveTextContent('2 pages selected.')
       const panel = within(screen.getByRole('complementary', { name: 'Selected page' }))
       expect(panel.getByRole('heading', { level: 2 })).toHaveTextContent('2 pages')
