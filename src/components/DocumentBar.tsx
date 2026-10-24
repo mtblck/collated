@@ -1,6 +1,7 @@
 import { useId } from 'react'
 import type { Settings } from '../core/model'
 import type { DuplexGroups } from '../core/order'
+import type { Plan, SplitOptions } from '../core/split'
 import { Button, IconButton } from './controls'
 import { ExportOptions } from './ExportOptions'
 import { PlusIcon, RedoIcon, UndoIcon } from './Icons'
@@ -48,6 +49,10 @@ export const DocumentBar = ({
   password,
   onPassword,
   passwordError = null,
+  split,
+  onSplit,
+  selectedCount,
+  plan,
 }: {
   settings: Settings
   pageCount: number
@@ -77,6 +82,10 @@ export const DocumentBar = ({
   onPassword: (password: string) => void
   /** Why the password can't be used, if it can't. */
   passwordError?: string | null
+  split: SplitOptions
+  onSplit: (patch: Partial<SplitOptions>) => void
+  selectedCount: number
+  plan: Plan
 }) => {
   const id = useId()
   const optionsId = `${id}-export-options`
@@ -133,6 +142,10 @@ export const DocumentBar = ({
         password={password}
         onPassword={onPassword}
         passwordError={passwordError}
+        split={split}
+        onSplit={onSplit}
+        selectedCount={selectedCount}
+        plan={plan}
         panelId={optionsId}
       />
       <MoreMenu

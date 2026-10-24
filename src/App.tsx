@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { isVector, type Asset, type Page, type Settings } from './core/model'
-import { pdfFilename } from './core/filename'
+import { partFilename, pdfFilename, zipFilename } from './core/filename'
 import { compressionFor, estimateBytes } from './core/compression'
 import type { Skew } from './core/deskew'
 import { skewOf } from './lib/skew'
@@ -10,6 +10,7 @@ import { forgetPageWords, pageWords } from './lib/pageText'
 import { forgetPageThumbs } from './hooks/usePageThumb'
 import { forgetLayered, layeredImage } from './export/layered'
 import type { OcrWord } from './core/textLayer'
+import type { SplitPart } from './core/splitBuild'
 import { layoutPage } from './core/geometry'
 import { formatBytes } from './core/units'
 import { describeChange } from './core/describeChange'
@@ -31,6 +32,7 @@ import {
   type Selection,
 } from './core/selection'
 import { DEFAULT_TRANSFORM } from './core/model'
+import { DEFAULT_SPLIT, pagesUsed, planExport, type SplitOptions } from './core/split'
 import { download as saveFile, exportPdf, prepareExport, type Exported } from './export/exportPdf'
 import { STALE_BUILD_MESSAGE, isStaleBuild } from './lib/staleBuild'
 import { assetStore } from './import/assetStore'
@@ -53,6 +55,8 @@ export interface AppDeps {
       password?: string
       text?: Record<string, OcrWord[]>
       readDrawn?: (assetId: string, jpeg: Uint8Array) => Promise<Record<string, OcrWord[]>>
+      /** Several files, as one ZIP (#66); see exportPdf.ts. */
+      parts?: SplitPart[]
     },
   ) => Promise<Exported>
   download: (blob: Blob, filename: string) => void
@@ -160,6 +164,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const [exporting, setExporting] = useState<ExportState>({ busy: false, done: 0, total: 0 })
   // In memory only: never in settings, storage or undo history.
   const [password, setPassword] = useState('')
+  /** Which pages to export, and into how many files (#66). Per document, so not saved. */
+  const [split, setSplit] = useState<SplitOptions>(DEFAULT_SPLIT)
   const [lastExport, setLastExport] = useState<{
     size: string
     used: string
@@ -192,6 +198,16 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   // Undo can remove selected pages; those simply drop out of the selection.
   const selection = useMemo(() => keepExisting(pages, rawSelection), [pages, rawSelection])
   const group = selection.ids.length > 1
+  const plan = useMemo(
+    () => planExport(pages, selection.ids, split, settings.pageNumbers.start),
+    [pages, selection.ids, split, settings.pageNumbers.start],
+  )
+  /** The pages the export takes, each once, in document order. */
+  const exportPages = useMemo(() => {
+    if ('error' in plan) return []
+    const used = new Set(pagesUsed(plan))
+    return pages.filter((p) => used.has(p.id))
+  }, [pages, plan])
   const selectedId = group ? null : (selection.ids[0] ?? null)
   const railKey = group ? 'group' : selectedId
   useLayoutEffect(() => {
@@ -549,8 +565,30 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       : null
 
   const onExport = useCallback(async () => {
-    if (passwordError) return
-    setExporting({ busy: true, done: 0, total: pages.length })
+    if (passwordError || 'error' in plan) return
+    const total = plan.parts.reduce((n, part) => n + part.pageIds.length, 0)
+    const byId = new Map(pages.map((p) => [p.id, p]))
+    // One file is built as before, from just its pages; several go to the
+    // worker as parts and come back as one ZIP.
+    const [single] = plan.parts.length === 1 ? plan.parts : []
+    const parts = single
+      ? undefined
+      : plan.parts.map((part, i) => ({
+          name: partFilename(settings.title, i, plan.parts.length),
+          pageIds: part.pageIds,
+          start: part.start,
+        }))
+    const exportDoc = single
+      ? {
+          ...doc,
+          pages: single.pageIds.flatMap((id) => byId.get(id) ?? []),
+          settings: {
+            ...settings,
+            pageNumbers: { ...settings.pageNumbers, start: single.start },
+          },
+        }
+      : { ...doc, pages: exportPages }
+    setExporting({ busy: true, done: 0, total })
     setStatus('Building PDF…')
     try {
       // OCR first, page by page, so progress is visible. Vector PDF pages
@@ -560,7 +598,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       if (settings.ocr) {
         text = {}
         const readable: { page: Page; asset: Asset; drawn?: Uint8Array }[] = []
-        for (const page of pages) {
+        for (const page of exportPages) {
           const asset = assets[page.assetId]
           if (!asset) continue
           if (asset.format !== 'pdf') readable.push({ page, asset })
@@ -581,7 +619,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             const words: Record<string, OcrWord[]> = {}
             const asset = assets[assetId]
             if (!asset) return words
-            const reading = pages.filter((p) => p.assetId === assetId)
+            const reading = exportPages.filter((p) => p.assetId === assetId)
             for (const [i, page] of reading.entries()) {
               setStatus(`Reading text on drawn page ${i + 1} of ${reading.length}…`)
               setExporting({ busy: true, done: i, total: reading.length, phase: 'ocr' })
@@ -589,13 +627,13 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             }
             // The build runs again next.
             setStatus('Building PDF…')
-            setExporting({ busy: true, done: 0, total: pages.length })
+            setExporting({ busy: true, done: 0, total })
             return words
           }
         : undefined
       setStatus('Building PDF…')
       const result = await deps.exportPdf(
-        doc,
+        exportDoc,
         (done, total, attempt) => {
           setExporting({ busy: true, done, total, attempt })
         },
@@ -603,19 +641,22 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           ...(lockPassword ? { password: lockPassword } : {}),
           ...(text ? { text } : {}),
           ...(readDrawn ? { readDrawn } : {}),
+          ...(parts ? { parts } : {}),
         },
       )
-      const filename = pdfFilename(settings.title)
+      const filename = parts ? zipFilename(settings.title) : pdfFilename(settings.title)
       deps.download(result.blob, filename)
       const size = formatBytes(result.blob.size)
       const used = result.compression ? `${result.compression.dpi} dpi` : 'original images'
       setLastExport({ size, used, fits: result.fits })
       setStatus(
-        `Saved ${filename} (${size}, ${used}${text ? ', searchable' : ''}${lockPassword ? ', password-protected' : ''}).`,
+        `Saved ${filename} (${parts ? `${String(parts.length)} PDFs, ` : ''}${size}, ${used}${text ? ', searchable' : ''}${lockPassword ? ', password-protected' : ''}).`,
       )
       if (!result.fits && settings.maxBytes !== null) {
         notify(
-          `Couldn’t get under ${formatBytes(settings.maxBytes)}: the smallest version is ${size} at ${used}. It was saved anyway.`,
+          parts
+            ? `Couldn’t get every file under ${formatBytes(settings.maxBytes)}, even at ${used}. They were saved anyway.`
+            : `Couldn’t get under ${formatBytes(settings.maxBytes)}: the smallest version is ${size} at ${used}. It was saved anyway.`,
         )
       }
     } catch (error) {
@@ -628,18 +669,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     } finally {
       setExporting({ busy: false, done: 0, total: 0 })
     }
-  }, [
-    deps,
-    doc,
-    notify,
-    pages,
-    assets,
-    settings.title,
-    settings.maxBytes,
-    settings.ocr,
-    lockPassword,
-    passwordError,
-  ])
+  }, [deps, doc, notify, pages, assets, settings, plan, exportPages, lockPassword, passwordError])
 
   const onRotate = useCallback(
     (id: string, by: -1 | 1) => {
@@ -915,7 +945,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const estimate = useMemo(
     () =>
       estimateBytes(
-        pages.flatMap((page) => {
+        exportPages.flatMap((page) => {
           const asset = assets[page.assetId]
           return asset
             ? [{ asset, drawnWidthPt: layoutPage(settings, asset, page).image.width }]
@@ -923,7 +953,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         }),
         compressionFor(settings.quality),
       ),
-    [assets, pages, settings],
+    [assets, exportPages, settings],
   )
 
   /**
@@ -945,6 +975,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     selectOnly(null)
     setSelecting(false)
     setPassword('')
+    setSplit(DEFAULT_SPLIT)
     setLastExport(null)
     setNotices([])
     requestFocus(null, true)
@@ -1076,6 +1107,12 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             password={password}
             onPassword={setPassword}
             passwordError={passwordError}
+            split={split}
+            onSplit={(patch) => {
+              setSplit((current) => ({ ...current, ...patch }))
+            }}
+            selectedCount={selection.ids.length}
+            plan={plan}
           />
         ) : undefined}
       </Header>

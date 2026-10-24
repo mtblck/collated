@@ -1079,6 +1079,122 @@ describe('App', () => {
     })
   })
 
+  describe('split and extract (#66)', () => {
+    const card = (n: number) => screen.getByRole('button', { name: new RegExp(`^Page ${n}:`) })
+    const exportN = (n: number) =>
+      screen.getByRole('button', { name: `Export ${String(n)} PDFs`, hidden: true })
+    const exportMock = (type: string) =>
+      vi.fn<AppDeps['exportPdf']>(() =>
+        Promise.resolve({ blob: new Blob(['PK'], { type }), compression: null, fits: true }),
+      )
+    /** Page ids as their file names, from what the export was given. */
+    const named = (
+      doc:
+        | { pages: { id: string; assetId: string }[]; assets: Record<string, { name: string }> }
+        | undefined,
+      ids: string[] = doc?.pages.map((p) => p.id) ?? [],
+    ) =>
+      ids.map((id) => {
+        const page = doc?.pages.find((p) => p.id === id)
+        return page ? doc?.assets[page.assetId]?.name : id
+      })
+
+    it('exports only the selected pages, as one PDF', async () => {
+      const exportPdf = exportMock('application/pdf')
+      const { user, deps, upload } = setup({ exportPdf })
+      await upload('a.jpg', 'b.jpg', 'c.jpg', 'd.jpg')
+      await screen.findByRole('list', { name: '4 pages' })
+      await user.click(card(2))
+      await user.keyboard('{Control>}')
+      await user.click(card(4))
+      await user.keyboard('{/Control}')
+      await user.click(
+        screen.getByRole('radio', { name: /^Selected pages\s*\(2\)$/, hidden: true }),
+      )
+      expect(exportMenu()).toHaveAccessibleName('Export · 2 pages, options')
+      expect(screen.getByText('Pages 2, 4, as one PDF.')).toBeInTheDocument()
+      await user.click(exportButton())
+      await waitFor(() => {
+        expect(deps.download).toHaveBeenCalledWith(
+          expect.any(Blob),
+          expect.stringMatching(/\.pdf$/),
+        )
+      })
+      const [doc, , options] = exportPdf.mock.calls[0] ?? []
+      expect(named(doc)).toEqual(['b.jpg', 'd.jpg'])
+      expect(options?.parts).toBeUndefined()
+    })
+
+    it('splits by ranges into one ZIP, reading text only on the pages used', async () => {
+      const exportPdf = exportMock('application/zip')
+      const { user, deps, upload } = setup({ exportPdf })
+      await upload('a.jpg', 'b.jpg', 'c.jpg', 'd.jpg', 'e.jpg')
+      await screen.findByRole('list', { name: '5 pages' })
+      await user.click(await findExportMenu())
+      await user.type(screen.getByLabelText('Title & filename'), 'Bills')
+      await user.click(screen.getByRole('checkbox', { name: /OCR/, hidden: true }))
+      await user.click(screen.getByRole('checkbox', { name: 'Page numbers', hidden: true }))
+      await user.click(screen.getByRole('radio', { name: 'Split by page ranges', hidden: true }))
+      await user.type(screen.getByLabelText('Page ranges'), '1-2, 4-')
+      expect(screen.getByText('2 PDFs in one ZIP: pages 1–2 · 4–5.')).toBeInTheDocument()
+      expect(exportMenu()).toHaveAccessibleName('Export · 2 files, options')
+      await user.selectOptions(screen.getByLabelText('In each file'), 'continue')
+      await user.click(exportN(2))
+      await waitFor(() => {
+        expect(deps.download).toHaveBeenCalledWith(expect.any(Blob), 'Bills.zip')
+      })
+      const [doc, , options] = exportPdf.mock.calls[0] ?? []
+      expect(options?.parts?.map((p) => [p.name, named(doc, p.pageIds), p.start])).toEqual([
+        ['Bills-part-1.pdf', ['a.jpg', 'b.jpg'], 1],
+        ['Bills-part-2.pdf', ['d.jpg', 'e.jpg'], 3],
+      ])
+      // Page 3 isn't in any part: it isn't sent, or read.
+      expect(named(doc)).toEqual(['a.jpg', 'b.jpg', 'd.jpg', 'e.jpg'])
+      expect(deps.recognizeText).toHaveBeenCalledTimes(4)
+      expect(status()).toHaveTextContent(
+        'Saved Bills.zip (2 PDFs, 2 B, original images, searchable).',
+      )
+    })
+
+    it('says what’s wrong with the ranges, and Export takes you there', async () => {
+      const { user, deps, upload } = setup()
+      await upload('a.jpg', 'b.jpg')
+      await screen.findByRole('list', { name: '2 pages' })
+      await user.click(await findExportMenu())
+      await user.click(screen.getByRole('radio', { name: 'Split by page ranges', hidden: true }))
+      const ranges = screen.getByLabelText('Page ranges')
+      expect(screen.getByText('Enter page ranges, like 1-3, 4-10.')).toBeInTheDocument()
+      await user.type(ranges, '1-3')
+      expect(ranges).toHaveAccessibleDescription('There’s no page 3: the document has 2 pages.')
+      expect(ranges).toBeInvalid()
+      await user.click(exportButton())
+      expect(ranges).toHaveFocus()
+      expect(deps.exportPdf).not.toHaveBeenCalled()
+    })
+
+    it('splits every N pages', async () => {
+      const exportPdf = exportMock('application/zip')
+      const { user, deps, upload } = setup({ exportPdf })
+      await upload('a.jpg', 'b.jpg', 'c.jpg')
+      await screen.findByRole('list', { name: '3 pages' })
+      await user.click(await findExportMenu())
+      await user.click(screen.getByRole('radio', { name: 'Split every few pages', hidden: true }))
+      expect(exportMenu()).toHaveAccessibleName('Export · 3 files, options')
+      const every = screen.getByLabelText('Every')
+      await user.clear(every)
+      await user.type(every, '2{Enter}')
+      await user.click(exportN(2))
+      await waitFor(() => {
+        expect(deps.download).toHaveBeenCalled()
+      })
+      const [doc, , options] = exportPdf.mock.calls[0] ?? []
+      expect(options?.parts?.map((p) => named(doc, p.pageIds))).toEqual([
+        ['a.jpg', 'b.jpg'],
+        ['c.jpg'],
+      ])
+    })
+  })
+
   describe('focus and announcements', () => {
     it('moves focus to the next page (else the previous) after removing one', async () => {
       const { user, upload } = setup()

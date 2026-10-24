@@ -19,3 +19,13 @@ export const pdfFilename = (title: string, now = new Date()): string => {
     .join('-')
   return `scans-${date}.pdf`
 }
+
+/** One part of a split export: "Lease-part-1.pdf", zero-padded so the files sort. */
+export const partFilename = (title: string, index: number, total: number, now = new Date()) => {
+  const base = pdfFilename(title, now).replace(/\.pdf$/, '')
+  return `${base}-part-${String(index + 1).padStart(String(total).length, '0')}.pdf`
+}
+
+/** The ZIP a split export downloads as. */
+export const zipFilename = (title: string, now = new Date()) =>
+  pdfFilename(title, now).replace(/\.pdf$/, '.zip')
