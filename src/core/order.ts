@@ -71,7 +71,8 @@ const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'bas
 /**
  * Sorts the given pages (default all) by file name, numbers in names counted
  * as numbers (scan 9 before scan 10), or by when they were taken. Ties keep
- * their current order; pages with no date go last.
+ * their current order; pages with no date go last, and inserted blank pages
+ * stay where they are.
  */
 export const sort = (state: DocState, key: SortKey, ids?: readonly string[]): DocState => {
   const asset = (p: Page) => state.assets[p.assetId]
@@ -81,7 +82,13 @@ export const sort = (state: DocState, key: SortKey, ids?: readonly string[]): Do
       : (a: Page, b: Page) =>
           // Two undated pages give NaN: a tie.
           (asset(a)?.capturedAt ?? Infinity) - (asset(b)?.capturedAt ?? Infinity) || 0
-  return placeInSlots(state, pagesIn(state, ids).toSorted(compare))
+  // Blank pages (#80) have no name or date: they keep their places.
+  return placeInSlots(
+    state,
+    pagesIn(state, ids)
+      .filter((p) => !p.blank)
+      .toSorted(compare),
+  )
 }
 
 export interface DuplexGroups {

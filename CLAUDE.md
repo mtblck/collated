@@ -12,6 +12,7 @@ Images → one PDF, client-only, at https://collatedpdf.com/ (own Vercel project
 
 - **`layoutPage` is the only placement logic.** Preview (CSS) and export (pdf-lib) both draw from it. pdf.test.ts rasterises with pdftoppm to prove it; don't bypass it.
 - **Combined pages** (#76, ADR 0005): `Page.sheet.slots` hold the pictures; `layoutSheet` places each through `layoutPage` in its cell. `page.assetId` is only the first picture: walk content with `picturesOf(page)`.
+- **Blank pages** (#80, ADR 0012): `Page.blank` with `assetId: ''`; `picturesOf` gives none. Sized in `layoutSheet` from page setup; with Match image pass `sizeModel(pages, i)` as `like`.
 - **JPEG passthrough + `storedTurns`.** EXIF-rotated JPEGs keep their bytes; the export adds the rotation. Upright dims in `Asset`, stored dims derived.
 - **pdf-lib only in the worker.** Never import `core/pdf.ts` from UI code (that's why `core/filename.ts` exists).
 - **PDF pages are assets sharing a `bytesId`;** `/Rotate` rides `storedTurns`, export embeds `visibleBox` (crop ∩ media). pdf.js = **legacy build** (modern one needs `Map#getOrInsertComputed`), dynamic-imported; its worker is `.mjs`, so any server must send `text/javascript` for it.

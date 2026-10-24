@@ -28,7 +28,7 @@ import {
 } from '@cantoo/pdf-lib'
 import { layoutSheet, partLayout, snapPart, visiblePart, type Layout, type Part } from './geometry'
 import { compressionFor, targetPixels, type Compression } from './compression'
-import { contentSize, pictureKey, picturesOf } from './model'
+import { contentSize, pictureKey, picturesOf, sizeModel } from './model'
 import type { Asset, Filter, Page, Settings } from './model'
 import { FULL_IMAGE, apply, homography, type Quad } from './perspective'
 import { NeedsDrawing, embedSanitized, reachesHiddenLayer, sanitizedPage } from './pdfSanitize'
@@ -431,7 +431,12 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     if (pictures.some((slot) => !assets[slot.assetId])) {
       throw new Error(`Page ${index + 1} refers to missing content.`)
     }
-    const sheet = layoutSheet(settings, assets, page)
+    const sheet = layoutSheet(
+      settings,
+      assets,
+      page,
+      page.blank ? sizeModel(pages, index) : undefined,
+    )
     const pdfPage = doc.addPage([sheet.page.width, sheet.page.height])
     for (const [i, slot] of pictures.entries()) {
       const asset = assets[slot.assetId]

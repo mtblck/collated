@@ -26,7 +26,7 @@ import { tmpdir } from 'node:os'
 import { dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import AxeBuilder from '@axe-core/playwright'
-import { PDFDocument } from '@cantoo/pdf-lib'
+import { PDFDocument, PDFName } from '@cantoo/pdf-lib'
 import { unzipSync } from 'fflate'
 import { chromium } from 'playwright'
 
@@ -2725,6 +2725,75 @@ await context.close()
       'poppler reads the files and the section, each at its page',
       items.join(', '),
     )
+  }
+  await ctx.close()
+}
+
+// 33. Insert blank page (#80): after the selected page, sized by page setup,
+// numbered, never flagged as blank; nothing in the PDF but its number.
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles(
+    '[data-testid="file-input"]',
+    ['quad-portrait.jpg', 'quad-landscape.jpg'].map((f) => join(fixtures, f)),
+  )
+  await p.waitForSelector('ol[aria-label="2 pages"]')
+  await pageSetup(p, async (panel) => {
+    await panel.getByLabel('Page size').selectOption('letter')
+  })
+  const card = (n) => p.locator(`ol[aria-label] > li:nth-child(${n}) [data-page-select]`)
+  await card(1).click()
+  await p.getByRole('button', { name: 'More' }).click()
+  const more = p.getByRole('dialog', { name: 'More' })
+  check(
+    (await more.getByText('After page 1, sized by page setup.').count()) === 1,
+    'the More menu says where the blank page goes',
+  )
+  await more.getByRole('button', { name: 'Insert blank page' }).click()
+  await p.waitForSelector('ol[aria-label="3 pages"]')
+  check(
+    JSON.stringify(await pageNames(p)) ===
+      JSON.stringify(['quad-portrait.jpg', 'Blank page', 'quad-landscape.jpg']),
+    'the blank page goes after the selected page',
+    (await pageNames(p)).join(', '),
+  )
+  const panel = p.locator('aside[aria-label="Selected page"]')
+  await panel.getByRole('heading', { name: 'Blank page' }).waitFor()
+  await panel.getByText('Landscape', { exact: true }).click()
+  // Give the blank-page check time to run over every page.
+  await p.waitForTimeout(1500)
+  check(
+    (await p.getByText('Looks blank', { exact: true }).count()) === 0,
+    'an inserted blank page is not flagged as looking blank',
+  )
+  await axe(p, 'blank page inspector')
+  await p.screenshot({ path: join(shots, 'blank-page.png') })
+  await exportMenu(p).click()
+  await p
+    .getByRole('dialog', { name: 'Export options' })
+    .getByRole('checkbox', { name: 'Page numbers' })
+    .check()
+  await p.keyboard.press('Escape')
+  const [dl] = await Promise.all([p.waitForEvent('download'), exportNow(p)])
+  const out = join(mkdtempSync(join(tmpdir(), 'collated-verify-blank-')), 'blank.pdf')
+  await dl.saveAs(out)
+  const pdf = await PDFDocument.load(readFileSync(out))
+  const blank = pdf.getPage(1)
+  check(
+    pdf.getPageCount() === 3 && blank.getWidth() === 792 && blank.getHeight() === 612,
+    'the blank page is a landscape Letter page in the PDF',
+    `${pdf.getPageCount()} pages; ${blank.getWidth()} × ${blank.getHeight()}`,
+  )
+  const xobjects = blank.node.Resources()?.lookup(PDFName.of('XObject'))
+  check(
+    !xobjects || xobjects.keys().length === 0,
+    'the blank page has no image',
+    xobjects?.toString() ?? '',
+  )
+  if (hasPoppler) {
+    const text = execFileSync('pdftotext', ['-f', '2', '-l', '2', out, '-']).toString().trim()
+    check(text === '2', 'the blank page carries only its page number', JSON.stringify(text))
   }
   await ctx.close()
 }

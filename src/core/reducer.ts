@@ -12,7 +12,7 @@ import type {
   Slot,
 } from './model'
 import { ANGLE_LIMIT, DEFAULT_TRANSFORM, SCALE_MAX, SCALE_MIN, SHEET_CAPACITY } from './model'
-import { picturesOf } from './model'
+import { blankPage, picturesOf } from './model'
 import { SECTION_MAX } from './outline'
 
 export { PAGE_MAX, PAGE_MIN }
@@ -20,6 +20,8 @@ export { PAGE_MAX, PAGE_MIN }
 export type Action =
   | { type: 'addPages'; assets: Asset[]; pageIds: string[]; at?: number }
   | { type: 'removePage'; id: string }
+  /** An empty page (#80) after the page `after`, or at the end. */
+  | { type: 'insertBlank'; id: string; after?: string }
   | { type: 'duplicatePage'; id: string; newId: string }
   | { type: 'movePage'; from: number; to: number }
   | { type: 'rotatePage'; id: string; by: -1 | 1 }
@@ -142,6 +144,12 @@ export const docReducer = (state: DocState, action: Action): DocState => {
       }))
       const at = clamp(action.at ?? state.pages.length, 0, state.pages.length)
       return { ...state, assets, pages: state.pages.toSpliced(at, 0, ...added) }
+    }
+
+    case 'insertBlank': {
+      const index = action.after ? state.pages.findIndex((p) => p.id === action.after) : -1
+      const at = index < 0 ? state.pages.length : index + 1
+      return { ...state, pages: state.pages.toSpliced(at, 0, blankPage(action.id)) }
     }
 
     case 'removePage':
@@ -288,14 +296,16 @@ export const docReducer = (state: DocState, action: Action): DocState => {
       const { turns, angle, scale, fit, filter } = source
       return {
         ...state,
+        // A blank page has no picture to style: its turns are its orientation.
         pages: state.pages.map((p) =>
-          restyle(p, (s) => ({ ...s, turns, angle, scale, fit, filter })),
+          p.blank ? p : restyle(p, (s) => ({ ...s, turns, angle, scale, fit, filter })),
         ),
       }
     }
 
     case 'combinePages': {
-      const ids = new Set(action.ids)
+      // Blank pages (#80) have nothing to combine: they stay where they are.
+      const ids = new Set(action.ids.filter((id) => !state.pages.find((p) => p.id === id)?.blank))
       const chosen = state.pages.filter((p) => ids.has(p.id))
       const pictures = chosen.flatMap((p) => picturesOf(p).map(slotOf))
       if (pictures.length < 2) return state
@@ -318,8 +328,8 @@ export const docReducer = (state: DocState, action: Action): DocState => {
       const [head] = sheets
       if (head) sheets[0] = withSection(head, section)
       // Where the first of them was: no chosen page comes before it.
-      const at = state.pages.findIndex((p) => ids.has(p.id))
       const rest = state.pages.filter((p) => !ids.has(p.id))
+      const at = state.pages.findIndex((p) => ids.has(p.id))
       return { ...state, pages: rest.toSpliced(at, 0, ...sheets) }
     }
 

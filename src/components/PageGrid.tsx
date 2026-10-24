@@ -9,7 +9,7 @@ import { isSortable, useSortable } from '@dnd-kit/react/sortable'
 import { memo, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
 import { layoutSheet } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
-import { picturesOf, type Asset, type Page, type Settings } from '../core/model'
+import { picturesOf, sizeModel, type Asset, type Page, type Settings } from '../core/model'
 import { IconButton } from './controls'
 import { cx } from './cx'
 import { pageName, pageNumber } from './format'
@@ -30,6 +30,8 @@ const NONE: readonly string[] = []
 
 interface CardProps {
   page: Page
+  /** For a blank page (#80), the page it takes its size from. */
+  like: Page | undefined
   assets: Record<string, Asset>
   index: number
   settings: Settings
@@ -49,6 +51,7 @@ interface CardProps {
 
 const PageCard = memo(function PageCard({
   page,
+  like,
   assets,
   index,
   settings,
@@ -62,7 +65,10 @@ const PageCard = memo(function PageCard({
   onRemove,
 }: CardProps) {
   const { ref, handleRef, isDragging } = useSortable({ id: page.id, index })
-  const sheet = useMemo(() => layoutSheet(settings, assets, page), [settings, assets, page])
+  const sheet = useMemo(
+    () => layoutSheet(settings, assets, page, like),
+    [settings, assets, page, like],
+  )
   const mark = numberMark(settings.pageNumbers, index, sheet.page, sheet.content.x)
   const thumbUrls = usePageThumbs(
     picturesOf(page).flatMap((slot) => {
@@ -344,6 +350,7 @@ export const PageGrid = ({
             <PageCard
               key={page.id}
               page={page}
+              like={page.blank ? sizeModel(pages, index) : undefined}
               assets={assets}
               index={index}
               settings={settings}

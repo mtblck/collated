@@ -40,6 +40,8 @@ export const DocumentBar = ({
   duplex,
   orderScope = null,
   onArrange,
+  blankAfter,
+  onInsertBlank,
   onStartOver,
   keepWork,
   onKeepWork,
@@ -72,6 +74,9 @@ export const DocumentBar = ({
   /** How many selected pages page order works on; null for every page. */
   orderScope?: number | null
   onArrange: (arrange: Arrange) => void
+  /** The page an inserted blank page goes after (1-based); null for the end. */
+  blankAfter: number | null
+  onInsertBlank: () => void
   /** Clears the document, its undo history and everything kept for it. */
   onStartOver: () => void
   /** Whether the document is kept on this device across a reload. */
@@ -168,6 +173,8 @@ export const DocumentBar = ({
         duplex={duplex}
         orderScope={orderScope}
         onArrange={onArrange}
+        blankAfter={blankAfter}
+        onInsertBlank={onInsertBlank}
         busy={exporting.busy || busy}
         onStartOver={onStartOver}
         keepWork={keepWork}

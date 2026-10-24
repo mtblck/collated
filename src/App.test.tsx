@@ -2061,6 +2061,35 @@ describe('App', () => {
       expect(status()).toHaveTextContent('Reversed the page order.')
     })
 
+    it('inserts a blank page after the selected page, or at the end (#80)', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'b.jpg')
+      await screen.findByRole('list', { name: '2 pages' })
+      const insert = () => screen.getByRole('button', { name: 'Insert blank page', hidden: true })
+      // The first page is selected after an import: after it.
+      expect(screen.getByText('After page 1, sized by page setup.')).toBeInTheDocument()
+      await user.click(insert())
+      expect(pageLabels()).toEqual(['Page 1: a.jpg', 'Page 2: Blank page', 'Page 3: b.jpg'])
+      expect(status()).toHaveTextContent('Inserted a blank page at position 2.')
+      // The new page is selected, with its own inspector.
+      const panel = within(screen.getByRole('complementary', { name: 'Selected page' }))
+      expect(panel.getByRole('heading', { name: 'Blank page' })).toBeInTheDocument()
+      await user.click(panel.getByRole('radio', { name: 'Landscape' }))
+      expect(panel.getByRole('radio', { name: 'Landscape' })).toBeChecked()
+
+      await user.click(screen.getByRole('button', { name: /^Page 3:/ }))
+      await user.click(insert())
+      expect(pageLabels()).toEqual([
+        'Page 1: a.jpg',
+        'Page 2: Blank page',
+        'Page 3: b.jpg',
+        'Page 4: Blank page',
+      ])
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      expect(status()).toHaveTextContent('Undone: added blank page 4.')
+      expect(pageLabels()).toHaveLength(3)
+    })
+
     it('rotates every page from the More menu', async () => {
       const { user, upload } = setup()
       await upload('a.jpg', 'b.jpg')

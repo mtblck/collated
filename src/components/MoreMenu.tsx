@@ -6,6 +6,7 @@ import {
   InterleaveIcon,
   MoonIcon,
   MoreIcon,
+  PageIcon,
   ReverseIcon,
   RotateLeftIcon,
   RotateRightIcon,
@@ -51,7 +52,7 @@ const Group = ({ label, children }: { label: string; children: ReactNode }) => (
 )
 
 /**
- * Everything the toolbar doesn't need on show: whole-document rotation and
+ * Everything the toolbar doesn't need on show: Insert blank page, whole-document rotation and
  * auto-rotate, page order (interleave, reverse, sort), Start over, the theme, and links out. A disclosure (a popover of ordinary buttons and
  * links, Tab to move), not an ARIA menu: menus promise arrow-key behaviour
  * and roles screen readers treat differently, for no gain here.
@@ -64,6 +65,8 @@ export const MoreMenu = ({
   duplex,
   orderScope,
   onArrange,
+  blankAfter,
+  onInsertBlank,
   busy,
   onStartOver,
   keepWork,
@@ -80,6 +83,10 @@ export const MoreMenu = ({
   /** How many selected pages page order works on; null for every page. */
   orderScope: number | null
   onArrange: (arrange: Arrange) => void
+  /** The page an inserted blank page goes after (1-based); null for the end. */
+  blankAfter: number | null
+  /** Adds an empty page (#80), sized by page setup. */
+  onInsertBlank: () => void
   /** Importing or exporting: Start over waits until that's done. */
   busy: boolean
   onStartOver: () => void
@@ -119,6 +126,25 @@ export const MoreMenu = ({
         className={cx(POPOVER_PANEL, 'popover-end from-more w-[min(17rem,calc(100vw-1rem))] p-2')}
       >
         <div className="divide-y divide-rule-soft">
+          <Group label="Pages">
+            <button
+              type="button"
+              className={ITEM}
+              aria-describedby={`${id}-blank-help`}
+              onClick={(event) => {
+                closeOwnPopover(event.currentTarget)
+                onInsertBlank()
+              }}
+            >
+              <PageIcon width={18} height={18} className="text-ink-muted" />
+              Insert blank page
+            </button>
+            <p id={`${id}-blank-help`} className="px-3 pb-1 text-xs text-ink-muted">
+              {blankAfter === null
+                ? 'At the end, sized by page setup.'
+                : `After page ${String(blankAfter)}, sized by page setup.`}
+            </p>
+          </Group>
           <Group label="Document">
             {(
               [
