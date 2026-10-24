@@ -30,6 +30,7 @@ const LOW_DPI = 150
 const FILTERS: readonly { value: Filter; label: string }[] = [
   { value: 'original', label: 'Original' },
   { value: 'grey', label: 'Greyscale' },
+  { value: 'enhance', label: 'Enhance' },
   { value: 'bw', label: 'B&W' },
 ]
 
@@ -171,13 +172,7 @@ export const Inspector = ({
         className="relative w-full rounded-xl bg-paper-sunk p-5"
         style={{ aspectRatio: boxRatio }}
       >
-        <PagePreview
-          sheet={singleSheet(layout)}
-          thumbUrls={[thumbUrl]}
-          boxRatio={boxRatio}
-          showMargins
-          mark={mark}
-        />
+        <PagePreview sheet={singleSheet(layout)} thumbUrls={[thumbUrl]} showMargins mark={mark} />
         {/* Over the preview rather than around it: a button can't hold the
             preview's blocks, and this keeps one clear name. */}
         <button
@@ -399,8 +394,8 @@ export const Inspector = ({
           {vector
             ? 'PDF pages keep their original vector content.'
             : page.filter === 'original'
-              ? 'Greyscale and B&W clean up photographed paper.'
-              : 'This page’s image is re-encoded for the filter (greyscale as JPEG, B&W as lossless PNG).'}
+              ? 'Greyscale, Enhance and B&W clean up photographed paper.'
+              : 'This page’s image is re-encoded for the filter (greyscale and Enhance as JPEG, B&W as lossless PNG).'}
           {cropsHidden &&
             ' Part of the image is off the page, so the PDF keeps only the part that shows (re-encoded once, to leave the rest out of the file).'}
         </p>

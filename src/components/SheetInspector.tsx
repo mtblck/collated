@@ -110,13 +110,7 @@ export const SheetInspector = ({
         className="relative w-full rounded-xl bg-paper-sunk p-5"
         style={{ aspectRatio: boxRatio }}
       >
-        <PagePreview
-          sheet={sheet}
-          thumbUrls={thumbUrls}
-          boxRatio={boxRatio}
-          showMargins
-          mark={mark}
-        />
+        <PagePreview sheet={sheet} thumbUrls={thumbUrls} showMargins mark={mark} />
       </div>
 
       <div>
