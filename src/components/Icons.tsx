@@ -228,3 +228,9 @@ export const SplitIcon = (p: P) => (
     <path d="M13.5 4.5l2 2-2 2M6.5 15.5l-2-2 2-2" />
   </Icon>
 )
+
+export const BookmarkIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M6 3.5h8v13l-4-3-4 3z" />
+  </Icon>
+)

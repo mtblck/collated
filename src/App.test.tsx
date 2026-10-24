@@ -5,6 +5,7 @@ import { asset } from '../tests/helpers'
 import { App, type AppDeps } from './App'
 import { ImportError } from './import/importFile'
 import { createWorkStore, memoryBackend } from './state/workStore'
+import type { OutlineItem } from './core/outline'
 
 const file = (name: string) => new File([new Uint8Array([1, 2, 3])], name, { type: 'image/jpeg' })
 
@@ -1559,6 +1560,44 @@ describe('App', () => {
       expect(options?.parts?.map((p) => named(doc, p.pageIds))).toEqual([
         ['a.jpg', 'b.jpg'],
         ['c.jpg'],
+      ])
+    })
+
+    it('bookmarks named sections and files, each part under its section (#75)', async () => {
+      const exportPdf = exportMock('application/zip')
+      const { user, upload } = setup({ exportPdf })
+      await upload('a.jpg', 'b.jpg', 'c.jpg')
+      await screen.findByRole('list', { name: '3 pages' })
+      await user.click(card(2))
+      await user.type(screen.getByLabelText('Section starts here'), 'Receipts')
+      await user.tab()
+      expect(
+        screen.getByRole('button', { name: /^Page 2: b\.jpg, starts section Receipts/ }),
+      ).toBeInTheDocument()
+      // Typed as one undo step.
+      await user.keyboard('{Control>}z{/Control}')
+      expect(screen.getByLabelText('Section starts here')).toHaveValue('')
+      await user.keyboard('{Control>}{Shift>}z{/Shift}{/Control}')
+      expect(screen.getByLabelText('Section starts here')).toHaveValue('Receipts')
+      await user.click(await findExportMenu())
+      await user.click(
+        screen.getByRole('checkbox', { name: 'Bookmark each imported file', hidden: true }),
+      )
+      await user.click(screen.getByRole('radio', { name: 'Split by page ranges', hidden: true }))
+      await user.type(screen.getByLabelText('Page ranges'), '1-2, 3')
+      await user.click(exportN(2))
+      await waitFor(() => {
+        expect(exportPdf).toHaveBeenCalled()
+      })
+      const [doc, , options] = exportPdf.mock.calls[0] ?? []
+      const titles = (items: OutlineItem[] = []): unknown[] =>
+        items.map((item) => [item.title, named(doc, [item.pageId])[0], titles(item.children)])
+      expect(options?.parts?.map((p) => titles(p.outline))).toEqual([
+        [
+          ['a', 'a.jpg', []],
+          ['Receipts', 'b.jpg', [['b', 'b.jpg', []]]],
+        ],
+        [['Receipts', 'c.jpg', [['c', 'c.jpg', []]]]],
       ])
     })
   })

@@ -18,6 +18,9 @@ import {
   grayscale,
   PDFName,
   PDFString,
+  PDFHexString,
+  PDFDict,
+  type PDFRef,
   type PDFFont,
   type PDFEmbeddedPage,
   type PDFImage,
@@ -34,6 +37,7 @@ import { stripJpegMetadata } from './jpegClean'
 import { headerSize } from './imageInfo'
 import { placeWord, type OcrWord } from './textLayer'
 import { NUMBER_GREY, numberMark } from './pageNumbers'
+import type { OutlineItem } from './outline'
 
 export interface BuildInput {
   settings: Settings
@@ -52,6 +56,8 @@ export interface BuildInput {
    * layer): asset id → bytes id of a JPEG of the page as the preview shows it.
    */
   rendered?: Record<string, string>
+  /** Bookmarks, by page id (see core/outline.ts). Items for pages not in this file are left out. */
+  outline?: OutlineItem[]
   assets: Record<
     string,
     Pick<Asset, 'id' | 'width' | 'height' | 'format' | 'storedTurns' | 'bytesId' | 'pdfPage'>
@@ -195,6 +201,55 @@ const drawTextLayer = (page: PDFPage, font: PDFFont, layout: Layout, words: read
     )
   }
   page.pushOperators(endText(), popGraphicsState())
+}
+
+/**
+ * Writes the document outline (ISO 32000-1, 12.3.3): a linked list of items
+ * per level, each opening its page whole (/Fit). Every level starts open,
+ * and the reader is asked to show the bookmarks panel.
+ */
+const writeOutline = (doc: PDFDocument, items: OutlineItem[], pageRefs: Map<string, PDFRef>) => {
+  const { context } = doc
+  /** Writes one level under `parent`; returns its refs and how many items show. */
+  const level = (list: OutlineItem[], parent: PDFRef) => {
+    const kept = list.filter((item) => pageRefs.has(item.pageId))
+    const refs = kept.map(() => context.nextRef())
+    let shown = 0
+    for (const [i, item] of kept.entries()) {
+      const ref = refs[i]
+      const page = pageRefs.get(item.pageId)
+      if (!ref || !page) continue
+      const dict = PDFDict.withContext(context)
+      // Hex strings are UTF-16 when needed, so any name survives.
+      dict.set(PDFName.of('Title'), PDFHexString.fromText(item.title))
+      dict.set(PDFName.of('Parent'), parent)
+      dict.set(PDFName.of('Dest'), context.obj([page, PDFName.of('Fit')]))
+      const prev = refs[i - 1]
+      const next = refs[i + 1]
+      if (prev) dict.set(PDFName.of('Prev'), prev)
+      if (next) dict.set(PDFName.of('Next'), next)
+      const children = level(item.children, ref)
+      if (children.first && children.last) {
+        dict.set(PDFName.of('First'), children.first)
+        dict.set(PDFName.of('Last'), children.last)
+        dict.set(PDFName.of('Count'), context.obj(children.shown))
+      }
+      context.assign(ref, dict)
+      shown += 1 + children.shown
+    }
+    return { first: refs[0], last: refs.at(-1), shown }
+  }
+  const root = context.nextRef()
+  const top = level(items, root)
+  if (!top.first || !top.last) return
+  const dict = PDFDict.withContext(context)
+  dict.set(PDFName.of('Type'), PDFName.of('Outlines'))
+  dict.set(PDFName.of('First'), top.first)
+  dict.set(PDFName.of('Last'), top.last)
+  dict.set(PDFName.of('Count'), context.obj(top.shown))
+  context.assign(root, dict)
+  doc.catalog.set(PDFName.of('Outlines'), root)
+  doc.catalog.set(PDFName.of('PageMode'), PDFName.of('UseOutlines'))
 }
 
 export const PRODUCER = 'Collated'
@@ -462,6 +517,11 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
       })
     }
     options.onProgress?.(index + 1, pages.length)
+  }
+
+  if (input.outline?.length) {
+    const refs = new Map(pages.map((page, i) => [page.id, doc.getPage(i).ref]))
+    writeOutline(doc, input.outline, refs)
   }
 
   if (input.password) {

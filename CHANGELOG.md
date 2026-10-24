@@ -10,6 +10,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Black out part of the page** (#77): draw boxes over account or ID numbers, and the export removes what's under them rather than covering it. Pixels are painted over, a PDF page with a box goes in as a picture, and searchable text leaves out words under a box.
 - **Enhance** filter (#71): whitens the paper and lifts shadows while keeping colour, for photos of forms with stamps, highlighted pages and receipts with logos. It sits between Greyscale and B&W.
 - Select several pages at once (#65): Shift-click for a range, ⌘/Ctrl-click for one more, ⌘A / Ctrl+A for all, or **Select** on a phone. Rotate, straighten, scale, filter, move, duplicate or remove them together, each as one undo step, and drag any of them to move them all.
 - Blank pages (#68): pages that look blank (allowing for show-through, punch holes and dust) are marked **Looks blank**, and **Remove N blank pages** above the pages takes them all out in one undoable step. Nothing is removed without asking.
@@ -18,6 +19,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Auto-rotate pages** in the More menu turns upside-down and sideways pages the right way up by reading their text, in one undoable step, and says which pages it turned. Pages without enough text are left alone. Opt-in: it downloads about 6 MB the first time, from Collated's own site.
 - Several pictures on one page (#76): select pages and combine them 2 or 4 per page, or as an **ID card** with both sides at real card size (85.6 × 54 mm). Each picture keeps its rotation, crop and filter; **Split** gives the pages back.
 - Export only the selected pages, or split the document into several PDFs by page ranges ("1-3, 4-10") or every few pages (#66). Several files download as one ZIP, each with the same quality, OCR, password and page number options.
+- Bookmarks in the exported PDF (#75): name a section at any page (**Section starts here** in the page's settings) and it becomes a bookmark that moves with its page. **Bookmark each imported file** in the export options adds one per file, under its section. Split exports give each file the bookmarks for its own pages.
 - Your work survives a reload or a closed tab: the document, undo history included, is kept in this browser on this device (never uploaded, never the password), and Collated offers **Restore your last document?** next time. Start over deletes it, and **Keep work after a reload** in the More menu turns it off.
 
 - **Take photo** on phones and tablets (#72): opens the camera and adds each shot after the last page, without leaving Collated. The system camera takes the picture, so no camera permission is asked for.

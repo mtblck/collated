@@ -14,6 +14,7 @@ import type {
 } from './model'
 import { ANGLE_LIMIT, DEFAULT_TRANSFORM, SCALE_MAX, SCALE_MIN, SHEET_CAPACITY } from './model'
 import { picturesOf } from './model'
+import { SECTION_MAX } from './outline'
 
 export { PAGE_MAX, PAGE_MIN }
 
@@ -60,6 +61,8 @@ export type Action =
   | { type: 'sortPages'; by: SortKey; ids?: string[] }
   | { type: 'resetPage'; id: string }
   | { type: 'applyToAll'; id: string }
+  /** Names the section that starts at a page (#75); blank removes it. */
+  | { type: 'setSection'; id: string; title: string }
   | { type: 'setSettings'; patch: Partial<Settings> }
   | { type: 'clear' }
 
@@ -132,6 +135,13 @@ const slotOf = ({
   ...(redactions?.length ? { redactions } : {}),
 })
 
+/** A copy of a page under a new id. A section starts once: the copy doesn't start it again. */
+const copyOf = ({ section: _, ...page }: Page, id: string): Page => ({ ...page, id })
+
+/** Keeps a page's section, if it has one, on what replaces it. */
+const withSection = (page: Page, section: string | undefined): Page =>
+  section === undefined ? page : { ...page, section }
+
 export const docReducer = (state: DocState, action: Action): DocState => {
   switch (action.type) {
     case 'addPages': {
@@ -156,7 +166,7 @@ export const docReducer = (state: DocState, action: Action): DocState => {
       if (!source) return state
       return {
         ...state,
-        pages: state.pages.toSpliced(index + 1, 0, { ...source, id: action.newId }),
+        pages: state.pages.toSpliced(index + 1, 0, copyOf(source, action.newId)),
       }
     }
 
@@ -180,7 +190,7 @@ export const docReducer = (state: DocState, action: Action): DocState => {
         ...state,
         pages: state.pages.flatMap((p) => {
           const newId = copies.get(p.id)
-          return newId ? [p, { ...p, id: newId }] : [p]
+          return newId ? [p, copyOf(p, newId)] : [p]
         }),
       }
     }
@@ -315,6 +325,10 @@ export const docReducer = (state: DocState, action: Action): DocState => {
           sheet: { kind: action.kind, slots },
         })
       }
+      // The first section among them starts the first sheet.
+      const section = chosen.find((p) => p.section?.trim())?.section
+      const [head] = sheets
+      if (head) sheets[0] = withSection(head, section)
       // Where the first of them was: no chosen page comes before it.
       const at = state.pages.findIndex((p) => ids.has(p.id))
       const rest = state.pages.filter((p) => !ids.has(p.id))
@@ -323,12 +337,15 @@ export const docReducer = (state: DocState, action: Action): DocState => {
 
     case 'splitPage': {
       const index = state.pages.findIndex((p) => p.id === action.id)
-      const sheet = state.pages[index]?.sheet
+      const combined = state.pages[index]
+      const sheet = combined?.sheet
       if (!sheet) return state
-      const pages = sheet.slots.map((slot, i): Page => ({
-        ...slot,
-        id: action.newIds[i] ?? `${action.id}-${String(i)}`,
-      }))
+      const pages = sheet.slots.map((slot, i): Page =>
+        withSection(
+          { ...slot, id: action.newIds[i] ?? `${action.id}-${String(i)}` },
+          i === 0 ? combined.section : undefined,
+        ),
+      )
       return { ...state, pages: state.pages.toSpliced(index, 1, ...pages) }
     }
 
@@ -342,6 +359,19 @@ export const docReducer = (state: DocState, action: Action): DocState => {
         pages: state.pages.map((p) =>
           p.id === action.id ? { ...p, sheet: { ...sheet, kind: action.kind } } : p,
         ),
+      }
+    }
+
+    case 'setSection': {
+      const title = action.title.slice(0, SECTION_MAX)
+      return {
+        ...state,
+        pages: state.pages.map((p) => {
+          if (p.id !== action.id) return p
+          if (title.trim()) return { ...p, section: title }
+          const { section: _, ...rest } = p
+          return rest
+        }),
       }
     }
 

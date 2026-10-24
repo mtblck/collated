@@ -20,6 +20,7 @@ export const defaultSettings = (locale: string): Settings => {
     imageDpi: 300,
     pageNumbers: { show: false, position: 'bottom-center', start: 1 },
     ocr: false,
+    bookmarkFiles: false,
   }
 }
 
@@ -71,6 +72,7 @@ export const loadSettings = (
           ? raw.maxBytes
           : null,
       ocr: raw.ocr === true,
+      bookmarkFiles: raw.bookmarkFiles === true,
       imageDpi: Math.min(1200, Math.max(36, finite(raw.imageDpi, fallback.imageDpi))),
       pageNumbers: {
         show: isRecord(raw.pageNumbers) && raw.pageNumbers.show === true,
