@@ -11,7 +11,9 @@ import type { OcrWord } from './core/textLayer'
 import { layoutPage } from './core/geometry'
 import { formatBytes } from './core/units'
 import { describeChange } from './core/describeChange'
+import { duplexGroups } from './core/order'
 import { DocumentBar, type ExportState } from './components/DocumentBar'
+import type { Arrange } from './components/MoreMenu'
 import { DropOverlay, EmptyState, Footer, Header, Notices, type Notice } from './components/Chrome'
 import { Inspector, type InspectorActions } from './components/Inspector'
 import { PageGrid } from './components/PageGrid'
@@ -256,7 +258,13 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       if (generation.current !== started) return
       if (added.length > 0) {
         const pageIds = added.map(() => deps.newId())
-        act({ type: 'addPages', assets: added, pageIds })
+        // Images added together are one pile for Interleave (a PDF is its
+        // own); the first one's id names the batch.
+        const batch = added.find((a) => a.format !== 'pdf')?.id
+        const tagged = added.map((a) =>
+          a.format === 'pdf' || !batch ? a : { ...a, source: batch },
+        )
+        act({ type: 'addPages', assets: tagged, pageIds })
         setSelection((current) => {
           const first = pageIds[0]
           return current.ids.length > 0 || !first ? current : { ids: [first], anchor: first }
@@ -801,6 +809,37 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     )
   }, [announce, deps.locale, deps.storage, pages.length, requestFocus, reset, selectOnly])
 
+  // With several pages selected, page order works on those alone.
+  const orderScope = useMemo(() => (group ? selection.ids : undefined), [group, selection.ids])
+  const duplex = useMemo(() => duplexGroups(doc, orderScope), [doc, orderScope])
+  const onArrange = useCallback(
+    (arrange: Arrange) => {
+      if (arrange.type === 'interleave') {
+        if (!duplex) return
+        const { fronts, backs } = duplex
+        act({ type: 'interleavePages', fronts, backs, backsReversed: arrange.backsReversed })
+        const extra = Math.abs(fronts.length - backs.length)
+        if (extra > 0) {
+          const side = fronts.length > backs.length ? 'front' : 'back'
+          notify(
+            `There were ${plural(fronts.length, 'front')} and ${plural(backs.length, 'back')}: the extra ${extra === 1 ? `${side} is` : `${plural(extra, side)} are`} at the end.`,
+          )
+        }
+        announce(
+          `Interleaved ${plural(fronts.length + backs.length, 'page')}. Undo to put them back.`,
+        )
+      } else if (arrange.type === 'reverse') {
+        act({ type: 'reversePages', ...(orderScope ? { ids: orderScope } : {}) })
+        announce(orderScope ? 'Reversed the selected pages.' : 'Reversed the page order.')
+      } else {
+        act({ type: 'sortPages', by: arrange.by, ...(orderScope ? { ids: orderScope } : {}) })
+        const what = orderScope ? 'Sorted the selected pages' : 'Sorted'
+        announce(`${what} by ${arrange.by === 'name' ? 'file name' : 'date taken'}.`)
+      }
+    },
+    [act, announce, duplex, notify, orderScope],
+  )
+
   const workspace = pages.length > 0 || importing !== null
 
   return (
@@ -828,6 +867,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             onRotateAll={(by) => {
               act({ type: 'rotateAll', by })
             }}
+            duplex={duplex}
+            orderScope={orderScope?.length ?? null}
+            onArrange={onArrange}
             onStartOver={onStartOver}
             busy={importing !== null || straightening}
             onAdd={chooseFiles}

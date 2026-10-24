@@ -89,18 +89,74 @@ const readExifOrientation = (view: DataView, tiff: number): number | null => {
   const order = view.getUint16(tiff)
   const little = order === 0x4949 // "II"
   if (!little && order !== 0x4d4d) return null // "MM"
-  const ifd = tiff + view.getUint32(tiff + 4, little)
-  if (ifd + 2 > view.byteLength) return null
-  const count = view.getUint16(ifd, little)
-  for (let i = 0; i < count; i++) {
-    const entry = ifd + 2 + i * 12
-    if (entry + 12 > view.byteLength) return null
-    if (view.getUint16(entry, little) === 0x0112) {
-      const value = view.getUint16(entry + 8, little)
-      return value >= 1 && value <= 8 ? value : null
+  const entry = ifdEntry(view, tiff, view.getUint32(tiff + 4, little), 0x0112, little)
+  if (entry === null) return null
+  const value = view.getUint16(entry + 8, little)
+  return value >= 1 && value <= 8 ? value : null
+}
+
+/** Where the EXIF TIFF header starts in a JPEG, or null without one. */
+const findExif = (bytes: Uint8Array): number | null => {
+  if (sniff(bytes) !== 'jpeg') return null
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  let offset = 2
+  while (offset + 4 <= bytes.length && bytes[offset] === 0xff) {
+    const marker = bytes[offset + 1] ?? 0
+    if (marker === 0xff) {
+      offset += 1
+      continue
     }
+    if (marker === 0xda || marker === 0xd9) return null
+    const body = offset + 4
+    if (marker === 0xe1 && ascii(bytes, body, body + 6) === 'Exif\0\0') return body + 6
+    offset += 2 + view.getUint16(offset + 2)
   }
   return null
+}
+
+/** The entry for `tag` in the IFD at `ifd` (relative to `tiff`), or null. */
+const ifdEntry = (view: DataView, tiff: number, ifd: number, tag: number, little: boolean) => {
+  const start = tiff + ifd
+  if (start + 2 > view.byteLength) return null
+  const count = view.getUint16(start, little)
+  for (let i = 0; i < count; i++) {
+    const entry = start + 2 + i * 12
+    if (entry + 12 > view.byteLength) return null
+    if (view.getUint16(entry, little) === tag) return entry
+  }
+  return null
+}
+
+/**
+ * When a JPEG photo was taken (EXIF DateTimeOriginal), in ms since the epoch,
+ * or null. EXIF has no time zone: it's read as local time, which is what the
+ * camera's clock showed.
+ */
+export const readExifDate = (bytes: Uint8Array): number | null => {
+  const tiff = findExif(bytes)
+  if (tiff === null || tiff + 8 > bytes.length) return null
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const order = view.getUint16(tiff)
+  const little = order === 0x4949
+  if (!little && order !== 0x4d4d) return null
+  const exifPointer = ifdEntry(view, tiff, view.getUint32(tiff + 4, little), 0x8769, little)
+  if (exifPointer === null) return null
+  const entry = ifdEntry(view, tiff, view.getUint32(exifPointer + 8, little), 0x9003, little)
+  if (entry === null || view.getUint32(entry + 4, little) < 19) return null
+  const at = tiff + view.getUint32(entry + 8, little)
+  const match = /^(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)$/.exec(ascii(bytes, at, at + 19))
+  if (!match) return null
+  const [year, month, day, hour, minute, second] = match.slice(1).map(Number) as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ]
+  // Unset clocks write zeros ("0000:00:00 00:00:00").
+  if (year === 0 || month === 0 || day === 0) return null
+  return new Date(year, month - 1, day, hour, minute, second).getTime()
 }
 
 /**

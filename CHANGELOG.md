@@ -11,6 +11,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - Select several pages at once (#65): Shift-click for a range, ⌘/Ctrl-click for one more, ⌘A / Ctrl+A for all, or **Select** on a phone. Rotate, straighten, scale, filter, move, duplicate or remove them together, each as one undo step, and drag any of them to move them all.
+- Two-sided scans: **Interleave fronts and backs** in the More menu puts a pile of fronts and a pile of backs (reversed or not) into page order in one step. Also there: **Reverse page order**, **Sort by file name** and **Sort by date taken**.
 
 ### Changed
 
