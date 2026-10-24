@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent 
 import { singleSheet, type Layout } from '../core/geometry'
 import type { NumberMark } from '../core/pageNumbers'
 import type { Quad } from '../core/perspective'
+import type { WatermarkMark } from '../core/watermark'
 import { FIT, clampView, stepFrom, zoomAt, type View } from '../core/zoom'
 import { Button, IconButton } from './controls'
 import { CloseIcon, MinusIcon, PlusIcon } from './Icons'
@@ -27,6 +28,7 @@ export const PageViewer = ({
   loadDetail,
   mark = null,
   covers = [],
+  watermark = null,
   onClose,
 }: {
   title: string
@@ -37,6 +39,7 @@ export const PageViewer = ({
   mark?: NumberMark | null
   /** What's blacked out, as fractions of what the page shows (see PagePreview). */
   covers?: readonly Quad[]
+  watermark?: WatermarkMark | null
   onClose: () => void
 }) => {
   const id = useId()
@@ -410,6 +413,7 @@ export const PageViewer = ({
               thumbUrls={[detail ?? thumbUrl]}
               covers={[covers]}
               mark={mark}
+              watermark={watermark}
             />
           </div>
         </div>

@@ -999,6 +999,33 @@ describe('App', () => {
     expect(within(pages).getByText('8')).toBeInTheDocument()
   })
 
+  it('stamps a watermark on the pages, or just the chosen ones', async () => {
+    const { user, upload } = setup()
+    await upload('a.jpg', 'b.jpg')
+    const pages = await screen.findByRole('list', { name: '2 pages' })
+    // The text is drawn from the attribute, as generated content.
+    const stamped = (root: Element = pages) =>
+      root.querySelectorAll('[data-watermark="Copy for Acme"]').length
+    await user.click(exportMenu())
+    await user.click(screen.getByRole('checkbox', { name: 'Watermark' }))
+    await user.type(screen.getByLabelText('Text'), 'Copy for Acme')
+    expect(stamped()).toBe(2)
+    // Typing is one undo step.
+    await user.click(screen.getByRole('button', { name: /^Undo/, hidden: true }))
+    expect(pages.querySelector('[data-watermark]')).toBeNull()
+    await user.click(screen.getByRole('button', { name: /^Redo/, hidden: true }))
+    expect(stamped()).toBe(2)
+
+    await user.click(screen.getByRole('button', { name: 'Page 2: b.jpg', hidden: true }))
+    const options = within(screen.getByRole('group', { name: 'Watermark options', hidden: true }))
+    await user.click(options.getByRole('radio', { name: 'Selected pages (1)', hidden: true }))
+    expect(stamped()).toBe(1)
+    expect(stamped(screen.getByRole('button', { name: 'Page 2: b.jpg', hidden: true }))).toBe(1)
+    expect(options.getByRole('radio', { name: '1 page chosen', hidden: true })).toBeChecked()
+    await user.click(options.getByRole('radio', { name: 'All pages', hidden: true }))
+    expect(stamped()).toBe(2)
+  })
+
   it('sizes pages to their image when "Match image" is chosen', async () => {
     const { user, upload } = setup()
     await upload('a.jpg')
