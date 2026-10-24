@@ -2,7 +2,7 @@
 public: true
 ---
 
-# 0002: We find the paper with our own detector, not OpenCV
+# 0003: We find the paper with our own detector, not OpenCV
 
 - **Status:** Accepted
 - **Date:** 2026-10-24
