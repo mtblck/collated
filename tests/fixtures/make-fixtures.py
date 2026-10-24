@@ -248,3 +248,41 @@ entries = [
     for name, corners in truth.items()
 ]
 (HERE / "paper-corners.json").write_text("{\n" + ",\n".join(entries) + "\n}\n")
+
+# A phone photo of a colour document: the same warm paper and shadow as
+# doc-photo.jpg, with a yellow highlight over a line, a red round stamp and a
+# blue logo block. What the Enhance filter is for: white paper, colours kept.
+random.seed(31)
+colour_doc = Image.new("RGB", (900, 1200))
+px = colour_doc.load()
+
+
+def colour_shade(x, y):
+    return 1.0 - 0.55 * max(0.0, (x / 900 + y / 1200) - 0.9)
+
+
+for y in range(1200):
+    for x in range(900):
+        s = colour_shade(x, y)
+        n = random.randint(-6, 6)
+        px[x, y] = (int(236 * s) + n, int(228 * s) + n, int(212 * s) + n)
+marks = Image.new("RGB", (900, 1200), (255, 255, 255))
+d = ImageDraw.Draw(marks)
+d.rectangle([90, 90, 250, 170], fill=(40, 80, 190))  # logo
+d.rectangle([84, 456, 640, 484], fill=(250, 230, 70))  # highlight
+for i, y in enumerate(range(230, 1100, 46)):
+    x = 90
+    for w in range(6 + (i % 4)):
+        width = 40 + ((i * 7 + w * 13) % 70)
+        if x + width > 820:
+            break
+        d.rectangle([x, y, x + width, y + 14], fill=(60, 60, 70))
+        x += width + 18
+d.ellipse([560, 820, 760, 1020], outline=(200, 30, 40), width=14)  # stamp
+d.line([600, 900, 720, 940], fill=(200, 30, 40), width=12)
+# Marks multiply the lit paper, so they take the same light and cast.
+for y in range(1200):
+    for x in range(900):
+        p, m = px[x, y], marks.getpixel((x, y))
+        px[x, y] = tuple(p[k] * m[k] // 255 for k in range(3))
+colour_doc.save(HERE / "doc-colour.jpg", quality=88)
