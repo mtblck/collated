@@ -2481,7 +2481,7 @@ await context.close()
   await ctx.close()
 }
 
-// 25. Auto-rotate (#70): reads the text, turns the sideways page, leaves a picture.
+// 26. Auto-rotate (#70): reads the text, turns the sideways page, leaves a picture.
 {
   const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
   await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
