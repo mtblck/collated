@@ -2101,6 +2101,29 @@ await context.close()
     .getByRole('region', { name: 'Restore your last document?' })
     .getByRole('button', { name: 'Discard' })
     .click()
+  // Deleting is asynchronous: wait for IndexedDB to say it's gone, as a person
+  // reopening the tab later would find it.
+  const gone = await p
+    .waitForFunction(
+      () =>
+        new Promise((resolve) => {
+          const open = indexedDB.open('collated-work')
+          open.onsuccess = () => {
+            const q = open.result.transaction('doc', 'readonly').objectStore('doc').count()
+            q.onsuccess = () => {
+              open.result.close()
+              resolve(q.result === 0)
+            }
+          }
+        }),
+      null,
+      { timeout: 5000 },
+    )
+    .then(
+      () => true,
+      () => false,
+    )
+  check(gone, 'Discard deletes the stored document')
   await p.reload({ waitUntil: 'networkidle' })
   await p.waitForTimeout(300)
   check(
