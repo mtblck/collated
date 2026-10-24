@@ -5,6 +5,7 @@ import { asset } from '../tests/helpers'
 import { App, type AppDeps } from './App'
 import { ImportError } from './import/importFile'
 import { createWorkStore, memoryBackend } from './state/workStore'
+import type { Incoming } from './lib/incoming'
 import type { OutlineItem } from './core/outline'
 
 const file = (name: string) => new File([new Uint8Array([1, 2, 3])], name, { type: 'image/jpeg' })
@@ -188,7 +189,12 @@ describe('App', () => {
         },
       }
       // A fresh store per visit, as after a reload: it knows only what's stored.
-      return { backend, local, visit: () => setup({ work: createWorkStore(backend), storage }) }
+      return {
+        backend,
+        local,
+        visit: (more: Partial<AppDeps> = {}) =>
+          setup({ work: createWorkStore(backend), storage, ...more }),
+      }
     }
     const reload = () => {
       cleanup()
@@ -229,6 +235,94 @@ describe('App', () => {
       expect(screen.queryByRole('region', { name: /Restore/ })).toBeNull()
       expect(await backend.getDoc()).toBeUndefined()
       expect(backend.bytes.size).toBe(0)
+    })
+
+    describe('files shared to Collated or opened with it (#73)', () => {
+      /** Stands in for lib/incoming: holds what arrives until the app listens. */
+      const source = () => {
+        let listener: ((incoming: Incoming) => void) | undefined
+        const waiting: Incoming[] = []
+        return {
+          incoming: (fn: (incoming: Incoming) => void) => {
+            listener = fn
+            for (const incoming of waiting.splice(0)) fn(incoming)
+            return () => {
+              if (listener === fn) listener = undefined
+            }
+          },
+          send: (incoming: Incoming) => {
+            act(() => {
+              if (listener) listener(incoming)
+              else waiting.push(incoming)
+            })
+          },
+        }
+      }
+
+      it('opened from the desktop, become pages of a new document when nothing was kept', async () => {
+        const { incoming, send } = source()
+        send({ files: [file('opened.jpg'), file('scan.pdf')], from: 'launch' })
+        setup({ incoming })
+        expect(await screen.findByRole('list', { name: '4 pages' })).toBeInTheDocument()
+        expect(pageLabels()[0]).toBe('Page 1: opened.jpg')
+        expect(screen.queryByRole('dialog')).toBeNull()
+      })
+
+      it('shared, are added only once the person says so', async () => {
+        const { incoming, send } = source()
+        const { user } = setup({ incoming })
+        send({
+          files: ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => file(`${n}.jpg`)),
+          from: 'share',
+        })
+        const ask = await screen.findByRole('dialog', {
+          name: 'Add 6 files shared with Collated?',
+        })
+        expect(ask).toHaveTextContent('a.jpgb.jpgc.jpgd.jpgand 2 files more')
+        expect(screen.queryByRole('list', { name: /pages?$/ })).toBeNull()
+        await user.click(within(ask).getByRole('button', { name: 'Don’t add' }))
+        expect(screen.queryByRole('dialog')).toBeNull()
+        expect(screen.queryByRole('list', { name: /pages?$/ })).toBeNull()
+        expect(status()).toHaveTextContent('The shared files were not added.')
+
+        send({ files: [file('mine.jpg')], from: 'share' })
+        await user.click(await screen.findByRole('button', { name: 'Add 1 file' }))
+        expect(await screen.findByRole('list', { name: '1 page' })).toBeInTheDocument()
+        expect(pageLabels()).toEqual(['Page 1: mine.jpg'])
+      })
+
+      it('join the kept document instead of replacing it', async () => {
+        const { backend, visit } = device()
+        await visit().upload('a.jpg', 'b.jpg')
+        await saved(backend)
+        reload()
+
+        const { incoming, send } = source()
+        // Shared while the app is still looking for the kept document.
+        send({ files: [file('shared.jpg')], from: 'share' })
+        // Ids unlike the first visit's, as random ones would be.
+        let n = 0
+        const { user } = visit({ incoming, newId: () => `later${++n}` })
+        await user.click(await screen.findByRole('button', { name: 'Add 1 file' }))
+        await waitFor(() => {
+          expect(pageLabels()).toEqual(['Page 1: a.jpg', 'Page 2: b.jpg', 'Page 3: shared.jpg'])
+        })
+        expect(screen.queryByRole('region', { name: /Restore/ })).toBeNull()
+        // And once open, files opened from the desktop are added to it.
+        send({ files: [file('later.jpg')], from: 'launch' })
+        await waitFor(() => {
+          expect(pageLabels()).toHaveLength(4)
+        })
+      })
+
+      it('says so when a share carried nothing it could add', async () => {
+        const { incoming, send } = source()
+        setup({ incoming })
+        send({ empty: 'share' })
+        expect(await screen.findByRole('alert')).toHaveTextContent(
+          'Nothing was shared that Collated could add.',
+        )
+      })
     })
 
     it('Start over deletes the saved copy', async () => {

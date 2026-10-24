@@ -18,5 +18,13 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "tests", "vite.config.ts", "ocr-assets.ts", "licenses.ts", "docs-site.ts"]
+  "include": [
+    "src",
+    "tests",
+    "vite.config.ts",
+    "ocr-assets.ts",
+    "licenses.ts",
+    "docs-site.ts",
+    "service-worker.ts"
+  ]
 }

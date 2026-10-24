@@ -30,6 +30,7 @@ import { PageGrid } from './components/PageGrid'
 import { GroupInspector, type GroupActions } from './components/GroupInspector'
 import { SelectionBar } from './components/SelectionBar'
 import { BlankPagesBar } from './components/BlankPagesBar'
+import { ShareConfirm } from './components/ShareConfirm'
 import { SheetInspector, type SheetActions } from './components/SheetInspector'
 import {
   EMPTY_SELECTION,
@@ -44,6 +45,7 @@ import { DEFAULT_TRANSFORM } from './core/model'
 import { DEFAULT_SPLIT, pagesUsed, planExport, type SplitOptions } from './core/split'
 import { download as saveFile, exportPdf, prepareExport, type Exported } from './export/exportPdf'
 import { STALE_BUILD_MESSAGE, isStaleBuild } from './lib/staleBuild'
+import { listenForIncoming, type Incoming } from './lib/incoming'
 import { assetStore } from './import/assetStore'
 import { ImportError, importFile, type Imported } from './import/importFile'
 import { loadKeepWork, loadSettings, saveKeepWork, saveSettings } from './state/settingsStorage'
@@ -92,6 +94,8 @@ export interface AppDeps {
   prepareExport: () => void
   /** The document kept on this device across a reload (#74). */
   work: WorkStore
+  /** Files shared to Collated or opened with it (#73); returns the unsubscribe. */
+  incoming: (fn: (incoming: Incoming) => void) => () => void
 }
 
 const safeStorage = (): AppDeps['storage'] => {
@@ -117,6 +121,7 @@ const defaultDeps = (): AppDeps => ({
   locale: navigator.language,
   prepareExport,
   work: deviceWorkStore(),
+  incoming: listenForIncoming,
 })
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
@@ -1262,6 +1267,32 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     announce(`Restored ${plural(restored.length, 'page')}.`)
   }, [announce, deps.work, notify, requestFocus, restore, restoring, selectOnly])
 
+  // Files shared to Collated or opened with it (#73) join the work in
+  // progress: a document kept from last time is restored first, never
+  // replaced by files the person may not have known would replace it. Until
+  // we know whether there is one, they wait in lib/incoming. Shared files
+  // wait again, for the person to say they shared them (ShareConfirm).
+  const settled = offer !== 'pending' && !restoring
+  const [shared, setShared] = useState<File[]>([])
+  const addIncoming = useCallback(
+    async (files: File[]) => {
+      if (offer) await onRestore()
+      await addFiles(files)
+    },
+    [addFiles, offer, onRestore],
+  )
+  useEffect(() => {
+    if (!settled) return
+    return deps.incoming((incoming) => {
+      if (!('files' in incoming)) {
+        notify('Nothing was shared that Collated could add.')
+        return
+      }
+      if (incoming.from === 'share') setShared((list) => [...list, ...incoming.files])
+      else void addIncoming(incoming.files)
+    })
+  }, [addIncoming, deps, notify, settled])
+
   const onDiscard = useCallback(() => {
     setOffer(null)
     void deps.work.clear()
@@ -1533,6 +1564,19 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       <p id="status" className="sr-only" role="status" aria-live="polite">
         {status}
       </p>
+      {shared.length > 0 && (
+        <ShareConfirm
+          files={shared}
+          onAdd={() => {
+            setShared([])
+            void addIncoming(shared)
+          }}
+          onDismiss={() => {
+            setShared([])
+            announce('The shared files were not added.')
+          }}
+        />
+      )}
       <DropOverlay active={dragging} />
       <Notices
         items={notices}

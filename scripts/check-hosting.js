@@ -168,6 +168,18 @@ if (!html.includes(`src="${BASE}theme.js"`)) {
   )
 }
 
+// 5. The installed app (#73). The service worker's script must be revalidated
+//    on every check, or a deploy reaches installed copies only once a cached
+//    sw.js expires; and it must never fall under the assets' immutable caching.
+const swBlock = (config.headers ?? []).find((b) => b.source === `${BASE}sw.js`)
+const swCaching = swBlock?.headers.find((h) => h.key.toLowerCase() === 'cache-control')?.value
+if (!swCaching || !/\bno-cache\b/.test(swCaching)) {
+  problems.push(`${BASE}sw.js must be served with Cache-Control: no-cache.`)
+}
+if (!html.includes(`<link rel="manifest" href="${BASE}manifest.webmanifest" />`)) {
+  problems.push(`index.html must link ${BASE}manifest.webmanifest by absolute path.`)
+}
+
 if (problems.length) {
   console.error(`hosting:check failed:\n  - ${problems.join('\n  - ')}`)
   process.exit(1)
