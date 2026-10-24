@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { Asset, Settings, SheetKind, Slot } from './core/model'
+import type { Asset, QuarterTurns, Settings, SheetKind, Slot } from './core/model'
 import { SHEET_CAPACITY, isVector, pictureKey, picturesOf } from './core/model'
 import { partFilename, pdfFilename, zipFilename } from './core/filename'
 import { compressionFor, estimateBytes } from './core/compression'
@@ -8,9 +8,12 @@ import { skewOf } from './lib/skew'
 import { looksBlank } from './lib/blank'
 import { useBlankPages } from './hooks/useBlankPages'
 import { paperOf } from './lib/paper'
+import { pageOrientation } from './lib/orientation'
+import { describeAutoRotate, uprightTurns, type Osd } from './core/orientation'
 import type { Quad } from './core/perspective'
 import { forgetPageWords, pageWords } from './lib/pageText'
 import { forgetPageThumbs } from './hooks/usePageThumb'
+import { useTouchDevice } from './hooks/useTouchDevice'
 import { forgetLayered, layeredImage } from './export/layered'
 import type { OcrWord } from './core/textLayer'
 import type { SplitPart } from './core/splitBuild'
@@ -72,6 +75,8 @@ export interface AppDeps {
   detectBlank: (asset: Asset, picture: Slot) => Promise<boolean | null>
   /** The paper's corners in a photo, to suggest as its crop (null: no clear sheet). */
   findPaper: (asset: Asset) => Promise<Quad | null>
+  /** Which way up a picture's text is, as displayed (null: too little text to tell). */
+  detectOrientation: (asset: Asset, picture: Slot) => Promise<Osd | null>
   /**
    * Recognises a page's words (fractions of its content image); from
    * `drawn` instead for a PDF page exported as a drawing.
@@ -105,6 +110,7 @@ const defaultDeps = (): AppDeps => ({
   estimateSkew: skewOf,
   detectBlank: looksBlank,
   findPaper: paperOf,
+  detectOrientation: pageOrientation,
   recognizeText: pageWords,
   drawnPage: (asset) => layeredImage(asset),
   storage: safeStorage(),
@@ -119,6 +125,23 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 /** Image files from a drop or paste; directories and non-files are skipped. */
 const filesFrom = (list: FileList | null | undefined): File[] =>
   list ? Array.from(list).filter((file) => file.size > 0 || file.type !== '') : []
+
+/**
+ * Camera shots arrive as "image.jpg" every time on iOS (a number on Android),
+ * so name each by when it was taken: "Photo 14.03.22.jpg". Same bytes, type
+ * and date; the type is read from the bytes anyway.
+ */
+const namePhoto = (file: File): File => {
+  const at = new Date(file.lastModified)
+  const time = [at.getHours(), at.getMinutes(), at.getSeconds()]
+    .map((n) => String(n).padStart(2, '0'))
+    .join('.')
+  const ext = /\.[a-z0-9]+$/i.exec(file.name)?.[0] ?? ''
+  return new File([file], `Photo ${time}${ext}`, {
+    type: file.type,
+    lastModified: file.lastModified,
+  })
+}
 
 /** A modal dialog (the crop editor) is open: page-level shortcuts stand down. */
 const modalOpen = () => [...document.querySelectorAll('dialog')].some((d) => d.open)
@@ -204,6 +227,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const tooBig = useRef(false)
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  const cameraInput = useRef<HTMLInputElement>(null)
+  const touch = useTouchDevice()
   // The inspector scrolls on its own; a newly selected page starts at its top.
   const rail = useRef<HTMLElement>(null)
   const { pages, assets, settings } = doc
@@ -567,6 +592,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const chooseFiles = useCallback(() => {
     fileInput.current?.click()
   }, [])
+  const takePhoto = useCallback(() => {
+    cameraInput.current?.click()
+  }, [])
 
   // Normalised so the same password typed on another keyboard or system
   // (composed vs decomposed accents, full-width forms) opens the file.
@@ -868,6 +896,88 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       setAutoCropping(false)
     }
   }, [act, assets, deps, pages])
+
+  const [rotating, setRotating] = useState(false)
+  /** The pages as they are now, for work that outlasts a render (auto-rotate). */
+  const pagesRef = useRef(pages)
+  useLayoutEffect(() => {
+    pagesRef.current = pages
+  }, [pages])
+  /**
+   * Reads which way up each page's text is and adds the quarter turns that
+   * bring it upright, as one undo step. Pages with too little text are left
+   * alone; the status names the pages it turned. Opt-in: the first run
+   * downloads the orientation engine.
+   */
+  const autoRotate = useCallback(
+    async (ids: string[]) => {
+      setRotating(true)
+      setStatus('Finding which way up each page is…')
+      const started = generation.current
+      try {
+        // A combined page's pictures are read one by one: an ID card's back
+        // can be upside down when its front isn't.
+        const found: { id: string; from: readonly QuarterTurns[]; by: (QuarterTurns | null)[] }[] =
+          []
+        let upright = 0
+        let unclear = 0
+        for (const id of ids) {
+          const page = pages.find((p) => p.id === id)
+          if (!page) continue
+          const pictures = picturesOf(page)
+          const by: (QuarterTurns | null)[] = []
+          for (const picture of pictures) {
+            const asset = assets[picture.assetId]
+            by.push(asset ? uprightTurns(await deps.detectOrientation(asset, picture)) : null)
+            if (generation.current !== started) return
+          }
+          if (by.some((t) => t !== null && t !== 0))
+            found.push({ id, from: pictures.map((p) => p.turns), by })
+          else if (by.every((t) => t === null)) unclear += 1
+          else upright += 1
+        }
+        // Reading takes seconds a page: a page turned, moved or removed by
+        // hand meanwhile keeps what was done to it.
+        const now = pagesRef.current
+        const patches: { id: string; slot?: number; patch: { turns: QuarterTurns } }[] = []
+        const turned: number[] = []
+        let kept = 0
+        for (const { id, from, by } of found) {
+          const index = now.findIndex((p) => p.id === id)
+          const page = now[index]
+          if (!page) continue
+          const pictures = picturesOf(page)
+          if (pictures.length !== from.length || pictures.some((p, i) => p.turns !== from[i])) {
+            kept += 1
+            continue
+          }
+          from.forEach((turns, slot) => {
+            const add = by[slot]
+            if (!add) return
+            const patch = { turns: ((turns + add) % 4) as QuarterTurns }
+            patches.push(page.sheet ? { id, slot, patch } : { id, patch })
+          })
+          turned.push(index + 1)
+        }
+        turned.sort((a, b) => a - b)
+        act({ type: 'transformPages', patches })
+        setStatus(describeAutoRotate({ turned, upright, unclear, kept }))
+      } catch (error) {
+        if (generation.current !== started) return
+        notify(
+          isStaleBuild(error)
+            ? STALE_BUILD_MESSAGE
+            : error instanceof Error
+              ? error.message
+              : String(error),
+        )
+        setStatus('')
+      } finally {
+        setRotating(false)
+      }
+    },
+    [act, assets, deps, notify, pages],
+  )
 
   const inspectorActions = useMemo<InspectorActions | null>(() => {
     if (!selected) return null
@@ -1225,14 +1335,19 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             onRotateAll={(by) => {
               act({ type: 'rotateAll', by })
             }}
+            onAutoRotate={() => {
+              void autoRotate(orderScope ?? pages.map((p) => p.id))
+            }}
+            rotating={rotating}
             duplex={duplex}
             orderScope={orderScope?.length ?? null}
             onArrange={onArrange}
             onStartOver={onStartOver}
             keepWork={keepWork}
             onKeepWork={onKeepWork}
-            busy={importing !== null || straightening || autoCropping}
+            busy={importing !== null || straightening || autoCropping || rotating}
             onAdd={chooseFiles}
+            {...(touch && { onTakePhoto: takePhoto })}
             onExport={() => void onExport()}
             estimate={estimate}
             lastExport={lastExport}
@@ -1253,6 +1368,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           <div className="scroll-pane lg:overflow-y-auto">
             <EmptyState
               onChoose={chooseFiles}
+              {...(touch && { onTakePhoto: takePhoto })}
               restore={
                 offer && offer !== 'pending'
                   ? {
@@ -1388,6 +1504,22 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         data-testid="file-input"
         onChange={(event) => {
           const files = filesFrom(event.target.files)
+          event.target.value = ''
+          void addFiles(files)
+        }}
+      />
+      {/* Take photo (#72): `capture` hands off to the system camera, so it
+          needs no camera permission (Permissions-Policy keeps camera=()).
+          One shot per press; the button stays for the next page. */}
+      <input
+        ref={cameraInput}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        hidden
+        data-testid="camera-input"
+        onChange={(event) => {
+          const files = filesFrom(event.target.files).map(namePhoto)
           event.target.value = ''
           void addFiles(files)
         }}

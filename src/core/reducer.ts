@@ -44,8 +44,14 @@ export type Action =
   | { type: 'splitPage'; id: string; newIds: string[] }
   | { type: 'setSheetKind'; id: string; kind: SheetKind }
   | { type: 'transformPage'; id: string; patch: Partial<PageTransform> }
-  /** Several pages at once, as one undo step (e.g. auto-straighten all). */
-  | { type: 'transformPages'; patches: { id: string; patch: Partial<PageTransform> }[] }
+  /**
+   * Several pages at once, as one undo step (e.g. auto-straighten all). With
+   * `slot`, only that picture of a combined page (auto-rotate reads each one).
+   */
+  | {
+      type: 'transformPages'
+      patches: { id: string; slot?: number; patch: Partial<PageTransform> }[]
+    }
   /** Alternates two piles of pages (a two-sided scan), in the slots they hold. */
   | { type: 'interleavePages'; fronts: string[]; backs: string[]; backsReversed: boolean }
   /** Reverses these pages, or every page, in the slots they hold. */
@@ -221,18 +227,35 @@ export const docReducer = (state: DocState, action: Action): DocState => {
 
     case 'transformPages': {
       if (!action.patches.some(({ id }) => state.pages.some((p) => p.id === id))) return state
-      const byId = new Map(action.patches.map(({ id, patch }) => [id, cleanTransform(patch)]))
+      const byId = new Map<string, { slot: number | undefined; patch: Partial<PageTransform> }[]>()
+      for (const { id, slot, patch } of action.patches) {
+        byId.set(id, [...(byId.get(id) ?? []), { slot, patch: cleanTransform(patch) }])
+      }
       return {
         ...state,
         pages: state.pages.map((p) => {
-          const patch = byId.get(p.id)
-          if (!patch) return p
-          // PDF pictures on a combined page keep their vector content.
-          const { filter: _filter, ...vector } = patch
-          return restyle(p, (s) => ({
-            ...s,
-            ...(p.sheet && state.assets[s.assetId]?.format === 'pdf' ? vector : patch),
-          }))
+          const patches = byId.get(p.id)
+          if (!patches) return p
+          let page = p
+          for (const { slot, patch } of patches) {
+            // PDF pictures on a combined page keep their vector content.
+            const { filter: _filter, ...vector } = patch
+            const look = <T extends Slot>(s: T): T => ({
+              ...s,
+              ...(p.sheet && state.assets[s.assetId]?.format === 'pdf' ? vector : patch),
+            })
+            page =
+              slot !== undefined && page.sheet
+                ? {
+                    ...page,
+                    sheet: {
+                      ...page.sheet,
+                      slots: page.sheet.slots.map((s, i) => (i === slot ? look(s) : s)),
+                    },
+                  }
+                : restyle(page, look)
+          }
+          return page
         }),
       }
     }

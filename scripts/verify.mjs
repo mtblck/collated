@@ -2542,6 +2542,105 @@ await context.close()
   await ctx.close()
 }
 
+// 26. Auto-rotate (#70): reads the text, turns the sideways page, leaves a picture.
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [
+    join(fixtures, 'quad-portrait.jpg'),
+    join(fixtures, 'text-page-sideways.jpg'),
+  ])
+  await p.waitForSelector('ol[aria-label="2 pages"]')
+  await p.getByRole('button', { name: 'More' }).click()
+  const started = Date.now()
+  await p
+    .getByRole('dialog', { name: 'More' })
+    .getByRole('button', { name: 'Auto-rotate pages' })
+    .click()
+  const expected =
+    'Turned page 2 the right way up. 1 page had too little text to tell and was left as it is.'
+  const said = await p
+    .waitForFunction(
+      (text) => document.getElementById('status')?.textContent?.includes(text),
+      expected,
+      { timeout: 120_000 },
+    )
+    .then(
+      () => true,
+      () => false,
+    )
+  const seconds = ((Date.now() - started) / 1000).toFixed(1)
+  check(
+    said,
+    `Auto-rotate turns the sideways text page and leaves the picture (first run with downloads: ${seconds} s)`,
+    `status: "${await p.locator('#status').textContent()}"`,
+  )
+  await p.screenshot({ path: join(shots, 'auto-rotated.png'), fullPage: true })
+  // The page now carries a turn, which Reset (and one undo) takes off.
+  await p.getByRole('button', { name: 'Page 2: text-page-sideways.jpg' }).click()
+  const panel = p.getByRole('complementary', { name: 'Selected page' })
+  check(
+    (await panel.getByRole('button', { name: 'Reset' }).getAttribute('aria-disabled')) === null,
+    'the auto-rotated page shows a change to reset',
+  )
+  await p.keyboard.press('Control+z')
+  await p.waitForTimeout(200)
+  check(
+    (await panel.getByRole('button', { name: 'Reset' }).getAttribute('aria-disabled')) === 'true',
+    'one undo takes the auto-rotate back',
+  )
+  await ctx.close()
+}
+
+// 27. Take photo on a phone (#72): opens the camera, one shot after another,
+//     HEIC included; not offered with a mouse.
+{
+  const { context: phone, page: p } = await open({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  /** Presses Take photo and "shoots" `file` through the chooser it opens. */
+  const shoot = async (file) => {
+    const [chooser] = await Promise.all([
+      p.waitForEvent('filechooser'),
+      p.getByRole('button', { name: 'Take photo' }).click(),
+    ])
+    check(!chooser.isMultiple(), 'the camera takes one shot at a time')
+    const capture = await chooser.element().getAttribute('capture')
+    check(capture === 'environment', 'Take photo asks for the back camera', String(capture))
+    await chooser.setFiles(join(fixtures, file))
+  }
+  await shoot('quad-exif6.jpg')
+  await p.waitForSelector('ol[aria-label="1 page"]', { timeout: 20_000 })
+  await shoot('quad-landscape.heic')
+  await p.waitForSelector('ol[aria-label="2 pages"]', { timeout: 30_000 })
+  const labels = await p
+    .locator('ol[aria-label="2 pages"] [data-page-select]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('aria-label') ?? ''))
+  check(
+    /^Page 1: Photo \d\d\.\d\d\.\d\d\.jpg$/.test(labels[0] ?? '') &&
+      /^Page 2: Photo \d\d\.\d\d\.\d\d\.heic$/.test(labels[1] ?? ''),
+    'shots go after the last page, named by when they were taken',
+    labels.join(' | '),
+  )
+  const overflow = await p.evaluate(() => document.documentElement.scrollWidth - 390)
+  check(overflow <= 0, 'Take photo fits the phone toolbar', `${overflow}px`)
+  await p.waitForTimeout(500) // the HEIC thumbnail
+  await p.screenshot({ path: join(shots, 'take-photo.png') })
+  await axe(p, 'phone with Take photo')
+  await phone.close()
+
+  const { context: desk, page: d } = await open({ viewport: { width: 1440, height: 1000 } })
+  await d.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  check(
+    (await d.getByRole('button', { name: 'Take photo' }).count()) === 0,
+    'no Take photo with a mouse',
+  )
+  await desk.close()
+}
+
 // 28. The installed app (#73): installable, offline after the first visit
 //     (HEIC once it has been used), and files shared to it become pages.
 {

@@ -115,6 +115,41 @@ describe('App', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'a.jpg' })).toBeInTheDocument()
   })
 
+  it('offers Take photo only on touch devices', () => {
+    setup()
+    expect(screen.queryByRole('button', { name: 'Take photo' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('camera-input')).toHaveAttribute('capture', 'environment')
+  })
+
+  it('adds camera shots after the last page, named by when they were taken', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(pointer: coarse)',
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }))
+    try {
+      const { user, upload } = setup()
+      const camera = screen.getByTestId('camera-input')
+      const click = vi.spyOn(camera, 'click')
+      await user.click(screen.getByRole('button', { name: 'Take photo' }))
+      expect(click).toHaveBeenCalledOnce()
+      await upload('a.jpg')
+      // iOS calls every shot "image.jpg".
+      const at = new Date(2026, 9, 24, 14, 3, 22).getTime()
+      const shot = new File([new Uint8Array([1, 2, 3])], 'image.jpg', {
+        type: 'image/jpeg',
+        lastModified: at,
+      })
+      await user.click(await screen.findByRole('button', { name: 'Take photo' }))
+      expect(click).toHaveBeenCalledTimes(2)
+      await user.upload(camera, shot)
+      expect(await screen.findByRole('list', { name: '2 pages' })).toBeInTheDocument()
+      expect(pageLabels()).toEqual(['Page 1: a.jpg', 'Page 2: Photo 14.03.22.jpg'])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('turns a PDF into one page per PDF page, shown as vector in the inspector', async () => {
     const { user, upload } = setup()
     await upload('lease.pdf', 'a.jpg')
@@ -1104,6 +1139,34 @@ describe('App', () => {
       expect(status()).toHaveTextContent('Reversed the selected pages.')
     })
 
+    it('auto-rotates only the selected pages, and reports a failed start', async () => {
+      const detectOrientation = vi
+        .fn<AppDeps['detectOrientation']>()
+        .mockResolvedValue({ degrees: 270, confidence: 12 })
+      const { user, upload } = setup({ detectOrientation })
+      await upload('a.jpg', 'b.jpg', 'c.jpg')
+      await screen.findByRole('list', { name: '3 pages' })
+      await user.click(card(1))
+      await withKey(user, 'Control', 3)
+      await user.click(
+        screen.getByRole('button', { name: 'Auto-rotate 2 selected pages', hidden: true }),
+      )
+      await waitFor(() => {
+        expect(status()).toHaveTextContent('Turned pages 1 and 3 the right way up.')
+      })
+      expect(detectOrientation).toHaveBeenCalledTimes(2)
+
+      detectOrientation.mockRejectedValueOnce(
+        new Error(
+          'Finding which way up the pages are couldn’t start. Check the connection and try again.',
+        ),
+      )
+      await user.click(
+        screen.getByRole('button', { name: 'Auto-rotate 2 selected pages', hidden: true }),
+      )
+      expect(await screen.findByRole('alert')).toHaveTextContent(/couldn’t start/)
+    })
+
     it('rotates and removes the selected pages, each as one undo step', async () => {
       const { user, upload } = setup()
       await upload('a.jpg', 'b.jpg', 'c.jpg')
@@ -1291,6 +1354,34 @@ describe('App', () => {
       expect(panel().getByRole('button', { name: 'Move page later' })).toHaveFocus()
       await user.click(panel().getByRole('button', { name: 'Left' }))
       expect(pageLabels()[0]).toBe('Page 1: 2 per page: a.jpg, b.jpg')
+    })
+
+    it('auto-rotates each picture on a combined page by its own text (#70)', async () => {
+      const detectOrientation = vi.fn<AppDeps['detectOrientation']>((a) =>
+        Promise.resolve(
+          a.name.startsWith('back')
+            ? { degrees: 180, confidence: 20 }
+            : { degrees: 0, confidence: 20 },
+        ),
+      )
+      const { user, upload, deps } = setup({ detectOrientation })
+      await upload('front.jpg', 'back.jpg')
+      await screen.findByRole('list', { name: '2 pages' })
+      await user.click(card(1))
+      await user.keyboard('{Shift>}')
+      await user.click(card(2))
+      await user.keyboard('{/Shift}')
+      await user.click(panel().getByRole('button', { name: 'ID card' }))
+      await user.click(screen.getByRole('button', { name: 'Auto-rotate pages', hidden: true }))
+      await waitFor(() => {
+        expect(status()).toHaveTextContent('Turned the page the right way up.')
+      })
+      expect(detectOrientation).toHaveBeenCalledTimes(2)
+      await user.click(exportButton())
+      const { exportPdf } = deps
+      if (!exportPdf) throw new Error('no exportPdf')
+      const sheet = vi.mocked(exportPdf).mock.lastCall?.[0].pages[0]?.sheet
+      expect(sheet?.slots.map((s) => s.turns)).toEqual([0, 2])
     })
 
     it('leaves combined pages out of Auto-crop all pages', async () => {
@@ -1990,6 +2081,79 @@ describe('App', () => {
       expect(
         within(more).getByRole('link', { name: /Support Collated/, hidden: true }),
       ).toHaveAttribute('href', 'https://ko-fi.com/mtblck')
+    })
+
+    it('leaves a page turned by hand while auto-rotate was reading it', async () => {
+      let finish: () => void = () => undefined
+      const detectOrientation = vi.fn<AppDeps['detectOrientation']>(
+        () =>
+          new Promise((resolve) => {
+            finish = () => {
+              resolve({ degrees: 180, confidence: 20 })
+            }
+          }),
+      )
+      const { user, upload, deps } = setup({ detectOrientation })
+      await upload('a.jpg')
+      const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+      await user.click(screen.getByRole('button', { name: 'Auto-rotate pages', hidden: true }))
+      await user.click(panel.getByRole('button', { name: 'Right' }))
+      await act(async () => {
+        finish()
+        await Promise.resolve()
+      })
+      await waitFor(() => {
+        expect(status()).toHaveTextContent(
+          '1 page you turned while it was reading was kept as you left it.',
+        )
+      })
+      await user.click(exportButton())
+      const { exportPdf } = deps
+      if (!exportPdf) throw new Error('no exportPdf')
+      expect(vi.mocked(exportPdf).mock.lastCall?.[0].pages[0]?.turns).toBe(1)
+    })
+
+    it('auto-rotates pages by their text, as one undo step, naming the pages turned (#70)', async () => {
+      // "upside" pages need a half turn, "left" ones a quarter turn right;
+      // "photo" has no text to go by.
+      const detectOrientation = vi.fn<AppDeps['detectOrientation']>((a) =>
+        Promise.resolve(
+          a.name.startsWith('upside')
+            ? { degrees: 180, confidence: 20 }
+            : a.name.startsWith('left')
+              ? { degrees: 90, confidence: 9 }
+              : a.name.startsWith('photo')
+                ? null
+                : { degrees: 0, confidence: 25 },
+        ),
+      )
+      const { user, upload, deps } = setup({ detectOrientation })
+      await upload('a.jpg', 'upside.jpg', 'photo.jpg', 'left.jpg')
+      const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+      // Page 4 was already turned by hand: the detected turn adds to it.
+      await user.click(screen.getByRole('button', { name: 'Page 4: left.jpg' }))
+      await user.click(panel.getByRole('button', { name: 'Right' }))
+      const item = screen.getByRole('button', { name: 'Auto-rotate pages', hidden: true })
+      expect(item).toHaveAccessibleDescription(/Downloads about 6 MB the first time/)
+      await user.click(item)
+      await waitFor(() => {
+        expect(status()).toHaveTextContent(
+          'Turned pages 2 and 4 the right way up. 1 page had too little text to tell and was left as it is.',
+        )
+      })
+      // Each page is read as it's shown, turns included.
+      expect(detectOrientation).toHaveBeenCalledTimes(4)
+      expect(detectOrientation.mock.calls[3]?.[1]).toMatchObject({ turns: 1 })
+
+      await user.click(exportButton())
+      const { exportPdf } = deps
+      if (!exportPdf) throw new Error('no exportPdf')
+      const turns = () => vi.mocked(exportPdf).mock.lastCall?.[0].pages.map((p) => p.turns)
+      expect(turns()).toEqual([0, 2, 0, 2])
+      // One undo takes the auto-rotate back, leaving the hand turn.
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      await user.click(exportButton())
+      expect(turns()).toEqual([0, 0, 0, 1])
     })
   })
 })
