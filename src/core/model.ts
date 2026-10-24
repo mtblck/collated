@@ -132,7 +132,8 @@ export interface Page {
   /**
    * Set when several pictures share this page (#76). The page's own
    * `assetId` is then its first picture's and its own look is unused: each
-   * picture keeps its rotation, crop and filter in its slot.
+   * picture keeps its rotation, crop and filter in its slot. Sorting and
+   * duplex ordering go by `assetId`, so by the first picture.
    */
   sheet?: Sheet
 }

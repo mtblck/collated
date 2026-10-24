@@ -128,6 +128,20 @@ describe('combining and splitting pages', () => {
     ])
   })
 
+  it('keeps a filter off the PDF pictures of a combined page', () => {
+    const start = doc(2)
+    start.assets.a0 = asset('a0', { format: 'pdf' })
+    const combined = combine(start, ['p0', 'p1'])
+    const bw = docReducer(combined, {
+      type: 'transformPages',
+      patches: [{ id: 's0', patch: { filter: 'bw', angle: 2 } }],
+    })
+    expect(bw.pages[0]?.sheet?.slots.map((s) => [s.filter, s.angle])).toEqual([
+      ['original', 2],
+      ['bw', 2],
+    ])
+  })
+
   it('names pictures for their recognised words', () => {
     const [sheet] = combine(doc(2), ['p0', 'p1']).pages
     if (!sheet) throw new Error('setup')

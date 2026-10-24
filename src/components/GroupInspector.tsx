@@ -111,16 +111,18 @@ export const GroupInspector = ({
 }) => {
   const id = useId()
   const n = pages.length
-  const images = pages.filter((p) => {
+  // A combined page's look is its pictures' (#76): changes here go to each.
+  const looks = pages.flatMap((p) => picturesOf(p))
+  const images = looks.filter((p) => {
     const asset = assets[p.assetId]
     return asset ? !isVector(asset) : false
   })
-  const angle = shared(pages.map((p) => p.angle))
-  const scale = shared(pages.map((p) => p.scale))
-  const fit = shared(pages.map((p) => p.fit))
+  const angle = shared(looks.map((p) => p.angle))
+  const scale = shared(looks.map((p) => p.scale))
+  const fit = shared(looks.map((p) => p.fit))
   const filter = shared(images.map((p) => p.filter))
   const percent = scale === null ? null : Math.round(scale * 100)
-  const changed = pages.some((p) =>
+  const changed = looks.some((p) =>
     (Object.keys(DEFAULT_TRANSFORM) as (keyof PageTransform)[]).some(
       (key) => p[key] !== DEFAULT_TRANSFORM[key],
     ),
@@ -254,7 +256,7 @@ export const GroupInspector = ({
         <p id={`${id}-filter-note`} className="mt-2 text-xs leading-relaxed text-ink-muted">
           {images.length === 0
             ? 'PDF pages keep their original vector content.'
-            : images.length < n
+            : images.length < looks.length
               ? `Applies to the ${images.length} image ${images.length === 1 ? 'page' : 'pages'}; PDF pages keep their vector content.`
               : filter === null
                 ? 'These pages use different filters.'

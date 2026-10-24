@@ -915,6 +915,54 @@ describe('App', () => {
       expect(status()).toHaveTextContent('Undone: removed page 2.')
     })
 
+    it('moves a combined page, keeping focus on a button that still works', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'b.jpg', 'c.jpg')
+      await screen.findByRole('list', { name: '3 pages' })
+      await user.click(card(1))
+      await user.keyboard('{Shift>}')
+      await user.click(card(2))
+      await user.keyboard('{/Shift}')
+      await user.click(panel().getByRole('button', { name: '2 per page' }))
+      await user.click(panel().getByRole('button', { name: 'Move page later' }))
+      expect(pageLabels()).toEqual(['Page 1: c.jpg', 'Page 2: 2 per page: a.jpg, b.jpg'])
+      expect(status()).toHaveTextContent('Moved to position 2 of 2.')
+      // Now last, so Later is disabled: focus moved to Earlier.
+      expect(panel().getByRole('button', { name: 'Move page later' })).toBeDisabled()
+      expect(panel().getByRole('button', { name: 'Move page earlier' })).toHaveFocus()
+      await user.click(panel().getByRole('button', { name: 'Move page earlier' }))
+      expect(panel().getByRole('button', { name: 'Move page later' })).toHaveFocus()
+      await user.click(panel().getByRole('button', { name: 'Left' }))
+      expect(pageLabels()[0]).toBe('Page 1: 2 per page: a.jpg, b.jpg')
+    })
+
+    it('filters a combined page’s photos but not its PDF pages', async () => {
+      const exportPdf = vi.fn<AppDeps['exportPdf']>(() =>
+        Promise.resolve({ blob: new Blob(['%PDF']), compression: null, fits: true }),
+      )
+      const { user, upload } = setup({ exportPdf })
+      await upload('form.pdf', 'b.jpg', 'c.jpg')
+      await screen.findByRole('list', { name: '5 pages' })
+      // The PDF page first, so the combined page's own asset is the PDF.
+      await user.click(card(1))
+      await user.keyboard('{Control>}')
+      await user.click(card(4))
+      await user.keyboard('{/Control}')
+      await user.click(panel().getByRole('button', { name: '2 per page' }))
+      await user.click(card(1))
+      await user.keyboard('{Control>}')
+      await user.click(card(4))
+      await user.keyboard('{/Control}')
+      await user.click(panel().getByRole('radio', { name: 'B&W' }))
+      await user.click(exportButton())
+      await waitFor(() => {
+        expect(exportPdf).toHaveBeenCalled()
+      })
+      const [doc] = exportPdf.mock.calls[0] ?? []
+      expect(doc?.pages[0]?.sheet?.slots.map((s) => s.filter)).toEqual(['original', 'bw'])
+      expect(doc?.pages[3]?.filter).toBe('bw')
+    })
+
     it('exports the combined page, reading text from each picture', async () => {
       const exportPdf = vi.fn<AppDeps['exportPdf']>(() =>
         Promise.resolve({ blob: new Blob(['%PDF']), compression: null, fits: true }),

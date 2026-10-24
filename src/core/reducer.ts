@@ -226,7 +226,13 @@ export const docReducer = (state: DocState, action: Action): DocState => {
         ...state,
         pages: state.pages.map((p) => {
           const patch = byId.get(p.id)
-          return patch ? restyle(p, (s) => ({ ...s, ...patch })) : p
+          if (!patch) return p
+          // PDF pictures on a combined page keep their vector content.
+          const { filter: _filter, ...vector } = patch
+          return restyle(p, (s) => ({
+            ...s,
+            ...(p.sheet && state.assets[s.assetId]?.format === 'pdf' ? vector : patch),
+          }))
         }),
       }
     }

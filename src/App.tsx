@@ -712,10 +712,11 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const groupActions = useMemo<GroupActions | null>(() => {
     if (!group) return null
     const ids = selection.ids
+    // Only PDF content: a combined page with a photo on it takes the filter
+    // (the reducer keeps it off its PDF pictures).
     const vector = (id: string) => {
       const page = pages.find((p) => p.id === id)
-      const asset = page ? assets[page.assetId] : undefined
-      return asset?.format === 'pdf'
+      return page ? picturesOf(page).every((slot) => assets[slot.assetId]?.format === 'pdf') : false
     }
     const n = ids.length
     return {
