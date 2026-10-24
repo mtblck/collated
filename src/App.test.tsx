@@ -112,6 +112,41 @@ describe('App', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'a.jpg' })).toBeInTheDocument()
   })
 
+  it('offers Take photo only on touch devices', () => {
+    setup()
+    expect(screen.queryByRole('button', { name: 'Take photo' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('camera-input')).toHaveAttribute('capture', 'environment')
+  })
+
+  it('adds camera shots after the last page, named by when they were taken', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(pointer: coarse)',
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }))
+    try {
+      const { user, upload } = setup()
+      const camera = screen.getByTestId('camera-input')
+      const click = vi.spyOn(camera, 'click')
+      await user.click(screen.getByRole('button', { name: 'Take photo' }))
+      expect(click).toHaveBeenCalledOnce()
+      await upload('a.jpg')
+      // iOS calls every shot "image.jpg".
+      const at = new Date(2026, 9, 24, 14, 3, 22).getTime()
+      const shot = new File([new Uint8Array([1, 2, 3])], 'image.jpg', {
+        type: 'image/jpeg',
+        lastModified: at,
+      })
+      await user.click(await screen.findByRole('button', { name: 'Take photo' }))
+      expect(click).toHaveBeenCalledTimes(2)
+      await user.upload(camera, shot)
+      expect(await screen.findByRole('list', { name: '2 pages' })).toBeInTheDocument()
+      expect(pageLabels()).toEqual(['Page 1: a.jpg', 'Page 2: Photo 14.03.22.jpg'])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('turns a PDF into one page per PDF page, shown as vector in the inspector', async () => {
     const { user, upload } = setup()
     await upload('lease.pdf', 'a.jpg')
