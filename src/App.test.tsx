@@ -1,9 +1,10 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { asset } from '../tests/helpers'
 import { App, type AppDeps } from './App'
 import { ImportError } from './import/importFile'
+import { createWorkStore, memoryBackend } from './state/workStore'
 
 const file = (name: string) => new File([new Uint8Array([1, 2, 3])], name, { type: 'image/jpeg' })
 
@@ -123,6 +124,159 @@ describe('App', () => {
     expect(pageLabels()).toEqual(['Page 1: a.jpg', 'Page 2: b.jpg'])
     await user.click(screen.getByRole('button', { name: /^Redo/ }))
     expect(pageLabels()).toEqual(['Page 1: b.jpg'])
+  })
+
+  describe('keep work across a reload (#74)', () => {
+    const device = (quotaBytes?: number) => {
+      const backend = memoryBackend(quotaBytes === undefined ? {} : { quotaBytes })
+      const local = new Map<string, string>()
+      const storage: AppDeps['storage'] = {
+        getItem: (k) => local.get(k) ?? null,
+        setItem: (k, v) => {
+          local.set(k, v)
+        },
+      }
+      // A fresh store per visit, as after a reload: it knows only what's stored.
+      return { backend, local, visit: () => setup({ work: createWorkStore(backend), storage }) }
+    }
+    const reload = () => {
+      cleanup()
+    }
+    const saved = (backend: ReturnType<typeof memoryBackend>) =>
+      waitFor(async () => {
+        expect((await backend.getDoc())?.history.present.pages.length).toBeGreaterThan(0)
+      })
+
+    it('offers the last document, and restores it with its undo history', async () => {
+      const { backend, visit } = device()
+      const first = visit()
+      await first.upload('a.jpg', 'b.jpg')
+      await first.user.click(await screen.findByRole('button', { name: 'Remove page 1' }))
+      await waitFor(async () => {
+        expect((await backend.getDoc())?.history.present.pages).toHaveLength(1)
+      })
+      reload()
+
+      const { user } = visit()
+      const offer = await screen.findByRole('region', { name: 'Restore your last document?' })
+      expect(offer).toHaveTextContent('1 page, saved on this device today at')
+      await user.click(within(offer).getByRole('button', { name: 'Restore' }))
+      expect(await screen.findByRole('list', { name: /pages?$/ })).toBeInTheDocument()
+      expect(pageLabels()).toEqual(['Page 1: b.jpg'])
+      expect(status()).toHaveTextContent('Restored 1 page.')
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      expect(pageLabels()).toEqual(['Page 1: a.jpg', 'Page 2: b.jpg'])
+    })
+
+    it('Discard deletes the saved copy', async () => {
+      const { backend, visit } = device()
+      await visit().upload('a.jpg')
+      await saved(backend)
+      reload()
+      const { user } = visit()
+      await user.click(await screen.findByRole('button', { name: 'Discard' }))
+      expect(screen.queryByRole('region', { name: /Restore/ })).toBeNull()
+      expect(await backend.getDoc()).toBeUndefined()
+      expect(backend.bytes.size).toBe(0)
+    })
+
+    it('Start over deletes the saved copy', async () => {
+      const { backend, visit } = device()
+      const { user, upload } = visit()
+      await upload('a.jpg')
+      await saved(backend)
+      await user.click(screen.getByRole('button', { name: 'More' }))
+      await user.click(screen.getByRole('button', { name: 'Start over…', hidden: true }))
+      const dialog = screen.getByRole('dialog', { name: 'Start over?' })
+      expect(dialog).toHaveAccessibleDescription(/deletes the copy kept on this device/)
+      await user.click(within(dialog).getByRole('button', { name: 'Start over' }))
+      await waitFor(async () => {
+        expect(await backend.getDoc()).toBeUndefined()
+      })
+      expect(backend.bytes.size).toBe(0)
+    })
+
+    it('can be turned off, which deletes the copy and is remembered', async () => {
+      const { backend, local, visit } = device()
+      const { user, upload } = visit()
+      await upload('a.jpg')
+      await saved(backend)
+      await user.click(screen.getByRole('button', { name: 'More' }))
+      const keep = screen.getByRole('switch', { name: 'Keep work after a reload', hidden: true })
+      expect(keep).toBeChecked()
+      await user.click(keep)
+      expect(keep).not.toBeChecked()
+      expect(local.get('collated:keep-work')).toBe('off')
+      await waitFor(async () => {
+        expect(await backend.getDoc()).toBeUndefined()
+      })
+      await upload('b.jpg')
+      await new Promise((resolve) => setTimeout(resolve, 600))
+      expect(await backend.getDoc()).toBeUndefined()
+      reload()
+      visit()
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(screen.queryByRole('region', { name: /Restore/ })).toBeNull()
+    })
+
+    it('adding files instead starts a new document that replaces the saved one', async () => {
+      const { backend, visit } = device()
+      await visit().upload('a.jpg')
+      await saved(backend)
+      reload()
+      const { upload } = visit()
+      await screen.findByRole('region', { name: 'Restore your last document?' })
+      await upload('b.jpg')
+      expect(pageLabels()).toEqual(['Page 1: b.jpg'])
+      await waitFor(async () => {
+        const doc = await backend.getDoc()
+        expect(Object.values(doc?.history.present.assets ?? {}).map((a) => a.name)).toEqual([
+          'b.jpg',
+        ])
+      })
+    })
+
+    it('files added before the saved copy is found still get saved', async () => {
+      const { backend, visit } = device()
+      await visit().upload('a.jpg')
+      await saved(backend)
+      reload()
+      const store = createWorkStore(backend)
+      // The saved copy is found only after the files are added.
+      let answer = () => undefined as unknown
+      const work = {
+        ...store,
+        peek: () =>
+          new Promise<Awaited<ReturnType<typeof store.peek>>>((resolve) => {
+            answer = () => {
+              resolve(store.peek())
+            }
+          }),
+      }
+      const { upload } = setup({ work, storage: { getItem: () => null, setItem: () => undefined } })
+      await upload('b.jpg')
+      answer()
+      await waitFor(async () => {
+        const doc = await backend.getDoc()
+        expect(Object.values(doc?.history.present.assets ?? {}).map((a) => a.name)).toEqual([
+          'b.jpg',
+        ])
+      })
+      expect(screen.queryByRole('region', { name: /Restore/ })).toBeNull()
+    })
+
+    it('says so once when the document is too big to keep', async () => {
+      // Each fake file is 1 byte: the third doesn't fit.
+      const { visit } = device(2)
+      const { upload } = visit()
+      await upload('a.jpg', 'b.jpg', 'c.jpg')
+      expect(
+        await screen.findByText(/too large for this browser to keep on this device/),
+      ).toBeInTheDocument()
+      await upload('d.jpg')
+      await new Promise((resolve) => setTimeout(resolve, 600))
+      expect(screen.getAllByText(/too large for this browser/)).toHaveLength(1)
+    })
   })
 
   describe('start over (#29)', () => {
