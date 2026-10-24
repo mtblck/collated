@@ -3165,6 +3165,75 @@ await context.close()
   await ctx.close()
 }
 
+// 32. OCR in French (#79): the picker starts at the browser's language, its
+// data is fetched from our origin, and accented words come back out.
+{
+  const { context: ctx, page: p } = await open({
+    viewport: { width: 1440, height: 1000 },
+    locale: 'fr-FR',
+  })
+  const langFetches = []
+  p.on('request', (r) => {
+    if (r.url().includes('/ocr/lang/')) langFetches.push(new URL(r.url()).pathname)
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'text-page-fr.jpg')])
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  await exportMenu(p).click()
+  const dialog = p.getByRole('dialog', { name: 'Export options' })
+  await dialog.getByRole('checkbox', { name: 'Make text searchable (OCR)' }).check()
+  const picker = dialog.getByLabel('Language of the text')
+  check(
+    (await picker.inputValue()) === 'fra',
+    'the OCR language starts at the browser’s (fr-FR → French)',
+    await picker.inputValue(),
+  )
+  await axe(p, 'OCR language picker')
+  const [d] = await Promise.all([
+    p.waitForEvent('download', { timeout: 120_000 }),
+    dialog.getByRole('button', { name: 'Export PDF' }).click(),
+  ])
+  const path = join(mkdtempSync(join(tmpdir(), 'collated-verify-ocr-fr-')), 'fr.pdf')
+  await d.saveAs(path)
+  check(
+    JSON.stringify(langFetches) === JSON.stringify(['/ocr/lang/fra.traineddata.gz']),
+    'only the French data is fetched, from our own origin',
+    langFetches.join(', '),
+  )
+  const text = (() => {
+    try {
+      return execFileSync('pdftotext', [path, '-']).toString().replace(/\s+/g, ' ')
+    } catch {
+      return null
+    }
+  })()
+  if (text !== null) {
+    const expected = [
+      'Facture numéro 4417',
+      'régler en août',
+      'cœur',
+      'élève',
+      'très',
+      'garçon',
+      'Déjà payé',
+      'Reçu',
+      'crème brûlée',
+      'thé glacé',
+    ]
+    const missing = expected.filter((phrase) => !text.includes(phrase))
+    check(
+      missing.length === 0,
+      'French OCR keeps the accents: pdftotext reads them back',
+      `missing: ${missing.join(' | ')} in "${text.slice(0, 200)}"`,
+    )
+  }
+  // Remembered for next time, even if the browser's language changes.
+  await p.reload({ waitUntil: 'networkidle' })
+  const stored = await p.evaluate(() => localStorage.getItem('collated:settings') ?? '')
+  check(stored.includes('"ocrLanguage":"fra"'), 'the OCR language is remembered', stored)
+  await ctx.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()

@@ -29,7 +29,7 @@ Under the choices, a line says what you'll get, or what's wrong with the ranges.
 
 ## Searchable text (OCR)
 
-**Make text searchable** recognises English text on image pages, and on PDF pages that go into the file as an image (ones with a hidden layer), and adds it to the PDF invisibly, under the picture, so you can search the PDF and copy from it. It reads each page as you see it, crop and rotation included. Recognition runs on your device. The first time, it downloads about 4 MB of recognition data (from Collated's own site, not a third party); after that, it takes a few seconds per page. Anyone with the file can search and copy the text, and the recognised text may contain mistakes.
+**Make text searchable** recognises text on image pages, and on PDF pages that go into the file as an image (ones with a hidden layer), and adds it to the PDF invisibly, under the picture, so you can search the PDF and copy from it. It reads each page as you see it, crop and rotation included. Choose the **Language of the text** under the checkbox: English, Danish, Dutch, Finnish, French, German, Italian, Norwegian, Portuguese, Spanish or Swedish. It starts at your browser's language when that's one of them, and is remembered. Recognition runs on your device. The first time you use a language, it downloads that language's recognition data, about 2–5 MB in all (from Collated's own site, not a third party); after that, it takes a few seconds per page. Pick the language the page is written in: accented letters and words in another language may come out wrong. Anyone with the file can search and copy the text, and the recognised text may contain mistakes.
 
 ## Page numbers
 

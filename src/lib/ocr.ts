@@ -1,13 +1,15 @@
 import type * as Tesseract from 'tesseract.js'
 import type { Worker as TesseractWorker } from 'tesseract.js'
+import type { OcrLanguage } from '../core/ocrLanguages'
 import type { OcrWord } from '../core/textLayer'
 import { TimeoutError, withTimeout } from './timeout'
 
 /**
  * OCR with tesseract.js, entirely on this device. Everything it loads is
  * self-hosted under `ocr/` (see ocr-assets.ts): the worker script, one engine
- * variant (~1 MB gzipped, by SIMD support) and English data (~3 MB), fetched
- * the first time and cached by the browser. `workerBlobURL: false` keeps the
+ * variant (~1 MB gzipped, by SIMD support) and the chosen language's data
+ * (0.7–3.8 MB, see core/ocrLanguages.ts), fetched the first time and cached by
+ * the browser. `workerBlobURL: false` keeps the
  * worker a real file, as `worker-src 'self'` requires.
  */
 const base = () => new URL(`${import.meta.env.BASE_URL}ocr/`, location.href).href
@@ -24,6 +26,8 @@ interface Engine {
   get: () => Promise<TesseractWorker>
   /** Terminates a worker and, if it's the cached one, forgets it. */
   reset: (w: TesseractWorker) => void
+  /** Terminates the cached worker, once it has started, and forgets it. */
+  close: () => void
 }
 
 /**
@@ -70,6 +74,12 @@ const engine = (
       }
       w.terminate().catch(() => undefined)
     },
+    close: () => {
+      const closing = worker
+      worker = undefined
+      ready = undefined
+      closing?.then((w) => w.terminate()).catch(() => undefined)
+    },
   }
 }
 
@@ -81,10 +91,23 @@ const paths = () => ({
   gzip: true,
 })
 
-const reader = engine(({ createWorker, OEM }) => createWorker('eng', OEM.LSTM_ONLY, paths()), {
-  slow: 'Text recognition took too long to start, so it was stopped. Try again.',
-  failed: 'Text recognition couldn’t start. Check the connection and try again.',
-})
+/**
+ * One reader at a time, for the language last asked for: choosing another
+ * terminates it and starts one with that language's data (the engine itself
+ * is cached by then, so only the data downloads).
+ */
+let reading: { language: OcrLanguage; engine: Engine } | undefined
+
+const readerFor = (language: OcrLanguage): Engine => {
+  if (reading?.language === language) return reading.engine
+  reading?.engine.close()
+  const next = engine(({ createWorker, OEM }) => createWorker(language, OEM.LSTM_ONLY, paths()), {
+    slow: 'Text recognition took too long to start, so it was stopped. Try again.',
+    failed: 'Text recognition couldn’t start. Check the connection and try again.',
+  })
+  reading = { language, engine: next }
+  return next
+}
 
 /**
  * Orientation detection (OSD) is Tesseract's legacy engine: its own core
@@ -130,6 +153,17 @@ const run = async <T>(
 
 /** Words below this confidence (0–100) are more likely noise than text. */
 const MIN_CONFIDENCE = 40
+/**
+ * ...unless every character in them is at least this sure. Tesseract marks
+ * down whole words it can't find in its word list, such as French and Italian
+ * elisions with a typographic apostrophe ("l’élève" at 36, "all’università"
+ * at 56), while still reading each letter of them at 92 or more.
+ */
+const SURE_SYMBOL = 90
+
+const keep = (word: Tesseract.Word) =>
+  word.confidence >= MIN_CONFIDENCE ||
+  (word.symbols.length > 0 && word.symbols.every((s) => s.confidence >= SURE_SYMBOL))
 
 /**
  * Recognises the words in an image of `width × height` pixels and returns
@@ -139,9 +173,10 @@ export const recognizeWords = async (
   image: Blob,
   width: number,
   height: number,
+  language: OcrLanguage,
 ): Promise<OcrWord[]> => {
   const { data } = await run(
-    reader,
+    readerFor(language),
     (w) => w.recognize(image, {}, { blocks: true }),
     'Reading the text on a page took too long, so it was stopped. Try again, or turn off searchable text.',
   )
@@ -152,7 +187,7 @@ export const recognizeWords = async (
         const { x0: bx0, y0: by0, x1: bx1, y1: by1 } = line.baseline
         for (const word of line.words) {
           const text = word.text.trim()
-          if (!text || word.confidence < MIN_CONFIDENCE) continue
+          if (!text || !keep(word)) continue
           const { x0, y0, x1, y1 } = word.bbox
           // Baseline height under the word's start, from the line's baseline.
           const t = bx1 === bx0 ? 0 : (x0 - bx0) / (bx1 - bx0)

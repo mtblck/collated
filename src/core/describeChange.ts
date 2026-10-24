@@ -91,6 +91,7 @@ export const describeChange = (before: DocState, after: DocState): string | null
       pageNumbers: 'page numbers',
       watermark: 'watermark',
       ocr: 'searchable text',
+      ocrLanguage: 'text language',
     }
     const names = changed.flatMap((key) => NAMES[key] ?? [])
     return names.length === 1 ? `changed ${names[0] ?? ''}` : 'changed document settings'
