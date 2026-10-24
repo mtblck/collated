@@ -13,6 +13,7 @@ import { describeAutoRotate, uprightTurns, type Osd } from './core/orientation'
 import type { Quad } from './core/perspective'
 import { forgetPageWords, pageWords } from './lib/pageText'
 import { forgetPageThumbs } from './hooks/usePageThumb'
+import { useTouchDevice } from './hooks/useTouchDevice'
 import { forgetLayered, layeredImage } from './export/layered'
 import type { OcrWord } from './core/textLayer'
 import type { SplitPart } from './core/splitBuild'
@@ -121,6 +122,23 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 const filesFrom = (list: FileList | null | undefined): File[] =>
   list ? Array.from(list).filter((file) => file.size > 0 || file.type !== '') : []
 
+/**
+ * Camera shots arrive as "image.jpg" every time on iOS (a number on Android),
+ * so name each by when it was taken: "Photo 14.03.22.jpg". Same bytes, type
+ * and date; the type is read from the bytes anyway.
+ */
+const namePhoto = (file: File): File => {
+  const at = new Date(file.lastModified)
+  const time = [at.getHours(), at.getMinutes(), at.getSeconds()]
+    .map((n) => String(n).padStart(2, '0'))
+    .join('.')
+  const ext = /\.[a-z0-9]+$/i.exec(file.name)?.[0] ?? ''
+  return new File([file], `Photo ${time}${ext}`, {
+    type: file.type,
+    lastModified: file.lastModified,
+  })
+}
+
 /** A modal dialog (the crop editor) is open: page-level shortcuts stand down. */
 const modalOpen = () => [...document.querySelectorAll('dialog')].some((d) => d.open)
 
@@ -205,6 +223,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const tooBig = useRef(false)
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  const cameraInput = useRef<HTMLInputElement>(null)
+  const touch = useTouchDevice()
   // The inspector scrolls on its own; a newly selected page starts at its top.
   const rail = useRef<HTMLElement>(null)
   const { pages, assets, settings } = doc
@@ -567,6 +587,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
 
   const chooseFiles = useCallback(() => {
     fileInput.current?.click()
+  }, [])
+  const takePhoto = useCallback(() => {
+    cameraInput.current?.click()
   }, [])
 
   // Normalised so the same password typed on another keyboard or system
@@ -1301,6 +1324,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             onKeepWork={onKeepWork}
             busy={importing !== null || straightening || autoCropping || rotating}
             onAdd={chooseFiles}
+            {...(touch && { onTakePhoto: takePhoto })}
             onExport={() => void onExport()}
             estimate={estimate}
             lastExport={lastExport}
@@ -1321,6 +1345,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           <div className="scroll-pane lg:overflow-y-auto">
             <EmptyState
               onChoose={chooseFiles}
+              {...(touch && { onTakePhoto: takePhoto })}
               restore={
                 offer && offer !== 'pending'
                   ? {
@@ -1456,6 +1481,22 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         data-testid="file-input"
         onChange={(event) => {
           const files = filesFrom(event.target.files)
+          event.target.value = ''
+          void addFiles(files)
+        }}
+      />
+      {/* Take photo (#72): `capture` hands off to the system camera, so it
+          needs no camera permission (Permissions-Policy keeps camera=()).
+          One shot per press; the button stays for the next page. */}
+      <input
+        ref={cameraInput}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        hidden
+        data-testid="camera-input"
+        onChange={(event) => {
+          const files = filesFrom(event.target.files).map(namePhoto)
           event.target.value = ''
           void addFiles(files)
         }}

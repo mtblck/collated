@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Button, IconButton } from './controls'
 import { cx } from './cx'
-import { CloseIcon, MoonIcon, SunIcon } from './Icons'
+import { CameraIcon, CloseIcon, MoonIcon, SunIcon } from './Icons'
 import { DOCS_URL, FOOTER, SOURCE_URL, SUPPORT_URL } from './links'
 import { savedWhen } from './format'
 import { useTheme } from './theme'
@@ -122,9 +122,12 @@ export const RestoreOffer = ({ pages, savedAt, busy, onRestore, onDiscard }: Res
 
 export const EmptyState = ({
   onChoose,
+  onTakePhoto,
   restore,
 }: {
   onChoose: () => void
+  /** Opens the camera; only on touch devices (#72). */
+  onTakePhoto?: () => void
   restore?: RestoreOfferProps | null
 }) => (
   <div className="mx-auto flex max-w-6xl flex-col gap-14 px-4 pt-10 pb-20 sm:px-6 sm:pt-16">
@@ -153,9 +156,17 @@ export const EmptyState = ({
           Drop scans, photos or PDFs here
         </p>
         {/* Where focus goes when the last page is removed. */}
-        <Button variant="primary" size="lg" onClick={onChoose} data-focus-fallback>
-          Choose files
-        </Button>
+        <div className="flex flex-wrap justify-center gap-3">
+          <Button variant="primary" size="lg" onClick={onChoose} data-focus-fallback>
+            Choose files
+          </Button>
+          {onTakePhoto && (
+            <Button size="lg" onClick={onTakePhoto}>
+              <CameraIcon />
+              Take photo
+            </Button>
+          )}
+        </div>
         <p className="text-sm text-ink-muted">or paste them from the clipboard</p>
         <p className="label text-ink-faint">PDF · JPEG · PNG · HEIC · WebP · AVIF · GIF</p>
       </div>
