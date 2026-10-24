@@ -3,11 +3,13 @@ import type * as Ocr from './ocr'
 
 interface FakeTesseract {
   recognize: ReturnType<typeof vi.fn>
+  detect?: ReturnType<typeof vi.fn>
+  setParameters?: ReturnType<typeof vi.fn>
   terminate: ReturnType<typeof vi.fn>
 }
 
-const createWorker = vi.fn<() => Promise<FakeTesseract>>()
-vi.mock('tesseract.js', () => ({ createWorker, OEM: { LSTM_ONLY: 1 } }))
+const createWorker = vi.fn<(...args: unknown[]) => Promise<FakeTesseract>>()
+vi.mock('tesseract.js', () => ({ createWorker, OEM: { TESSERACT_ONLY: 0, LSTM_ONLY: 1 } }))
 
 const fakeWorker = (recognize: () => Promise<unknown>): FakeTesseract => ({
   recognize: vi.fn(recognize),
@@ -75,5 +77,51 @@ describe('recognizeWords worker lifecycle', () => {
     expect(failing.terminate).toHaveBeenCalled()
     createWorker.mockResolvedValueOnce(fakeWorker(empty))
     await expect(ocr.recognizeWords(image, 10, 10)).resolves.toEqual([])
+  })
+})
+
+describe('detectOrientation', () => {
+  let ocr: typeof Ocr
+
+  beforeEach(async () => {
+    vi.resetModules()
+    createWorker.mockReset()
+    ocr = await import('./ocr')
+  })
+
+  const orienter = (data: Record<string, number | null>) => ({
+    ...fakeWorker(empty),
+    detect: vi.fn(() => Promise.resolve({ data })),
+    setParameters: vi.fn(() => Promise.resolve()),
+  })
+
+  it('starts the legacy engine with the orientation data, apart from OCR', async () => {
+    createWorker.mockResolvedValueOnce(
+      orienter({ orientation_degrees: 90, orientation_confidence: 8 }),
+    )
+    await expect(ocr.detectOrientation(image)).resolves.toEqual({ degrees: 90, confidence: 8 })
+    expect(createWorker).toHaveBeenCalledWith(
+      'osd',
+      0,
+      expect.objectContaining({ legacyCore: true, legacyLang: true, workerBlobURL: false }),
+    )
+    // Searchable text still gets its own LSTM-only worker.
+    createWorker.mockResolvedValueOnce(fakeWorker(empty))
+    await ocr.recognizeWords(image, 10, 10)
+    expect(createWorker).toHaveBeenLastCalledWith('eng', 1, expect.anything())
+  })
+
+  it('says nothing when there was too little text', async () => {
+    createWorker.mockResolvedValueOnce(
+      orienter({ orientation_degrees: null, orientation_confidence: null }),
+    )
+    await expect(ocr.detectOrientation(image)).resolves.toBeNull()
+  })
+
+  it('names orientation, not OCR, when it can’t start', async () => {
+    createWorker.mockRejectedValueOnce(new Error('network'))
+    await expect(ocr.detectOrientation(image)).rejects.toThrow(
+      'Finding which way up the pages are couldn’t start',
+    )
   })
 })

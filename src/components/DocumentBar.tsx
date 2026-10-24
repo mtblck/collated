@@ -35,6 +35,8 @@ export const DocumentBar = ({
   onUndo,
   onRedo,
   onRotateAll,
+  onAutoRotate,
+  rotating = false,
   duplex,
   orderScope = null,
   onArrange,
@@ -64,6 +66,8 @@ export const DocumentBar = ({
   onUndo: () => void
   onRedo: () => void
   onRotateAll: (by: -1 | 1) => void
+  onAutoRotate: () => void
+  rotating?: boolean
   duplex: DuplexGroups | null
   /** How many selected pages page order works on; null for every page. */
   orderScope?: number | null
@@ -73,7 +77,7 @@ export const DocumentBar = ({
   /** Whether the document is kept on this device across a reload. */
   keepWork: boolean
   onKeepWork: (keep: boolean) => void
-  /** Importing or straightening: Start over waits (export is `exporting`). */
+  /** Importing, straightening or auto-rotating: Start over waits (export is `exporting`). */
   busy?: boolean
   onAdd: () => void
   /** Opens the camera; only on touch devices (#72). */
@@ -159,6 +163,8 @@ export const DocumentBar = ({
       <MoreMenu
         pageCount={pageCount}
         onRotateAll={onRotateAll}
+        onAutoRotate={onAutoRotate}
+        rotating={rotating}
         duplex={duplex}
         orderScope={orderScope}
         onArrange={onArrange}
