@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { isVector, type Asset, type Page, type Settings } from './core/model'
+import { isVector, type Asset, type Page, type QuarterTurns, type Settings } from './core/model'
 import { pdfFilename } from './core/filename'
 import { compressionFor, estimateBytes } from './core/compression'
 import type { Skew } from './core/deskew'
 import { skewOf } from './lib/skew'
 import { paperOf } from './lib/paper'
+import { pageOrientation } from './lib/orientation'
+import { describeAutoRotate, uprightTurns, type Osd } from './core/orientation'
 import type { Quad } from './core/perspective'
 import { forgetPageWords, pageWords } from './lib/pageText'
 import { forgetPageThumbs } from './hooks/usePageThumb'
@@ -60,6 +62,8 @@ export interface AppDeps {
   estimateSkew: (asset: Asset) => Promise<Skew | null>
   /** The paper's corners in a photo, to suggest as its crop (null: no clear sheet). */
   findPaper: (asset: Asset) => Promise<Quad | null>
+  /** Which way up a page's text is, as displayed (null: too little text to tell). */
+  detectOrientation: (asset: Asset, page: Page) => Promise<Osd | null>
   /**
    * Recognises a page's words (fractions of its content image); from
    * `drawn` instead for a PDF page exported as a drawing.
@@ -90,6 +94,7 @@ const defaultDeps = (): AppDeps => ({
   newId: () => crypto.randomUUID(),
   estimateSkew: skewOf,
   findPaper: paperOf,
+  detectOrientation: pageOrientation,
   recognizeText: pageWords,
   drawnPage: (asset) => layeredImage(asset),
   storage: safeStorage(),
@@ -789,6 +794,56 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     }
   }, [act, assets, deps, pages])
 
+  const [rotating, setRotating] = useState(false)
+  /**
+   * Reads which way up each page's text is and adds the quarter turns that
+   * bring it upright, as one undo step. Pages with too little text are left
+   * alone; the status names the pages it turned. Opt-in: the first run
+   * downloads the orientation engine.
+   */
+  const autoRotate = useCallback(
+    async (ids: string[]) => {
+      setRotating(true)
+      setStatus('Finding which way up each page is…')
+      const started = generation.current
+      try {
+        const patches: { id: string; patch: { turns: QuarterTurns } }[] = []
+        const turned: number[] = []
+        let upright = 0
+        let unclear = 0
+        for (const id of ids) {
+          const index = pages.findIndex((p) => p.id === id)
+          const page = pages[index]
+          const asset = page ? assets[page.assetId] : undefined
+          if (!page || !asset) continue
+          const turns = uprightTurns(await deps.detectOrientation(asset, page))
+          if (generation.current !== started) return
+          if (turns === null) unclear += 1
+          else if (turns === 0) upright += 1
+          else {
+            patches.push({ id, patch: { turns: ((page.turns + turns) % 4) as QuarterTurns } })
+            turned.push(index + 1)
+          }
+        }
+        act({ type: 'transformPages', patches })
+        setStatus(describeAutoRotate({ turned, upright, unclear }))
+      } catch (error) {
+        if (generation.current !== started) return
+        notify(
+          isStaleBuild(error)
+            ? STALE_BUILD_MESSAGE
+            : error instanceof Error
+              ? error.message
+              : String(error),
+        )
+        setStatus('')
+      } finally {
+        setRotating(false)
+      }
+    },
+    [act, assets, deps, notify, pages],
+  )
+
   const inspectorActions = useMemo<InspectorActions | null>(() => {
     if (!selected) return null
     const id = selected.id
@@ -1062,13 +1117,17 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             onRotateAll={(by) => {
               act({ type: 'rotateAll', by })
             }}
+            onAutoRotate={() => {
+              void autoRotate(orderScope ?? pages.map((p) => p.id))
+            }}
+            rotating={rotating}
             duplex={duplex}
             orderScope={orderScope?.length ?? null}
             onArrange={onArrange}
             onStartOver={onStartOver}
             keepWork={keepWork}
             onKeepWork={onKeepWork}
-            busy={importing !== null || straightening || autoCropping}
+            busy={importing !== null || straightening || autoCropping || rotating}
             onAdd={chooseFiles}
             onExport={() => void onExport()}
             estimate={estimate}

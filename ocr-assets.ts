@@ -6,7 +6,8 @@ import type { Plugin } from 'vite'
  * Self-hosts OCR's runtime files at fixed paths under `<base>ocr/`, because
  * tesseract.js looks them up by directory and the CSP only allows our own
  * origin. Each visitor downloads one engine variant (picked by the browser's
- * SIMD support) plus the English data, and only if they switch OCR on.
+ * SIMD support) plus the English data, and only if they switch OCR on;
+ * Auto-rotate pages fetches a legacy variant and the orientation data.
  */
 const require = createRequire(import.meta.url)
 const resolve = (id: string) => require.resolve(id)
@@ -20,8 +21,16 @@ export const OCR_FILES: Record<string, string> = {
     'tesseract.js-core/tesseract-core-simd-lstm.wasm.js',
   ),
   'core/tesseract-core-lstm.wasm.js': resolve('tesseract.js-core/tesseract-core-lstm.wasm.js'),
+  // The legacy engine, for orientation detection (Auto-rotate pages) only.
+  'core/tesseract-core-relaxedsimd.wasm.js': resolve(
+    'tesseract.js-core/tesseract-core-relaxedsimd.wasm.js',
+  ),
+  'core/tesseract-core-simd.wasm.js': resolve('tesseract.js-core/tesseract-core-simd.wasm.js'),
+  'core/tesseract-core.wasm.js': resolve('tesseract.js-core/tesseract-core.wasm.js'),
   // "best_int": the accurate model, quantised (2.9 MB vs 10.9 MB for "best").
   'lang/eng.traineddata.gz': resolve('@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz'),
+  // Orientation and script detection; only the legacy engine reads it.
+  'lang/osd.traineddata.gz': resolve('@tesseract.js-data/osd/4.0.0_best_int/osd.traineddata.gz'),
 }
 
 export const ocrAssets = (base: string): Plugin => ({

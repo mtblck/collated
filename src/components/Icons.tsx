@@ -35,6 +35,15 @@ export const RotateRightIcon = (p: P) => (
   </Icon>
 )
 
+/** A turn arrow round a letter: turn the text upright. */
+export const UprightIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M15.5 8.5A6 6 0 1 0 14 14.6" />
+    <path d="M16 4.5v4h-4" />
+    <path d="M7.75 7.5h4.5M10 7.5v5.5" />
+  </Icon>
+)
+
 export const TrashIcon = (p: P) => (
   <Icon {...p}>
     <path d="M4 6h12M8 6V4h4v2M5.5 6l.7 10h7.6l.7-10M8.5 9v4.5M11.5 9v4.5" />
