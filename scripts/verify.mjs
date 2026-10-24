@@ -2161,6 +2161,166 @@ await context.close()
   await ctx.close()
 }
 
+// 23. Work survives a reload (#74): restore with undo, bytes once, cleared on request.
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1280, height: 900 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  check(
+    (await p.getByRole('region', { name: 'Restore your last document?' }).count()) === 0,
+    'a first visit offers nothing to restore',
+  )
+  await p.setInputFiles('[data-testid="file-input"]', [
+    join(fixtures, 'quad-landscape.jpg'),
+    join(fixtures, 'quad-exif6.jpg'),
+    join(fixtures, 'quad-3pages.pdf'),
+  ])
+  await p.waitForSelector('ol[aria-label="5 pages"]', { timeout: 10_000 })
+  await setTitle(p, 'Kept')
+  await p.getByRole('button', { name: 'Remove page 1' }).click()
+  await p.waitForSelector('ol[aria-label="4 pages"]')
+  await exportMenu(p).click()
+  await p.getByLabel('Password to open').fill('secret-pw')
+  await p.keyboard.press('Escape')
+  const before = await pageNames(p)
+  // Saved shortly after each change.
+  await p.waitForTimeout(1000)
+  const stored = await p.evaluate(
+    () =>
+      new Promise((resolve, reject) => {
+        const open = indexedDB.open('collated-work')
+        open.onerror = () => reject(open.error)
+        open.onsuccess = () => {
+          const tx = open.result.transaction(['bytes', 'thumbs', 'doc'], 'readonly')
+          const n = (store) =>
+            new Promise((r) => {
+              const q = tx.objectStore(store).count()
+              q.onsuccess = () => r(q.result)
+            })
+          const doc = new Promise((r) => {
+            const q = tx.objectStore('doc').get('current')
+            q.onsuccess = () => r(JSON.stringify(q.result))
+          })
+          Promise.all([n('bytes'), n('thumbs'), doc]).then(([bytes, thumbs, json]) => {
+            open.result.close()
+            resolve({ bytes, thumbs, json })
+          })
+        }
+      }),
+  )
+  check(
+    stored.bytes === 3 && stored.thumbs === 5,
+    'bytes stored once per file (3 files, 5 pages), thumbnails once per page source',
+    `${stored.bytes} bytes, ${stored.thumbs} thumbs`,
+  )
+  check(!stored.json.includes('secret-pw'), 'the password is never stored')
+
+  await p.reload({ waitUntil: 'networkidle' })
+  const offer = p.getByRole('region', { name: 'Restore your last document?' })
+  await offer.waitFor()
+  check(
+    /4 pages, saved on this device today at/.test((await offer.textContent()) ?? ''),
+    'after a reload, the last document is offered',
+  )
+  await p.screenshot({ path: join(shots, 'restore-offer.png') })
+  await axe(p, 'restore offer')
+  await offer.getByRole('button', { name: 'Restore' }).click()
+  await p.waitForSelector('ol[aria-label="4 pages"]')
+  check(
+    JSON.stringify(await pageNames(p)) === JSON.stringify(before),
+    'Restore brings the pages back in order',
+    JSON.stringify(await pageNames(p)),
+  )
+  const thumbsLoad = await p.$$eval('ol img', (imgs) =>
+    Promise.all(
+      imgs.map((img) =>
+        img.complete
+          ? img.naturalWidth > 0
+          : new Promise((r) => {
+              img.onload = () => r(true)
+              img.onerror = () => r(false)
+            }),
+      ),
+    ),
+  )
+  check(thumbsLoad.length === 4 && thumbsLoad.every(Boolean), 'restored previews load')
+  await exportMenu(p).click()
+  check(
+    (await p.getByLabel('Password to open').inputValue()) === '',
+    'the password does not come back',
+  )
+  await p.keyboard.press('Escape')
+  await p.keyboard.press('Control+z')
+  await p.waitForSelector('ol[aria-label="5 pages"]')
+  ok('undo works across the reload: the removed page comes back')
+  await p.keyboard.press('Control+Shift+z')
+  await p.waitForSelector('ol[aria-label="4 pages"]')
+  const [download] = await Promise.all([p.waitForEvent('download'), exportNow(p)])
+  const restoredPdf = await PDFDocument.load(readFileSync(await download.path()))
+  check(
+    restoredPdf.getPageCount() === 4 && download.suggestedFilename() === 'Kept.pdf',
+    'a restored document exports from the bytes kept on the device',
+    `${restoredPdf.getPageCount()} pages, ${download.suggestedFilename()}`,
+  )
+
+  // Discard deletes it; the next visit offers nothing.
+  await p.waitForTimeout(1000)
+  await p.reload({ waitUntil: 'networkidle' })
+  await p
+    .getByRole('region', { name: 'Restore your last document?' })
+    .getByRole('button', { name: 'Discard' })
+    .click()
+  // Deleting is asynchronous: wait for IndexedDB to say it's gone, as a person
+  // reopening the tab later would find it.
+  const gone = await p
+    .waitForFunction(
+      () =>
+        new Promise((resolve) => {
+          const open = indexedDB.open('collated-work')
+          open.onsuccess = () => {
+            const q = open.result.transaction('doc', 'readonly').objectStore('doc').count()
+            q.onsuccess = () => {
+              open.result.close()
+              resolve(q.result === 0)
+            }
+          }
+        }),
+      null,
+      { timeout: 5000 },
+    )
+    .then(
+      () => true,
+      () => false,
+    )
+  check(gone, 'Discard deletes the stored document')
+  await p.reload({ waitUntil: 'networkidle' })
+  await p.waitForTimeout(300)
+  check(
+    (await p.getByRole('region', { name: 'Restore your last document?' }).count()) === 0,
+    'Discard deletes the saved copy',
+  )
+
+  // The switch in More: off deletes it and keeps nothing.
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-landscape.jpg')])
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  await p.waitForTimeout(1000)
+  await p.getByRole('button', { name: 'More' }).click()
+  const keep = p
+    .getByRole('dialog', { name: 'More' })
+    .getByRole('switch', { name: 'Keep work after a reload' })
+  check((await keep.getAttribute('aria-checked')) === 'true', 'Keep work is on by default')
+  await p.screenshot({ path: join(shots, 'keep-work-switch.png') })
+  await axe(p, 'More menu with the Keep work switch')
+  await keep.click()
+  await p.waitForTimeout(500)
+  await p.reload({ waitUntil: 'networkidle' })
+  await p.waitForTimeout(300)
+  check(
+    (await p.getByRole('region', { name: 'Restore your last document?' }).count()) === 0,
+    'turning Keep work off deletes the copy',
+  )
+  await ctx.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()

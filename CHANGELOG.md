@@ -13,6 +13,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Select several pages at once (#65): Shift-click for a range, ⌘/Ctrl-click for one more, ⌘A / Ctrl+A for all, or **Select** on a phone. Rotate, straighten, scale, filter, move, duplicate or remove them together, each as one undo step, and drag any of them to move them all.
 - Two-sided scans: **Interleave fronts and backs** in the More menu puts a pile of fronts and a pile of backs (reversed or not) into page order in one step. Also there: **Reverse page order**, **Sort by file name** and **Sort by date taken**.
 - Export only the selected pages, or split the document into several PDFs by page ranges ("1-3, 4-10") or every few pages (#66). Several files download as one ZIP, each with the same quality, OCR, password and page number options.
+- Your work survives a reload or a closed tab: the document, undo history included, is kept in this browser on this device (never uploaded, never the password), and Collated offers **Restore your last document?** next time. Start over deletes it, and **Keep work after a reload** in the More menu turns it off.
 
 ### Changed
 
