@@ -253,14 +253,18 @@ export const ExportOptions = ({
                   />
                 </div>
               )}
-              {summary && (
-                <p
-                  id={planId}
-                  className={cx('mt-1.5 text-xs', planError ? 'text-accent' : 'text-ink-muted')}
-                >
-                  {summary}
-                </p>
-              )}
+              {/* Always there, so changes are announced as the ranges are typed. */}
+              <p
+                id={planId}
+                role="status"
+                className={cx(
+                  'text-xs',
+                  summary && 'mt-1.5',
+                  planError ? 'text-accent' : 'text-ink-muted',
+                )}
+              >
+                {summary}
+              </p>
             </fieldset>
 
             <fieldset className="mt-4">
