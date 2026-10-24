@@ -30,4 +30,5 @@ CI runs all of these, plus the poppler-rendered PDF tests.
 - **The preview and the PDF share `layoutPage`.** If you change placement, the raster tests in `src/core/pdf.test.ts` and the preview comparison in `scripts/verify.mjs` should still pass; add a case if you add a mode.
 - **Accessibility is a requirement**: every control keyboard-operable and labelled, nothing conveyed by colour alone, AA contrast in both themes. `verify` runs axe.
 - **Guard rails over comments**: if a config shape has broken once, add a check that fails the build.
+- **Changelog**: if people using Collated will notice the change, add a file to `changelog.d/` with the line for **Unreleased** (see [its README](changelog.d/README.md)). Don't edit `CHANGELOG.md` itself: every open pull request would conflict on it.
 - Commit messages: imperative subject line; a body that says why, and how you checked it.

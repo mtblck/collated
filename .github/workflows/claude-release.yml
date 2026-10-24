@@ -8,8 +8,9 @@ name: Release draft
 # Releases page, which creates the tag on the default branch.
 #
 # Quiet weeks cost nothing: a scheduled run stops before Claude when Unreleased in
-# CHANGELOG.md is empty (changelog.yml keeps it filled). A manual run always drafts,
-# from merged PRs if need be. Remove the schedule for repos nobody else uses.
+# CHANGELOG.md is empty (changelog.yml keeps it filled from changelog.d/ fragments).
+# A manual run always drafts, from merged PRs if need be. Remove the schedule for
+# repos nobody else uses.
 on:
   schedule:
     - cron: '0 8 * * 1'
@@ -48,6 +49,18 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
+      # Fragments left in changelog.d/ (changelog.yml couldn't push) go into CHANGELOG.md
+      # in a local commit first, so the release branch carries them and they aren't
+      # compiled twice.
+      - if: env.HAS_TOKEN == 'true'
+        run: |
+          [ -f scripts/changelog.mjs ] || exit 0
+          node scripts/changelog.mjs
+          git add -A CHANGELOG.md changelog.d
+          git diff --cached --quiet && exit 0
+          git config user.name "mtblck"
+          git config user.email "105079242+mtblck@users.noreply.github.com"
+          git commit -qm "changelog: compile fragments"
       - if: env.HAS_TOKEN == 'true'
         id: gate
         run: |

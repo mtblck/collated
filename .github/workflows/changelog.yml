@@ -1,21 +1,25 @@
 name: Changelog
 
-# Keeps CHANGELOG.md's Unreleased section current: when a PR merges into the
-# default branch, adds one line for it, sorted by labels and title. No Claude, just
-# a script; the release skill (maintenance plugin) rewrites lines for users when it
+# Keeps CHANGELOG.md's Unreleased section current. PRs don't edit CHANGELOG.md: each
+# adds a fragment to changelog.d/ (see its README), so parallel PRs never conflict.
+# When a PR merges into the default branch, this moves every fragment on main into
+# CHANGELOG.md with scripts/changelog.mjs and deletes it. A user-facing PR without a
+# fragment gets one line made from its title and labels instead. No Claude, just
+# scripts; the release skill (maintenance plugin) rewrites lines for users when it
 # drafts a release, so a terse title here is fine.
 #
-# Skipped when: the PR already edited CHANGELOG.md, it has a `skip-changelog` label,
-# its title starts with chore/ci/docs/test/refactor/build/style, it's from
-# Dependabot (the release skill picks up security fixes from the PRs themselves),
-# it's from a fork, or the repo has no CHANGELOG.md.
+# The title line is skipped when: the PR added a fragment or edited CHANGELOG.md
+# itself, it has a `skip-changelog` label, its title starts with
+# chore/ci/docs/test/refactor/build/style, it's from Dependabot (the release skill
+# picks up security fixes from the PRs themselves), it's from a fork, or the repo has
+# no CHANGELOG.md.
 # Sections: label `security` or a `security:` title → Security; `bug`/`fix:` → Fixed;
 # `enhancement`/`feature`/`feat:`/"Add …" → Added; label `breaking` or `feat!:` →
 # Changed, marked Breaking; anything else → Changed.
 #
 # It commits straight to the default branch. If a ruleset requires PRs there, the
-# push is refused and the run ends with a warning; the release skill still fills
-# the gap from merged PRs.
+# push is refused and the run ends with a warning; fragments stay in changelog.d/
+# until the next run, and the release draft compiles any that are left.
 on:
   pull_request:
     types: [closed]
@@ -48,15 +52,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
-      - name: Skip if the PR wrote its own entry
+      - name: Did the PR write its own entry?
         id: own
         run: |
-          if gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename' | grep -qx 'CHANGELOG.md'; then
+          if gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[] | select(.status != "removed") | .filename' \
+            | grep -iE '^(CHANGELOG\.md|changelog\.d/.+\.md)$' | grep -qviE '^changelog\.d/readme\.md$'; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::#$PR edited CHANGELOG.md itself; nothing to add."
+            echo "::notice::#$PR wrote its own entry; no title line needed."
           fi
-      - name: Add the line
-        if: steps.own.outputs.skip != 'true'
+      - name: Compile fragments and add the line
+        env:
+          OWN: ${{ steps.own.outputs.skip }}
         run: |
           cat > "$RUNNER_TEMP/entry.js" <<'EOF'
           const fs = require('fs');
@@ -119,10 +125,12 @@ jobs:
           for attempt in 1 2 3; do
             git fetch --no-tags origin "$BRANCH"
             git reset --hard "origin/$BRANCH"
-            node "$RUNNER_TEMP/entry.js"
-            git diff --quiet && exit 0
-            git commit -qam "changelog: add #$PR"
+            if [ -f scripts/changelog.mjs ]; then node scripts/changelog.mjs; fi
+            if [ "$OWN" != "true" ]; then node "$RUNNER_TEMP/entry.js"; fi
+            git add -A CHANGELOG.md changelog.d 2>/dev/null || true
+            git diff --cached --quiet && exit 0
+            git commit -qm "changelog: add #$PR"
             git push origin "HEAD:$BRANCH" && exit 0
             sleep $((attempt * 5))
           done
-          echo "::warning::Couldn't push the changelog line for #$PR to $BRANCH (a ruleset may require PRs). The release skill will pick it up from the PR."
+          echo "::warning::Couldn't push the changelog line for #$PR to $BRANCH (a ruleset may require PRs). Fragments stay in changelog.d/; the release draft compiles them, and the release skill picks up title lines from the PR."
