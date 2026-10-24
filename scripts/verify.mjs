@@ -27,6 +27,7 @@ import { dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import AxeBuilder from '@axe-core/playwright'
 import { PDFDocument } from '@cantoo/pdf-lib'
+import { unzipSync } from 'fflate'
 import { chromium } from 'playwright'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -514,6 +515,43 @@ await context.close()
     'PDF pages stay vector (the only raster is the JPEG)',
     `${images.length} images`,
   )
+
+  // Split by ranges (#66): one ZIP, built in the worker, of a PDF per range.
+  await exportMenu(p).click()
+  const options = p.getByRole('dialog', { name: 'Export options' })
+  await options.getByRole('radio', { name: 'Split by page ranges' }).check()
+  await options.getByRole('textbox', { name: 'Page ranges' }).fill('1-3, 7-')
+  check(
+    (await options.textContent())?.includes('2 PDFs in one ZIP: pages 1–3 · 7–8.') ?? false,
+    'the export options say what a split will make',
+  )
+  await axe(p, 'export options, split by ranges')
+  const [zipped] = await Promise.all([
+    p.waitForEvent('download'),
+    options.getByRole('button', { name: 'Export 2 PDFs' }).click(),
+  ])
+  check(
+    /\.zip$/.test(zipped.suggestedFilename()),
+    'a split export downloads as a ZIP',
+    zipped.suggestedFilename(),
+  )
+  const zipPath = join(mkdtempSync(join(tmpdir(), 'collated-verify-zip-')), 'split.zip')
+  await zipped.saveAs(zipPath)
+  const entries = unzipSync(readFileSync(zipPath))
+  const counts = await Promise.all(
+    Object.entries(entries).map(
+      async ([name, bytes]) => `${name}:${String((await PDFDocument.load(bytes)).getPageCount())}`,
+    ),
+  )
+  check(
+    counts.length === 2 && /-part-1\.pdf:3$/.test(counts[0]) && /-part-2\.pdf:2$/.test(counts[1]),
+    'the ZIP holds one PDF per range, with its pages',
+    counts.join(', '),
+  )
+  await exportMenu(p).click()
+  await options.getByRole('radio', { name: 'All pages' }).check()
+  await p.keyboard.press('Escape')
+  await options.waitFor({ state: 'hidden' })
 
   if (hasPoppler) {
     // Preview ≡ PDF for the rotated PDF page, as for images above.

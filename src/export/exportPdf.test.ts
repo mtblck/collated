@@ -31,7 +31,7 @@ const doc: DocState = {
   assets: { a: asset('a') },
   pages: [page('p', 'a')],
 }
-const done = { type: 'done', pdf: new Uint8Array([37]), compression: null, fits: true }
+const done = { type: 'done', file: new Uint8Array([37]), compression: null, fits: true }
 
 // A fresh module per test: the warm worker is module state.
 const load = async () => {
@@ -87,6 +87,20 @@ describe('the export worker', () => {
     await expect(exported).rejects.toThrow(/reload the page/)
     // A crashed worker isn't kept.
     expect(FakeWorker.all[1]?.terminated).toBe(true)
+  })
+
+  it('sends the parts of a split export and answers with a ZIP (#66)', async () => {
+    const { exportPdf } = await load()
+    const parts = [
+      { name: 'x-part-1.pdf', pageIds: ['p'], start: 1 },
+      { name: 'x-part-2.pdf', pageIds: ['p'], start: 2 },
+    ]
+    const exported = exportPdf(doc, undefined, { parts })
+    const [worker] = FakeWorker.all
+    expect((worker?.posted[0] as { parts?: unknown }).parts).toEqual(parts)
+    worker?.reply(done)
+    const { blob } = await exported
+    expect(blob.type).toBe('application/zip')
   })
 
   it('reports a build error from the worker as it is', async () => {

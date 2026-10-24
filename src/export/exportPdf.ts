@@ -1,5 +1,6 @@
 import type { Compression } from '../core/compression'
 import { picturesOf, type DocState } from '../core/model'
+import type { SplitPart } from '../core/splitBuild'
 import type { OcrWord } from '../core/textLayer'
 import { assetStore } from '../import/assetStore'
 import { layeredImage } from './layered'
@@ -36,6 +37,7 @@ const request = (
   password?: string,
   text?: Record<string, OcrWord[]>,
   drawn: Record<string, Uint8Array> = {},
+  parts?: SplitPart[],
 ): ExportRequest => {
   const used = usedAssets(state)
   const assets = Object.fromEntries(Object.entries(state.assets).filter(([id]) => used.has(id)))
@@ -61,6 +63,7 @@ const request = (
       ...(Object.keys(rendered).length ? { rendered } : {}),
     },
     bytes,
+    ...(parts ? { parts } : {}),
   }
 }
 
@@ -104,7 +107,11 @@ const takeWorker = () => {
   return spawn()
 }
 
-/** Builds the PDF in the module worker; resolves with the file. */
+/**
+ * Builds the PDF in the module worker; resolves with the file. With `parts`,
+ * each is built as its own PDF and the file is a ZIP of them (#66);
+ * `state.pages` then holds every page the parts use.
+ */
 export const exportPdf = (
   state: DocState,
   onProgress?: Progress,
@@ -116,18 +123,29 @@ export const exportPdf = (
      * asked (see below); their words are added to `text`. With OCR off, unset.
      */
     readDrawn?: (assetId: string, jpeg: Uint8Array) => Promise<Record<string, OcrWord[]>>
+    parts?: SplitPart[]
   } = {},
 ): Promise<Exported> => {
+  const { parts } = options
+  const type = parts ? 'application/zip' : 'application/pdf'
   const hasPdf = [...usedAssets(state)].some((id) => state.assets[id]?.format === 'pdf')
   const finish = (result: Exported | { draw: string[] }) => {
     if ('draw' in result) throw new Error('A PDF page that hides a layer could not be drawn.')
     return result
   }
   // Without PDF pages there's nothing to draw first: post straight away.
-  if (!hasPdf) return send(request(state, options.password, options.text), onProgress).then(finish)
+  if (!hasPdf) {
+    return send(request(state, options.password, options.text, {}, parts), type, onProgress).then(
+      finish,
+    )
+  }
   return (async () => {
     const drawn = await drawLayered(state)
-    const first = await send(request(state, options.password, options.text, drawn), onProgress)
+    const first = await send(
+      request(state, options.password, options.text, drawn, parts),
+      type,
+      onProgress,
+    )
     if (!('draw' in first)) return first
     // The export's own check found pages that could hide something, which
     // the preview's didn't flag: draw those too, and build once more.
@@ -145,12 +163,15 @@ export const exportPdf = (
         if (jpeg) Object.assign(text, await options.readDrawn(id, jpeg))
       }
     }
-    return finish(await send(request(state, options.password, text, drawn), onProgress))
+    return finish(
+      await send(request(state, options.password, text, drawn, parts), type, onProgress),
+    )
   })()
 }
 
 const send = (
   message: ExportRequest,
+  type: string,
   onProgress?: Progress,
 ): Promise<Exported | { draw: string[] }> => {
   return new Promise((resolve, reject) => {
@@ -172,7 +193,7 @@ const send = (
       else if (data.type === 'done') {
         release()
         resolve({
-          blob: new Blob([data.pdf as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }),
+          blob: new Blob([data.file as Uint8Array<ArrayBuffer>], { type }),
           compression: data.compression,
           fits: data.fits,
         })
