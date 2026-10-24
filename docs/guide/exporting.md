@@ -22,7 +22,7 @@ Under the choices, a line says what you'll get, or what's wrong with the ranges.
 
 ## Image quality
 
-- **Original:** images go in as they are, with no recompression. JPEG photos keep their exact image data. A page is re-encoded once only when it must be: a filter, a crop, or Fill / a scale above 100% hiding part of the image (so the hidden part isn't stored).
+- **Original:** images go in as they are, with no recompression. JPEG photos keep their exact image data. A page is re-encoded once only when it must be: a filter, a crop, a blacked-out area, or Fill / a scale above 100% hiding part of the image (so the hidden part isn't stored).
 - **High, Balanced, Small:** cap each image at 300, 200 or 150 dpi as printed, and compress it. Small is for email and uploads.
 
 **Keep the file under** is optional: give a size in MB and Collated tries lower quality, step by step, until the file fits. If it can't, it says so and saves the smallest it made.

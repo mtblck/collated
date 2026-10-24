@@ -24,6 +24,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Your work survives a reload or a closed tab: the document, undo history included, is kept in this browser on this device (never uploaded, never the password), and Collated offers **Restore your last document?** next time. Start over deletes it, and **Keep work after a reload** in the More menu turns it off.
 
 - **Take photo** on phones and tablets (#72): opens the camera and adds each shot after the last page, without leaving Collated. The system camera takes the picture, so no camera permission is asked for.
+- **Black out part of the page** (#77): draw boxes over account or ID numbers, and the export removes what's under them rather than covering it. Pixels are painted over, a PDF page with a box goes in as a picture, and searchable text leaves out words under a box.
 
 ### Changed
 

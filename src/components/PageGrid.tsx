@@ -10,6 +10,7 @@ import { memo, useEffect, useMemo, useRef, useState, type ComponentProps } from 
 import { layoutSheet } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
 import { watermarkMark } from '../core/watermark'
+import { pageCovers } from '../core/redact'
 import { picturesOf, type Asset, type Page, type Settings } from '../core/model'
 import { IconButton } from './controls'
 import { cx } from './cx'
@@ -64,6 +65,7 @@ const PageCard = memo(function PageCard({
 }: CardProps) {
   const { ref, handleRef, isDragging } = useSortable({ id: page.id, index })
   const sheet = useMemo(() => layoutSheet(settings, assets, page), [settings, assets, page])
+  const covers = useMemo(() => pageCovers(page, assets), [page, assets])
   const mark = numberMark(settings.pageNumbers, index, sheet.page, sheet.content.x)
   const watermark = watermarkMark(
     settings.watermark,
@@ -128,6 +130,7 @@ const PageCard = memo(function PageCard({
           <PagePreview
             sheet={sheet}
             thumbUrls={thumbUrls}
+            covers={covers}
             selected={selected}
             mark={mark}
             watermark={watermark}
