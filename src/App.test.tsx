@@ -48,6 +48,8 @@ const setup = (overrides: Partial<AppDeps> = {}) => {
     estimateSkew: vi.fn((a: { name: string }) =>
       Promise.resolve(a.name.includes('blank') ? null : { angle: -2.5, confidence: 2 }),
     ),
+    // Pages named "empty" look blank (#68).
+    detectBlank: vi.fn((a: { name: string }) => Promise.resolve(a.name.includes('empty'))),
     // Photos named "paper…" show a sheet the detector finds; others don't.
     findPaper: vi.fn((a: { name: string }) =>
       Promise.resolve(
@@ -289,6 +291,50 @@ describe('App', () => {
       await upload('d.jpg')
       await new Promise((resolve) => setTimeout(resolve, 600))
       expect(screen.getAllByText(/too large for this browser/)).toHaveLength(1)
+    })
+  })
+
+  describe('blank pages (#68)', () => {
+    it('badges blank pages and says so, but never removes them on its own', async () => {
+      const { upload } = setup()
+      await upload('a.jpg', 'empty1.jpg', 'b.jpg', 'empty2.jpg')
+      await waitFor(() => {
+        expect(pageLabels()).toEqual([
+          'Page 1: a.jpg',
+          'Page 2: empty1.jpg, looks blank',
+          'Page 3: b.jpg',
+          'Page 4: empty2.jpg, looks blank',
+        ])
+      })
+      expect(screen.getAllByText('Looks blank')).toHaveLength(2)
+      expect(screen.getByText('2 pages look blank')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(status()).toHaveTextContent('2 pages look blank.')
+      })
+    })
+
+    it('removes only the blank pages, as one undo step', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'empty1.jpg', 'b.jpg', 'empty2.jpg')
+      const remove = await screen.findByRole('button', { name: 'Remove 2 blank pages' })
+      await user.click(remove)
+      expect(pageLabels()).toEqual(['Page 1: a.jpg', 'Page 2: b.jpg'])
+      expect(status()).toHaveTextContent('Removed 2 blank pages. Undo to bring them back.')
+      expect(screen.queryByText(/look blank/)).toBeNull()
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      expect(pageLabels()).toHaveLength(4)
+      expect(screen.getByRole('button', { name: 'Remove 2 blank pages' })).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      expect(screen.queryByRole('list', { name: /pages?$/ })).toBeNull()
+    })
+
+    it('selects the blank pages, to check them or keep one', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'empty1.jpg', 'empty2.jpg')
+      await user.click(await screen.findByRole('button', { name: 'Select them' }))
+      expect(status()).toHaveTextContent('2 pages selected.')
+      const panel = within(screen.getByRole('complementary', { name: 'Selected page' }))
+      expect(panel.getByRole('heading', { level: 2 })).toHaveTextContent('2 pages')
     })
   })
 

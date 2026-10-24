@@ -62,3 +62,9 @@ Without dragging: tap or click a corner to select it, then tap or click where it
 ## Duplicate, reset and remove
 
 **Duplicate** copies the page (it doesn't add to the file size). **Reset** undoes this page's changes. **Apply to all pages** copies this page's rotation, straightening, scale, placement and filter to every page. **Remove** takes the page out; **Undo** brings it back. To clear everything and begin a new document, use **Start over…** in the toolbar's **More** menu (this can't be undone).
+
+## Blank pages
+
+Scanning single-sided paper on both sides leaves every other page blank. Collated checks each page as it arrives and marks the ones that look blank with **Looks blank** (a screen reader hears it in the page's name). Faint show-through from the other side, punch holes, specks of dust and the scanner's shadow at the edge don't count as content; a single line of text or a signature does. Dark or coloured paper is never marked.
+
+Nothing is removed on its own. Above the pages, **Remove N blank pages** takes out every marked page at once, as one step for **Undo**. To check them first, or keep one, use **Select them**, deselect any page you want to keep (⌘/Ctrl-click), and **Remove** the rest from the panel.

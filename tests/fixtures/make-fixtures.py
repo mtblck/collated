@@ -142,6 +142,25 @@ letter = letter.point(lambda v: 255 if v > 128 else 0, "1")
 for degrees, turn in [(0, None), (90, Image.Transpose.ROTATE_270), (180, Image.Transpose.ROTATE_180), (270, Image.Transpose.ROTATE_90)]:
     (letter if turn is None else letter.transpose(turn)).save(HERE / f"text-letter-cw{degrees}.png", optimize=True)
 
+from PIL import ImageFilter
+
+# The back of a single-sided sheet, scanned (#68): nothing printed, but faint
+# show-through of the front (mirrored), two punch holes, dust and the lid's
+# shadow down one edge. Blank-page detection must still call it blank.
+back = Image.new("RGB", (827, 1169), (238, 236, 230))
+bd = ImageDraw.Draw(back)
+for i in range(18):
+    bd.text((90, 120 + i * 52), "Show-through of the printed front side.", font=font, fill=(214, 212, 207))
+back = back.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+bd = ImageDraw.Draw(back)
+for cy in (409, 760):
+    bd.ellipse((35, cy - 12, 59, cy + 12), fill=(30, 30, 32))
+for x, y in ((300, 222), (512, 640), (190, 1001), (701, 377)):
+    bd.rectangle((x, y, x + 1, y + 1), fill=(60, 60, 60))
+bd.rectangle((809, 0, 826, 1168), fill=(120, 118, 114))
+back = back.filter(ImageFilter.GaussianBlur(0.6))
+back.save(HERE / "scan-blank-back.jpg", quality=85)
+
 # An iPhone-style HEIC of the quadrant image. Needs pillow-heif; skipped (and
 # the committed file kept) when it isn't installed.
 try:

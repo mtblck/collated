@@ -20,14 +20,20 @@ const greyscale = (data: Uint8ClampedArray) => {
 export const BW_THRESHOLD = 0.15
 
 /**
- * Black and white by adaptive threshold (Bradley–Roth): a pixel is ink when
- * it is clearly darker than the average of its neighbourhood. A global cut
- * fails on phone photos of paper, where one corner can be in shadow; comparing
- * with the local mean follows the lighting. The window is an eighth of the
- * image's width, so a thumbnail and the full-size export threshold alike.
- * An integral image makes every window sum O(1).
+ * Which pixels are ink, by adaptive threshold (Bradley–Roth): a pixel is ink
+ * when it is clearly darker than the average of its neighbourhood — by
+ * `threshold` of that average. A global cut fails on phone photos of paper,
+ * where one corner can be in shadow; comparing with the local mean follows
+ * the lighting. The window is an eighth of the image's width, so a thumbnail
+ * and the full-size export threshold alike. An integral image makes every
+ * window sum O(1). One byte per pixel, 1 for ink.
  */
-const blackAndWhite = (data: Uint8ClampedArray, width: number, height: number) => {
+export const inkMask = (
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  threshold = BW_THRESHOLD,
+): Uint8Array => {
   const grey = new Float64Array(width * height)
   for (let p = 0, i = 0; p < grey.length; p++, i += 4) {
     grey[p] = luma(data[i] ?? 0, data[i + 1] ?? 0, data[i + 2] ?? 0)
@@ -42,6 +48,7 @@ const blackAndWhite = (data: Uint8ClampedArray, width: number, height: number) =
       integral[(y + 1) * stride + x + 1] = (integral[y * stride + x + 1] ?? 0) + row
     }
   }
+  const mask = new Uint8Array(width * height)
   const half = Math.max(1, Math.floor(width / 16))
   for (let y = 0; y < height; y++) {
     const y0 = Math.max(0, y - half)
@@ -55,10 +62,17 @@ const blackAndWhite = (data: Uint8ClampedArray, width: number, height: number) =
         (integral[y0 * stride + x1 + 1] ?? 0) -
         (integral[(y1 + 1) * stride + x0] ?? 0) +
         (integral[y0 * stride + x0] ?? 0)
-      const ink = (grey[y * width + x] ?? 0) * count < sum * (1 - BW_THRESHOLD)
-      const i = (y * width + x) * 4
-      data[i] = data[i + 1] = data[i + 2] = ink ? 0 : 255
+      if ((grey[y * width + x] ?? 0) * count < sum * (1 - threshold)) mask[y * width + x] = 1
     }
+  }
+  return mask
+}
+
+/** Black and white: ink black, everything else white (see `inkMask`). */
+const blackAndWhite = (data: Uint8ClampedArray, width: number, height: number) => {
+  const mask = inkMask(data, width, height)
+  for (let p = 0, i = 0; p < mask.length; p++, i += 4) {
+    data[i] = data[i + 1] = data[i + 2] = mask[p] ? 0 : 255
   }
 }
 
