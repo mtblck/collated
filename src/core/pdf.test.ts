@@ -3,11 +3,19 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PDFDocument, PDFName } from '@cantoo/pdf-lib'
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  decodePDFRawStream,
+  type PDFPage,
+} from '@cantoo/pdf-lib'
 import { afterAll, describe, expect, it } from 'vitest'
 import { asset, fixture, page, settings } from '../../tests/helpers'
 import { layoutPage, layoutSheet, type Layout } from './geometry'
-import { DEFAULT_TRANSFORM } from './model'
+import { DEFAULT_TRANSFORM, blankPage } from './model'
 import type { Asset, Page, PageTransform, Settings, SheetKind, Slot } from './model'
 import { passthrough } from './imageInfo'
 import { pdfFilename } from './filename'
@@ -283,6 +291,69 @@ describe('buildPdf', () => {
     const text = extractText(bytes)
     if (text === null) return
     expect(text.split('\f').map((t) => t.trim())).toEqual(['7', '8', ''])
+  })
+
+  it('makes a blank page (#80) with nothing on it but its number', async () => {
+    const { meta, bytes: jpeg } = await fileAsset('quad-landscape.jpg')
+    const build = (numbers: boolean) =>
+      buildPdf(
+        {
+          settings: settings({
+            size: 'letter',
+            pageNumbers: { show: numbers, position: 'bottom-center', start: 1 },
+          }),
+          pages: [
+            page('p0', meta.id),
+            blankPage('b1'),
+            { ...blankPage('b2'), turns: 1 },
+            { ...blankPage('b3'), section: 'Back' },
+          ],
+          assets: { [meta.id]: meta },
+        },
+        { getBytes: () => jpeg, now: NOW },
+      )
+    // Every operator the page draws, decoded from its content streams.
+    const operators = (p: PDFPage) => {
+      const contents = p.node.Contents()
+      const streams = contents instanceof PDFArray ? contents.asArray() : contents ? [contents] : []
+      return streams
+        .map((ref) => p.doc.context.lookup(ref))
+        .filter((s): s is PDFRawStream => s instanceof PDFRawStream)
+        .map((s) => new TextDecoder().decode(decodePDFRawStream(s).decode()))
+        .join('\n')
+    }
+    const xObjects = (p: PDFPage) =>
+      p.node.Resources()?.lookupMaybe(PDFName.of('XObject'), PDFDict)?.keys().length ?? 0
+
+    const numbered = await PDFDocument.load(await build(true))
+    const pages = numbered.getPages()
+    // Letter, portrait unless turned (orientation Auto).
+    expect(pages.map((p) => [p.getWidth(), p.getHeight()])).toEqual([
+      [792, 612],
+      [612, 792],
+      [792, 612],
+      [612, 792],
+    ])
+    const [photo, ...blanks] = pages
+    if (!photo) throw new Error('no pages')
+    expect(xObjects(photo)).toBe(1)
+    for (const [i, blank] of blanks.entries()) {
+      expect(xObjects(blank)).toBe(0)
+      const ops = operators(blank)
+      // Only the page number: one text block, nothing drawn outside it.
+      expect(ops).toContain(`<${Buffer.from(String(i + 2)).toString('hex')}> Tj`)
+      expect(ops.replace(/BT[\s\S]*?ET/g, '').trim()).toBe('q\n\nQ')
+    }
+    const text = extractText(await build(true))
+    if (text !== null)
+      expect(text.split('\f').map((t) => t.trim())).toEqual(['1', '2', '3', '4', ''])
+
+    // Without numbers a blank page draws nothing at all.
+    const bare = await PDFDocument.load(await build(false))
+    for (const blank of bare.getPages().slice(1)) {
+      expect(xObjects(blank)).toBe(0)
+      expect(operators(blank).trim()).toBe('')
+    }
   })
 
   it('encrypts with the password so the file only opens with it', async () => {

@@ -10,11 +10,16 @@ export const SHEET_NAMES: Record<SheetKind, string> = {
   'id-card': 'ID card',
 }
 
+/** What an inserted blank page (#80) is called. */
+export const BLANK_NAME = 'Blank page'
+
 /**
  * A page's name for its card and for screen readers: its file's name, or for
- * a combined page its layout and its pictures' names.
+ * a combined page its layout and its pictures' names; "Blank page" for one
+ * inserted empty.
  */
 export const pageName = (page: Page, assets: Readonly<Record<string, Pick<Asset, 'name'>>>) => {
+  if (page.blank) return BLANK_NAME
   if (!page.sheet) return assets[page.assetId]?.name ?? ''
   const names = page.sheet.slots.map((slot) => assets[slot.assetId]?.name ?? '')
   return `${SHEET_NAMES[page.sheet.kind]}: ${names.join(', ')}`

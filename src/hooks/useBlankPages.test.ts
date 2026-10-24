@@ -1,7 +1,7 @@
 import { renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { asset, page } from '../../tests/helpers'
-import type { Asset, Slot } from '../core/model'
+import { blankPage, type Asset, type Slot } from '../core/model'
 import { useBlankPages } from './useBlankPages'
 
 const assets = Object.fromEntries(
@@ -30,5 +30,14 @@ describe('useBlankPages', () => {
       expect(result.current.checking).toBe(false)
     })
     expect(result.current.blankIds).toEqual(['p1', 'both-empty'])
+  })
+
+  it('never flags a blank page inserted on purpose (#80)', async () => {
+    const pages = [page('p1', 'text'), blankPage('inserted')]
+    const { result } = renderHook(() => useBlankPages(pages, assets, detect))
+    await waitFor(() => {
+      expect(result.current.checking).toBe(false)
+    })
+    expect(result.current.blankIds).toEqual([])
   })
 })

@@ -34,7 +34,8 @@ export const describeChange = (before: DocState, after: DocState): string | null
 
   if (added.length > 0 && removed.length === 0) {
     const first = now.findIndex((p) => p.id === added[0]?.id)
-    return added.length === 1 ? `added page ${first + 1}` : `added ${plural(added.length, 'page')}`
+    if (added.length === 1) return `added ${added[0]?.blank ? 'blank ' : ''}page ${first + 1}`
+    return `added ${plural(added.length, 'page')}`
   }
   if (removed.length > 0 && added.length === 0) {
     const first = was.findIndex((p) => p.id === removed[0]?.id)

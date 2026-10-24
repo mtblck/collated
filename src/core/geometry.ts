@@ -217,8 +217,10 @@ export const layoutSheet = (
   settings: Pick<Settings, 'size' | 'custom' | 'orientation' | 'margin' | 'imageDpi'>,
   assets: Readonly<Record<string, SizedAsset | undefined>>,
   page: Page,
+  like?: Page,
 ): SheetLayout => {
   const missing = () => new Error('A page refers to missing content.')
+  if (page.blank) return blankSheet(settings, assets, page, like)
   if (!page.sheet) {
     const asset = assets[page.assetId]
     if (!asset) throw missing()
@@ -268,6 +270,29 @@ export const layoutSheet = (
       }),
     ),
   }
+}
+
+/**
+ * An inserted blank page (#80): the page setup's size, portrait unless
+ * turned (with Auto orientation) or set landscape. A "match image" blank
+ * takes the size of `like` (see `sizeModel`), turned with it; Letter when
+ * there is no page to match.
+ */
+const blankSheet = (
+  settings: Pick<Settings, 'size' | 'custom' | 'orientation' | 'margin' | 'imageDpi'>,
+  assets: Readonly<Record<string, SizedAsset | undefined>>,
+  page: Page,
+  like: Page | undefined,
+): SheetLayout => {
+  const turned = page.turns % 2 === 1
+  let size: { width: number; height: number }
+  if (settings.size === 'image' && like && !like.blank) {
+    const model = layoutSheet(settings, assets, like).page
+    size = turned ? { width: model.height, height: model.width } : model
+  } else {
+    size = pageSize(settings, turned)
+  }
+  return { page: size, content: printable(size, settings.margin), pictures: [] }
 }
 
 /** A "match image" combined page: room for each picture at its own size. */

@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Asset, QuarterTurns, Settings, SheetKind, Slot } from './core/model'
-import { SHEET_CAPACITY, isRedacted, isVector, pictureKey, picturesOf } from './core/model'
+import {
+  SHEET_CAPACITY,
+  isRedacted,
+  isVector,
+  pictureKey,
+  picturesOf,
+  sizeModel,
+} from './core/model'
 import { partFilename, pdfFilename, zipFilename } from './core/filename'
 import { compressionFor, estimateBytes } from './core/compression'
 import type { Skew } from './core/deskew'
@@ -33,6 +40,7 @@ import { SelectionBar } from './components/SelectionBar'
 import { BlankPagesBar } from './components/BlankPagesBar'
 import { ShareConfirm } from './components/ShareConfirm'
 import { SheetInspector, type SheetActions } from './components/SheetInspector'
+import { BlankInspector, type BlankActions } from './components/BlankInspector'
 import {
   EMPTY_SELECTION,
   blockDropIndex,
@@ -1201,6 +1209,50 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     selectedIndex,
   ])
 
+  const blankActions = useMemo<BlankActions | null>(() => {
+    if (!selected?.blank) return null
+    const id = selected.id
+    return {
+      onLandscape: (landscape) => {
+        act({ type: 'transformPage', id, patch: { turns: landscape ? 1 : 0 } })
+      },
+      onMove: (by) => {
+        act({ type: 'movePage', from: selectedIndex, to: selectedIndex + by })
+        announce(`Moved to position ${selectedIndex + by + 1} of ${pages.length}.`)
+      },
+      onDuplicate: () => {
+        const newId = deps.newId()
+        act({ type: 'duplicatePage', id, newId })
+        selectOnly(newId)
+      },
+      onRemove: () => {
+        onRemove(id)
+      },
+      onSection: (title) => {
+        act({ type: 'setSection', id, title }, `section:${id}`)
+      },
+      onGestureEnd: endGesture,
+    }
+  }, [act, announce, deps, endGesture, onRemove, pages.length, selectOnly, selected, selectedIndex])
+
+  /**
+   * Where Insert blank page (#80) puts it: after the selected page (the last
+   * of several), else at the end.
+   */
+  const blankAfter = useMemo(() => {
+    const ids = new Set(selection.ids)
+    return pages.findLastIndex((p) => ids.has(p.id))
+  }, [pages, selection.ids])
+  const onInsertBlank = useCallback(() => {
+    const newId = deps.newId()
+    const after = pages[blankAfter]?.id
+    act({ type: 'insertBlank', id: newId, ...(after ? { after } : {}) })
+    selectOnly(newId)
+    setSelecting(false)
+    requestFocus(newId, true)
+    announce(`Inserted a blank page at position ${after ? blankAfter + 2 : pages.length + 1}.`)
+  }, [act, announce, blankAfter, deps, pages, requestFocus, selectOnly])
+
   const estimate = useMemo(
     () =>
       estimateBytes(
@@ -1389,6 +1441,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             duplex={duplex}
             orderScope={orderScope?.length ?? null}
             onArrange={onArrange}
+            blankAfter={blankAfter < 0 ? null : blankAfter + 1}
+            onInsertBlank={onInsertBlank}
             onStartOver={onStartOver}
             keepWork={keepWork}
             onKeepWork={onKeepWork}
@@ -1510,6 +1564,16 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
                     count={pages.length}
                     actions={groupActions}
                     straightening={straightening}
+                  />
+                ) : selected?.blank && blankActions ? (
+                  <BlankInspector
+                    page={selected}
+                    like={sizeModel(pages, selectedIndex)}
+                    assets={assets}
+                    index={selectedIndex}
+                    count={pages.length}
+                    settings={settings}
+                    actions={blankActions}
                   />
                 ) : selected?.sheet && sheetActions ? (
                   <SheetInspector

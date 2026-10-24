@@ -11,7 +11,8 @@ const keyOf = (slot: Pick<Slot, 'assetId' | 'corners'>) =>
  * so a long scan doesn't stall the page. Duplicates share their original's
  * answer. A combined page (#76) is checked picture by picture and looks
  * blank only when every picture on it does. A picture whose check fails is
- * simply not flagged. Nothing is ever
+ * simply not flagged, and so is a blank page inserted on purpose (#80).
+ * Nothing is ever
  * removed here: that's the person's call.
  */
 export const useBlankPages = (
@@ -49,7 +50,10 @@ export const useBlankPages = (
 
   const blankIds = useMemo(
     () =>
-      pages.flatMap((p) => (picturesOf(p).every((slot) => found.get(keyOf(slot))) ? [p.id] : [])),
+      pages.flatMap((p) =>
+        // A blank page that was inserted (#80) is blank on purpose.
+        !p.blank && picturesOf(p).every((slot) => found.get(keyOf(slot))) ? [p.id] : [],
+      ),
     [found, pages],
   )
   /** Some page hasn't had its answer yet. */

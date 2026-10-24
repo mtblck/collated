@@ -184,6 +184,13 @@ export interface Page {
    * belongs to the page, so it moves when the page does.
    */
   section?: string
+  /**
+   * An empty page the person inserted (#80): no picture, so `assetId` is
+   * empty and its look is unused except `turns`, which turns it landscape
+   * when the orientation is Auto. Sized by page setup; with "Match image"
+   * it takes the size of the page before it (`sizeModel`).
+   */
+  blank?: true
 }
 
 /**
@@ -204,8 +211,27 @@ export interface Sheet {
   slots: Slot[]
 }
 
-/** The pictures a page shows: its slots when combined, else the page itself. */
-export const picturesOf = (page: Page): readonly Slot[] => page.sheet?.slots ?? [page]
+/** The pictures a page shows: none when blank, its slots when combined, else the page itself. */
+export const picturesOf = (page: Page): readonly Slot[] =>
+  page.blank ? [] : (page.sheet?.slots ?? [page])
+
+/** An inserted blank page (#80). */
+export const blankPage = (id: string): Page => ({
+  id,
+  assetId: '',
+  ...DEFAULT_TRANSFORM,
+  blank: true,
+})
+
+/**
+ * The page a blank one takes its size from with "Match image" pages: the
+ * nearest one before it with a picture, else the nearest after it.
+ */
+export const sizeModel = (pages: readonly Page[], index: number): Page | undefined => {
+  for (let i = index - 1; i >= 0; i--) if (!pages[i]?.blank) return pages[i]
+  for (let i = index + 1; i < pages.length; i++) if (!pages[i]?.blank) return pages[i]
+  return undefined
+}
 
 /**
  * The key a picture's recognised words go under: the page id, plus the
