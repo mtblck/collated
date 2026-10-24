@@ -272,8 +272,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     async (files: File[]) => {
       if (files.length === 0) return
       // Adding files instead of restoring starts a new document; it replaces
-      // the saved one once it's saved.
-      setOffer((current) => (current === 'pending' ? current : null))
+      // the saved one once it's saved. Also before we've looked: a late answer
+      // then finds the offer settled and is dropped.
+      setOffer(null)
       setImporting({ file: 1, files: files.length })
       setStatus(`Reading ${plural(files.length, 'file')}…`)
       const added: Asset[] = []

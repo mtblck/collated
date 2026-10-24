@@ -236,6 +236,35 @@ describe('App', () => {
       })
     })
 
+    it('files added before the saved copy is found still get saved', async () => {
+      const { backend, visit } = device()
+      await visit().upload('a.jpg')
+      await saved(backend)
+      reload()
+      const store = createWorkStore(backend)
+      // The saved copy is found only after the files are added.
+      let answer = () => undefined as unknown
+      const work = {
+        ...store,
+        peek: () =>
+          new Promise<Awaited<ReturnType<typeof store.peek>>>((resolve) => {
+            answer = () => {
+              resolve(store.peek())
+            }
+          }),
+      }
+      const { upload } = setup({ work, storage: { getItem: () => null, setItem: () => undefined } })
+      await upload('b.jpg')
+      answer()
+      await waitFor(async () => {
+        const doc = await backend.getDoc()
+        expect(Object.values(doc?.history.present.assets ?? {}).map((a) => a.name)).toEqual([
+          'b.jpg',
+        ])
+      })
+      expect(screen.queryByRole('region', { name: /Restore/ })).toBeNull()
+    })
+
     it('says so once when the document is too big to keep', async () => {
       // Each fake file is 1 byte: the third doesn't fit.
       const { visit } = device(2)
