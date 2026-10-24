@@ -1,4 +1,5 @@
 import { pageRotation, type Asset, type Page } from '../core/model'
+import type { OcrLanguage } from '../core/ocrLanguages'
 import type { OcrWord } from '../core/textLayer'
 import { assetStore } from '../import/assetStore'
 import { displayedToBlob } from './filterCanvas'
@@ -9,8 +10,8 @@ const OCR_EDGE = 2600
 
 /**
  * A page's words, recognised from its full-resolution image as displayed
- * (cropped, turned, straightened; filters don't matter to OCR). Cached per
- * image, crop and rotation, so exporting twice doesn't read twice.
+ * (cropped, turned, straightened; filters don't matter to OCR), in `language`.
+ * Cached per image, crop, rotation and language, so exporting twice doesn't read twice.
  *
  * Bounded: every crop or turn of a page makes a new key, so entries are
  * dropped once their image's bytes are gone, and the least recently used go
@@ -42,11 +43,12 @@ export const forgetPageWords = () => {
 export const pageWords = (
   asset: Asset,
   page: Pick<Page, 'corners' | 'turns' | 'angle'>,
+  language: OcrLanguage,
   drawn?: Uint8Array,
 ): Promise<OcrWord[]> => {
   const rotation = pageRotation(page)
   const corners = drawn ? null : page.corners
-  const key = `${asset.id}:${drawn ? 'drawn' : JSON.stringify(corners)}:${rotation}`
+  const key = `${asset.id}:${drawn ? 'drawn' : JSON.stringify(corners)}:${rotation}:${language}`
   const hit = cache.get(key)
   if (hit) {
     cache.delete(key)
@@ -61,7 +63,7 @@ export const pageWords = (
       rotation,
       OCR_EDGE,
     )
-    return recognizeWords(blob, width, height)
+    return recognizeWords(blob, width, height, language)
   })()
   const entry = { bytesId: asset.bytesId, words }
   words.catch(() => {

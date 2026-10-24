@@ -907,6 +907,26 @@ describe('App', () => {
     expect(status()).toHaveTextContent('searchable')
   })
 
+  it('reads text in the language chosen in the export options (#79)', async () => {
+    const { user, deps, upload } = setup()
+    await upload('scan.jpg')
+    // The picker shows once OCR is on, starting at the visitor's language.
+    expect(screen.queryByLabelText('Language of the text')).not.toBeInTheDocument()
+    await user.click(
+      await screen.findByRole('checkbox', { name: 'Make text searchable (OCR)', hidden: true }),
+    )
+    const picker = screen.getByLabelText('Language of the text')
+    expect(picker).toHaveValue('eng')
+    await user.selectOptions(picker, 'fra')
+    expect(screen.getByText(/downloads about 2 MB/)).toBeInTheDocument()
+    await user.click(exportButton())
+    await waitFor(() => {
+      expect(deps.recognizeText).toHaveBeenCalled()
+    })
+    expect(vi.mocked(deps.recognizeText ?? vi.fn()).mock.calls[0]?.[2]).toBe('fra')
+    expect(deps.storage?.getItem('collated:settings')).toContain('"ocrLanguage":"fra"')
+  })
+
   it('asks nothing about drawn pages when OCR is off', async () => {
     const exportPdf = vi.fn<AppDeps['exportPdf']>(() =>
       Promise.resolve({ blob: new Blob(['%PDF']), compression: null, fits: true }),
@@ -937,7 +957,7 @@ describe('App', () => {
     // The image page and the three drawn pages; not form.pdf's vector pages.
     const calls = vi.mocked(deps.recognizeText ?? vi.fn()).mock.calls
     expect(calls).toHaveLength(4)
-    expect(calls.filter(([, , drawn]) => drawn instanceof Uint8Array)).toHaveLength(3)
+    expect(calls.filter(([, , , drawn]) => drawn instanceof Uint8Array)).toHaveLength(3)
     expect(Object.keys(exportPdf.mock.calls[0]?.[2]?.text ?? {})).toHaveLength(4)
     // And pages drawn only because the export asks are read too.
     const readDrawn = exportPdf.mock.calls[0]?.[2]?.readDrawn

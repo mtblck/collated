@@ -1,8 +1,10 @@
 // @vitest-environment node
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Connect, ViteDevServer } from 'vite'
+import { statSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
-import { ocrAssets } from '../ocr-assets'
+import { OCR_FILES, ocrAssets } from '../ocr-assets'
+import { OCR_LANGUAGES } from '../src/core/ocrLanguages'
 
 const BASE = '/'
 
@@ -44,4 +46,11 @@ describe('OCR assets dev middleware', () => {
       expect(res.end).not.toHaveBeenCalled()
     },
   )
+
+  it.each(OCR_LANGUAGES)('self-hosts $label data, of the size the picker says', ({ code, mb }) => {
+    const file = OCR_FILES[`lang/${code}.traineddata.gz`]
+    expect(file).toBeDefined()
+    const size = statSync(file ?? '').size / 1e6
+    expect(Math.abs(size - mb)).toBeLessThan(0.15)
+  })
 })

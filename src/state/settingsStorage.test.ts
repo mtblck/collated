@@ -17,6 +17,26 @@ describe('settings storage', () => {
     expect(defaultSettings('en-GB')).toMatchObject({ size: 'a4', unit: 'mm' })
   })
 
+  it('reads text in the visitor’s language when OCR has it (#79)', () => {
+    expect(defaultSettings('fr-CA').ocrLanguage).toBe('fra')
+    expect(defaultSettings('de-AT').ocrLanguage).toBe('deu')
+    expect(defaultSettings('pt-BR').ocrLanguage).toBe('por')
+    expect(defaultSettings('nb-NO').ocrLanguage).toBe('nor')
+    expect(defaultSettings('en-US').ocrLanguage).toBe('eng')
+    // Languages it can't read yet, and nonsense, fall back to English.
+    expect(defaultSettings('ja-JP').ocrLanguage).toBe('eng')
+    expect(defaultSettings('pl').ocrLanguage).toBe('eng')
+    expect(defaultSettings('not a locale!').ocrLanguage).toBe('eng')
+  })
+
+  it('remembers the chosen OCR language, whatever the locale', () => {
+    const store = memory()
+    saveSettings(store, { ...defaultSettings('en-US'), ocrLanguage: 'spa' })
+    expect(loadSettings(store, 'de-DE').ocrLanguage).toBe('spa')
+    store.setItem('collated:settings', JSON.stringify({ ocrLanguage: 'klingon' }))
+    expect(loadSettings(store, 'de-DE').ocrLanguage).toBe('deu')
+  })
+
   it('round-trips page setup but never the title', () => {
     const store = memory()
     saveSettings(store, {

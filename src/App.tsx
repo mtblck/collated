@@ -16,6 +16,7 @@ import { forgetPageThumbs } from './hooks/usePageThumb'
 import { useTouchDevice } from './hooks/useTouchDevice'
 import { forgetLayered, layeredImage } from './export/layered'
 import type { OcrWord } from './core/textLayer'
+import type { OcrLanguage } from './core/ocrLanguages'
 import type { SplitPart } from './core/splitBuild'
 import { buildOutline, sectionBefore, type OutlineItem } from './core/outline'
 import { layoutSheet } from './core/geometry'
@@ -80,10 +81,15 @@ export interface AppDeps {
   /** Which way up a picture's text is, as displayed (null: too little text to tell). */
   detectOrientation: (asset: Asset, picture: Slot) => Promise<Osd | null>
   /**
-   * Recognises a page's words (fractions of its content image); from
+   * Recognises a page's words in `language` (fractions of its content image); from
    * `drawn` instead for a PDF page exported as a drawing.
    */
-  recognizeText: (asset: Asset, page: Slot, drawn?: Uint8Array) => Promise<OcrWord[]>
+  recognizeText: (
+    asset: Asset,
+    page: Slot,
+    language: OcrLanguage,
+    drawn?: Uint8Array,
+  ) => Promise<OcrWord[]>
   /** A PDF page drawn as the preview shows it, if it hides a layer (else null). */
   drawnPage: (asset: Asset) => Promise<Uint8Array | null>
   storage: Pick<Storage, 'getItem' | 'setItem'> | undefined
@@ -670,7 +676,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         for (const [i, { key, slot, asset, drawn }] of readable.entries()) {
           setStatus(`Reading text on picture ${i + 1} of ${readable.length}…`)
           setExporting({ busy: true, done: i, total: readable.length, phase: 'ocr' })
-          text[key] = await deps.recognizeText(asset, slot, drawn)
+          text[key] = await deps.recognizeText(asset, slot, settings.ocrLanguage, drawn)
         }
       }
       // Pages the export finds it must draw after all are read then.
@@ -687,7 +693,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             for (const [i, { key, slot }] of reading.entries()) {
               setStatus(`Reading text on drawn page ${i + 1} of ${reading.length}…`)
               setExporting({ busy: true, done: i, total: reading.length, phase: 'ocr' })
-              words[key] = await deps.recognizeText(asset, slot, jpeg)
+              words[key] = await deps.recognizeText(asset, slot, settings.ocrLanguage, jpeg)
             }
             // The build runs again next.
             setStatus('Building PDF…')

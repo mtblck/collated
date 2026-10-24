@@ -1,3 +1,4 @@
+import type { OcrLanguage } from './ocrLanguages'
 import { toPixels, warpSize, type Quad } from './perspective'
 
 /**
@@ -61,6 +62,8 @@ export interface Settings {
   pageNumbers: PageNumbers
   /** Recognise text (on this device) and add an invisible, searchable layer. */
   ocr: boolean
+  /** What OCR reads (#79). Missing in work saved before. */
+  ocrLanguage: OcrLanguage
   /** Bookmark each imported file at its first page (#75). Missing in work saved before. */
   bookmarkFiles: boolean
 }

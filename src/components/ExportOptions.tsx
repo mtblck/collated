@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from 'react'
 import { QUALITY_PRESETS } from '../core/compression'
 import type { NumberPosition, Quality, Settings } from '../core/model'
+import { OCR_LANGUAGES, isOcrLanguage, ocrLanguageInfo } from '../core/ocrLanguages'
 import { describePlan, type Plan, type SplitMode, type SplitOptions } from '../core/split'
 import { formatBytes } from '../core/units'
 import { Button } from './controls'
@@ -72,7 +73,7 @@ export const ExportOptions = ({
 }: {
   settings: Pick<
     Settings,
-    'title' | 'quality' | 'maxBytes' | 'pageNumbers' | 'ocr' | 'bookmarkFiles'
+    'title' | 'quality' | 'maxBytes' | 'pageNumbers' | 'ocr' | 'ocrLanguage' | 'bookmarkFiles'
   >
   pageCount: number
   exporting: ExportState
@@ -349,10 +350,33 @@ export const ExportOptions = ({
                 Make text searchable (OCR)
               </label>
               <p id={`${id}-ocr-hint`} className="mt-1 ml-6 text-xs text-ink-muted">
-                English. Recognised on this device — nothing is uploaded. The text is added to the
-                PDF invisibly, so anyone with the file can search and copy it. The first time, it
-                downloads about 4 MB; then a few seconds per page.
+                Recognised on this device — nothing is uploaded. The text is added to the PDF
+                invisibly, so anyone with the file can search and copy it. The first time, it
+                downloads about {Math.round(1 + ocrLanguageInfo(settings.ocrLanguage).mb)} MB; then
+                a few seconds per page.
               </p>
+              {settings.ocr && (
+                <div className="mt-3 ml-6">
+                  <label htmlFor={`${id}-ocrlang`} className="label mb-2 block text-ink-faint">
+                    Language of the text
+                  </label>
+                  <select
+                    id={`${id}-ocrlang`}
+                    className="field w-full"
+                    value={settings.ocrLanguage}
+                    onChange={(event) => {
+                      const { value } = event.target
+                      if (isOcrLanguage(value)) onSettings({ ocrLanguage: value })
+                    }}
+                  >
+                    {OCR_LANGUAGES.map((l) => (
+                      <option key={l.code} value={l.code}>
+                        {l.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div className="mt-4">

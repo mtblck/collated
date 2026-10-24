@@ -87,11 +87,16 @@ const mapAssets = (
   thumbUrl: (asset: Asset) => string,
 ): History<DocState> => {
   const mapState = (state: DocState): DocState => {
-    // Settings added since the work was saved start at their defaults.
+    // Settings added since the work was saved start at their defaults; OCR
+    // read only English before #79.
     const saved: Partial<Settings> = state.settings
     return {
       ...state,
-      settings: { ...state.settings, bookmarkFiles: saved.bookmarkFiles ?? false },
+      settings: {
+        ...state.settings,
+        bookmarkFiles: saved.bookmarkFiles ?? false,
+        ocrLanguage: saved.ocrLanguage ?? 'eng',
+      },
       assets: Object.fromEntries(
         Object.entries(state.assets).map(([id, a]) => [id, { ...a, thumbUrl: thumbUrl(a) }]),
       ),

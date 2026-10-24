@@ -90,6 +90,7 @@ export const describeChange = (before: DocState, after: DocState): string | null
       imageDpi: 'image dpi',
       pageNumbers: 'page numbers',
       ocr: 'searchable text',
+      ocrLanguage: 'text language',
     }
     const names = changed.flatMap((key) => NAMES[key] ?? [])
     return names.length === 1 ? `changed ${names[0] ?? ''}` : 'changed document settings'

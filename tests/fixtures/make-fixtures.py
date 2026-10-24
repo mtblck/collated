@@ -118,6 +118,21 @@ for i, line in enumerate(
     td.text((110, 160 + i * 70), line, font=font, fill=(25, 25, 30))
 text_page.transpose(Image.Transpose.ROTATE_90).save(HERE / "text-page-sideways.jpg", quality=90)
 
+# The same kind of page in French (#79): words OCR only gets right with the
+# French data, and accented letters the text layer must keep.
+fr_page = Image.new("RGB", (1275, 1650), (250, 249, 245))
+fd = ImageDraw.Draw(fr_page)
+for i, line in enumerate(
+    [
+        "Facture numéro 4417, à régler en août",
+        "Le cœur de l’élève bat très fort.",
+        "Où est la clé du garçon ? Déjà payé.",
+        "Reçu : crème brûlée et thé glacé.",
+    ]
+):
+    fd.text((110, 160 + i * 70), line, font=font, fill=(25, 25, 30))
+fr_page.save(HERE / "text-page-fr.jpg", quality=90)
+
 # A full page of body text, for orientation detection (#70), saved turned
 # 0/90/180/270 degrees clockwise from upright. 1-bit, so four copies stay small.
 serif = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf", 26)

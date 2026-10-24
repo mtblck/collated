@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { asset, fixture, page, settings } from '../../tests/helpers'
 import { layoutPage, rotatedBounds } from './geometry'
 import type { Page } from './model'
+import { OCR_LANGUAGES, type OcrLanguage } from './ocrLanguages'
 import { buildPdf } from './pdf'
 import type { OcrWord } from './textLayer'
 
@@ -120,6 +121,49 @@ describe.skipIf(!hasPdftotext)('text layer', () => {
         .map((w) => w.text)
         .join(''),
     ).toBe('final')
+  })
+
+  // Words with every letter beyond A–Z each offered language uses (#79), in
+  // both cases: the standard font must encode them all, or they'd be skipped.
+  const ACCENTED: Record<OcrLanguage, string> = {
+    eng: 'naïve café résumé',
+    dan: 'blåbærgrød ÆØÅ',
+    nld: 'ruïne één coöperatie',
+    fin: 'hääyöaie ÅÄÖ šakki',
+    fra: 'élève à cœur où naïf Noël garçon ÉÈÊËÀÂÎÏÔÙÛÜŸÇŒÆ',
+    deu: 'Straße Größe Übung Äpfel',
+    ita: 'perché città più però così È',
+    nor: 'blåbær søt ÆØÅ',
+    por: 'coração não pão você avô à ÃÕÂÊÔÇ',
+    spa: 'niño ¿qué? ¡olé! pingüino acción ÑÁÉÍÓÚÜ',
+    swe: 'räksmörgås ÅÄÖ',
+  }
+
+  it.each(OCR_LANGUAGES)('writes $label words with their accents', async ({ code }) => {
+    const sample = ACCENTED[code].split(' ')
+    const line: OcrWord[] = sample.map((text, i) => ({
+      text,
+      x0: 0.05 + i * 0.1,
+      y0: 0.4,
+      x1: 0.13 + i * 0.1,
+      y1: 0.45,
+      baseline: 0.45,
+    }))
+    // Recognisers may give a letter and its accent as two code points.
+    line[0] = { ...line[0], text: (line[0]?.text ?? '').normalize('NFD') } as OcrWord
+    const bytes = await buildPdf(
+      {
+        settings: settings({ size: 'letter' }),
+        pages: [page('p', 'a')],
+        assets: { a: meta },
+        text: { p: line },
+      },
+      { getBytes: () => jpeg },
+    )
+    const plain = execFileSync('pdftotext', ['-raw', '-', '-'], { input: Buffer.from(bytes) })
+      .toString()
+      .trim()
+    expect(plain.split(/\s+/)).toEqual(sample)
   })
 
   it('separates words with spaces for copying and screen readers', async () => {

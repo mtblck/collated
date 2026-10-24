@@ -15,6 +15,6 @@ order: 8
 
 **A photo is sideways.** Use **Rotate**. If a whole batch came in sideways, **Rotate all pages** is in the toolbar's **More** menu.
 
-**Searchable text is missing or wrong.** It recognises English only, works best on clear, straight, high-resolution scans, and skips pages that came from PDFs, which usually have their own text already (except pages with a hidden layer, which go in as an image and are read like one). Try **Crop to the page** and **Straighten** first.
+**Searchable text is missing or wrong.** Check that **Language of the text** (under **Make text searchable**) is the page's language; it reads one language at a time, and only languages written in the Latin alphabet so far. It works best on clear, straight, high-resolution scans, and skips pages that came from PDFs, which usually have their own text already (except pages with a hidden layer, which go in as an image and are read like one). Try **Crop to the page** and **Straighten** first.
 
 **Something else.** [Report a problem](https://github.com/mtblck/collated/issues). Please don't attach private documents.

@@ -10,6 +10,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Searchable text in more languages (#79): Danish, Dutch, Finnish, French, German, Italian, Norwegian, Portuguese, Spanish and Swedish as well as English, accents included. Pick **Language of the text** under **Make text searchable**; it starts at your browser's language and is remembered. Each language downloads once (1–4 MB), from Collated's own site.
 - **Enhance** filter (#71): whitens the paper and lifts shadows while keeping colour, for photos of forms with stamps, highlighted pages and receipts with logos. It sits between Greyscale and B&W.
 - Select several pages at once (#65): Shift-click for a range, ⌘/Ctrl-click for one more, ⌘A / Ctrl+A for all, or **Select** on a phone. Rotate, straighten, scale, filter, move, duplicate or remove them together, each as one undo step, and drag any of them to move them all.
 - Blank pages (#68): pages that look blank (allowing for show-through, punch holes and dust) are marked **Looks blank**, and **Remove N blank pages** above the pages takes them all out in one undoable step. Nothing is removed without asking.
