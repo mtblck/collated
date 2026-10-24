@@ -247,6 +247,7 @@ export const importPdf = async (
         storedTurns: toTurns(page.rotate),
         thumbUrl: assetStore.thumbUrl(thumb),
         byteLength: bytes.byteLength,
+        capturedAt: file.lastModified,
       })
       page.cleanup()
       onPage?.(index + 1, pdf.numPages)

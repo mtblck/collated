@@ -6,6 +6,7 @@ import {
   headerSize,
   orientationTurns,
   passthrough,
+  readExifDate,
   readJpegInfo,
   readPngInfo,
   sniff,
@@ -158,5 +159,45 @@ describe('headerSize', () => {
     vp8x.set(new TextEncoder().encode('WEBPVP8X'), 8)
     vp8x.set([0xff, 0x3f, 0x00, 0xff, 0x3f, 0x00], 24)
     expect(headerSize(vp8x)).toEqual({ width: 16384, height: 16384 })
+  })
+})
+
+describe('readExifDate', () => {
+  /** A bare JPEG whose EXIF has only a DateTimeOriginal, big-endian. */
+  const withDate = (date: string) => {
+    const text = Array.from(`${date.padEnd(19, ' ').slice(0, 19)}\0`, (c) => c.charCodeAt(0))
+    const tiff = [
+      ...[0x4d, 0x4d, 0x00, 0x2a, 0, 0, 0, 8],
+      // IFD0: one entry, the Exif IFD pointer, to offset 26.
+      ...[0, 1, 0x87, 0x69, 0, 4, 0, 0, 0, 1, 0, 0, 0, 26, 0, 0, 0, 0],
+      // Exif IFD: DateTimeOriginal, ASCII x 20 at offset 44.
+      ...[0, 1, 0x90, 0x03, 0, 2, 0, 0, 0, 20, 0, 0, 0, 44, 0, 0, 0, 0],
+      ...text,
+    ]
+    const app1 = Array.from('Exif\0\0', (c) => c.charCodeAt(0)).concat(tiff)
+    const length = app1.length + 2
+    return new Uint8Array([0xff, 0xd8, 0xff, 0xe1, length >> 8, length & 0xff, ...app1, 0xff, 0xd9])
+  }
+
+  it('reads DateTimeOriginal as local time', () => {
+    expect(readExifDate(withDate('2024:03:09 14:05:30'))).toBe(
+      new Date(2024, 2, 9, 14, 5, 30).getTime(),
+    )
+  })
+
+  it('is null, never an error, for EXIF cut short anywhere', () => {
+    const whole = withDate('2024:03:09 14:05:30')
+    // Up to the last digit of the date (then a NUL and the end marker).
+    for (let end = 0; end < whole.length - 3; end++) {
+      expect(readExifDate(whole.subarray(0, end))).toBeNull()
+    }
+  })
+
+  it('is null for an unset clock, a malformed date, no EXIF, or not a JPEG', () => {
+    expect(readExifDate(withDate('0000:00:00 00:00:00'))).toBeNull()
+    expect(readExifDate(withDate('yesterday'))).toBeNull()
+    expect(readExifDate(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]))).toBeNull()
+    expect(readExifDate(fixture('quad-exif3.jpg'))).toBeNull()
+    expect(readExifDate(new Uint8Array([0x89, 0x50]))).toBeNull()
   })
 })
