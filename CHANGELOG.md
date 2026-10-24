@@ -20,6 +20,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Bookmarks in the exported PDF (#75): name a section at any page (**Section starts here** in the page's settings) and it becomes a bookmark that moves with its page. **Bookmark each imported file** in the export options adds one per file, under its section. Split exports give each file the bookmarks for its own pages.
 - Your work survives a reload or a closed tab: the document, undo history included, is kept in this browser on this device (never uploaded, never the password), and Collated offers **Restore your last document?** next time. Start over deletes it, and **Keep work after a reload** in the More menu turns it off.
 
+- **Take photo** on phones and tablets (#72): opens the camera and adds each shot after the last page, without leaving Collated. The system camera takes the picture, so no camera permission is asked for.
+
 ### Changed
 
 - A new look, the light table: pages lie on a softly lit dark ground (or a pale one in the light theme), the toolbar and the selected page's settings float above them, and the landing page matches. New type (Geist) and an amber accent.

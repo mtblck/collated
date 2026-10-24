@@ -85,6 +85,13 @@ export const PlusIcon = (p: P) => (
   </Icon>
 )
 
+export const CameraIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M3 7a1 1 0 0 1 1-1h2.5l1.5-2h4l1.5 2H16a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
+    <circle cx="10" cy="11" r="3" />
+  </Icon>
+)
+
 export const DownloadIcon = (p: P) => (
   <Icon {...p}>
     <path d="M10 3.5v9M6 9l4 4 4-4M4 16.5h12" />

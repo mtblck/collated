@@ -7,6 +7,12 @@ order: 2
 
 Drop files anywhere on the page, use **Choose files** (or **Add pages** once you've started), or paste images from the clipboard. New pages go after the ones you have.
 
+## Taking photos on a phone
+
+On a phone or tablet, **Take photo** (the camera button in the toolbar once you've started) opens your camera. Take the picture, confirm it, and it's added after the last page; press **Take photo** again for the next one. Each shot is named by the time it was taken, such as "Photo 14.03.22.jpg".
+
+Your phone's own camera app takes the picture, so Collated never asks for camera access and never sees the camera except for the photos you confirm. iPhone photos in HEIC work like any other. For the straightest result, lay the page on a darker surface: **Crop to the page…** then finds the paper's corners for you (see [Arranging pages](arranging-pages.md)).
+
 ## What Collated reads
 
 - **PDFs:** each page becomes a page you can move, rotate or remove. PDFs that need a password to open can't be read; PDFs that only restrict editing or printing are fine. Pages stay as sharp as the original at any size, except a page with a hidden layer, which goes into the PDF as an image of what you see (turn on **Make text searchable** to keep its text searchable).

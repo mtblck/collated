@@ -4,7 +4,7 @@ import type { DuplexGroups } from '../core/order'
 import type { Plan, SplitOptions } from '../core/split'
 import { Button, IconButton } from './controls'
 import { ExportOptions } from './ExportOptions'
-import { PlusIcon, RedoIcon, UndoIcon } from './Icons'
+import { CameraIcon, PlusIcon, RedoIcon, UndoIcon } from './Icons'
 import { MoreMenu, type Arrange } from './MoreMenu'
 import { PageSetup } from './PageSetup'
 import { Toolbar } from './Toolbar'
@@ -45,6 +45,7 @@ export const DocumentBar = ({
   onKeepWork,
   busy = false,
   onAdd,
+  onTakePhoto,
   onExport,
   estimate,
   lastExport,
@@ -79,6 +80,8 @@ export const DocumentBar = ({
   /** Importing, straightening or auto-rotating: Start over waits (export is `exporting`). */
   busy?: boolean
   onAdd: () => void
+  /** Opens the camera; only on touch devices (#72). */
+  onTakePhoto?: () => void
   onExport: () => void
   estimate: number
   lastExport: { size: string; used: string; fits: boolean } | null
@@ -134,6 +137,11 @@ export const DocumentBar = ({
           Add pages
         </span>
       </Button>
+      {onTakePhoto && (
+        <IconButton label="Take photo" onClick={onTakePhoto} {...TOOLBAR_ITEM}>
+          <CameraIcon />
+        </IconButton>
+      )}
       <ExportOptions
         settings={settings}
         pageCount={pageCount}
