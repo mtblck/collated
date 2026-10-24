@@ -5,11 +5,20 @@ order: 5
 
 # Exporting
 
-**Export** in the toolbar (it says how many pages there are) opens the export options: everything below. At the foot, always in view, are the estimated file size and **Export PDF**, which builds the file and saves it to your downloads. When a password is set, it says **Export locked PDF**. While a file is being built, the toolbar button shows its progress.
+**Export** in the toolbar (it says how many pages, or files, it will make) opens the export options: everything below. At the foot, always in view, are the estimated file size and **Export PDF**, which builds the file and saves it to your downloads. When a password is set, it says **Export locked PDF**. While a file is being built, the toolbar button shows its progress.
 
 ## Title and filename
 
 The title is stored in the PDF (readers show it in their title bar) and names the file. Leave it empty for a dated name.
+
+## Pages
+
+- **All pages:** one PDF of the whole document.
+- **Selected pages:** one PDF of just the pages you've selected (see [Arranging pages](arranging-pages.md)), in document order.
+- **Split by page ranges:** one PDF per range. Type them like `1-3, 4-10, 11-`: `11-` runs to the last page and `-3` starts at the first. Ranges can overlap and come in any order; each file follows the order you wrote. A single range, such as `3-5`, gives just those pages as one PDF.
+- **Split every few pages:** a new file every N pages, the last one holding what's left.
+
+Under the choices, a line says what you'll get, or what's wrong with the ranges. Several files download together as one ZIP, named from the title (`Bills.zip`, holding `Bills-part-1.pdf`, `Bills-part-2.pdf` and so on). Every file gets the same options: quality, size limit (each file on its own), searchable text, page numbers and password. With page numbers on, **In each file** chooses whether each file starts again from the first number or carries on from the file before.
 
 ## Image quality
 

@@ -38,6 +38,18 @@ describe('work store (#74)', () => {
     expect([...reachableAssets(h).keys()].sort()).toEqual(['a', 'b'])
   })
 
+  it('keeps every picture of a combined page (#76)', () => {
+    let h = docOf('a', 'b', 'c')
+    h = reduce(h, {
+      type: 'do',
+      action: { type: 'combinePages', ids: ['p-a', 'p-b'], kind: 'two', newIds: ['s'] },
+    })
+    h = reduce(h, { type: 'do', action: { type: 'removePage', id: 'p-c' } })
+    // Undo history aside, the combined page alone needs a and b.
+    const present = { past: [], present: h.present, future: [], lastKey: null }
+    expect([...reachableAssets(present).keys()].sort()).toEqual(['a', 'b'])
+  })
+
   it('round-trips the history, undo included, with fresh thumbnail URLs', async () => {
     const backend = memoryBackend()
     const store = createWorkStore(backend, () => 1234)

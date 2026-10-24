@@ -199,3 +199,19 @@ export const CheckIcon = (p: P) => (
     <path d="M5 10.5l3.2 3L15 6.5" />
   </Icon>
 )
+
+/** Two pictures on one sheet (#76). */
+export const CombineIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M4.5 2.5h11v15h-11z" />
+    <path d="M7 5h6v4H7zM7 11h6v4H7z" />
+  </Icon>
+)
+
+/** A sheet coming apart into its pictures (#76). */
+export const SplitIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M3 3.5h8v5H3zM9 11.5h8v5H9z" />
+    <path d="M13.5 4.5l2 2-2 2M6.5 15.5l-2-2 2-2" />
+  </Icon>
+)
