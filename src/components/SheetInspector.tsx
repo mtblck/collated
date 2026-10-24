@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef } from 'react'
 import { ID_CARD, layoutSheet } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
+import { pageCovers } from '../core/redact'
 import type { Asset, Page, Settings, SheetKind } from '../core/model'
 import { SHEET_CAPACITY } from '../core/model'
 import { formatLength } from '../core/units'
@@ -60,6 +61,7 @@ export const SheetInspector = ({
   const id = useId()
   const { kind, slots } = page.sheet
   const sheet = useMemo(() => layoutSheet(settings, assets, page), [settings, assets, page])
+  const covers = useMemo(() => pageCovers(page, assets), [page, assets])
   const mark = numberMark(settings.pageNumbers, index, sheet.page, sheet.content.x)
   const thumbUrls = usePageThumbs(
     slots.flatMap((slot) => {
@@ -114,7 +116,7 @@ export const SheetInspector = ({
         className="relative w-full rounded-xl bg-paper-sunk p-5"
         style={{ aspectRatio: boxRatio }}
       >
-        <PagePreview sheet={sheet} thumbUrls={thumbUrls} showMargins mark={mark} />
+        <PagePreview sheet={sheet} thumbUrls={thumbUrls} covers={covers} showMargins mark={mark} />
       </div>
 
       <div>

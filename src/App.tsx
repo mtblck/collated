@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Asset, QuarterTurns, Settings, SheetKind, Slot } from './core/model'
-import { SHEET_CAPACITY, isVector, pictureKey, picturesOf } from './core/model'
+import { SHEET_CAPACITY, isRedacted, isVector, pictureKey, picturesOf } from './core/model'
 import { partFilename, pdfFilename, zipFilename } from './core/filename'
 import { compressionFor, estimateBytes } from './core/compression'
 import type { Skew } from './core/deskew'
@@ -92,8 +92,11 @@ export interface AppDeps {
     language: OcrLanguage,
     drawn?: Uint8Array,
   ) => Promise<OcrWord[]>
-  /** A PDF page drawn as the preview shows it, if it hides a layer (else null). */
-  drawnPage: (asset: Asset) => Promise<Uint8Array | null>
+  /**
+   * A PDF page drawn as the preview shows it, if it hides a layer (else
+   * null), or whatever it hides with `force`.
+   */
+  drawnPage: (asset: Asset, force?: boolean) => Promise<Uint8Array | null>
   storage: Pick<Storage, 'getItem' | 'setItem'> | undefined
   locale: string
   /** Loads the export code ahead of time (see exportPdf.ts). */
@@ -122,7 +125,7 @@ const defaultDeps = (): AppDeps => ({
   findPaper: paperOf,
   detectOrientation: pageOrientation,
   recognizeText: pageWords,
-  drawnPage: (asset) => layeredImage(asset),
+  drawnPage: (asset, force) => layeredImage(asset, force),
   storage: safeStorage(),
   locale: navigator.language,
   prepareExport,
@@ -673,7 +676,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             const key = pictureKey(page, i)
             if (asset.format !== 'pdf') readable.push({ key, slot, asset })
             else {
-              const drawn = await deps.drawnPage(asset)
+              // One with something blacked out goes as a drawing whatever it hides (#77).
+              const drawn = await deps.drawnPage(asset, isRedacted(slot))
               if (drawn) readable.push({ key, slot, asset, drawn })
             }
           }

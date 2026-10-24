@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
 import { singleSheet, type Layout } from '../core/geometry'
 import type { NumberMark } from '../core/pageNumbers'
+import type { Quad } from '../core/perspective'
 import { FIT, clampView, stepFrom, zoomAt, type View } from '../core/zoom'
 import { Button, IconButton } from './controls'
 import { CloseIcon, MinusIcon, PlusIcon } from './Icons'
@@ -25,6 +26,7 @@ export const PageViewer = ({
   thumbUrl,
   loadDetail,
   mark = null,
+  covers = [],
   onClose,
 }: {
   title: string
@@ -33,6 +35,8 @@ export const PageViewer = ({
   /** Resolves with an object URL for the full-resolution image (revoked on close). */
   loadDetail: () => Promise<string>
   mark?: NumberMark | null
+  /** What's blacked out, as fractions of what the page shows (see PagePreview). */
+  covers?: readonly Quad[]
   onClose: () => void
 }) => {
   const id = useId()
@@ -401,7 +405,12 @@ export const PageViewer = ({
               transform: `translate(${String(view.x)}px, ${String(view.y)}px) scale(${String(view.scale)})`,
             }}
           >
-            <PagePreview sheet={singleSheet(layout)} thumbUrls={[detail ?? thumbUrl]} mark={mark} />
+            <PagePreview
+              sheet={singleSheet(layout)}
+              thumbUrls={[detail ?? thumbUrl]}
+              covers={[covers]}
+              mark={mark}
+            />
           </div>
         </div>
         <p className="sr-only" role="status" aria-live="polite">

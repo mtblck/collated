@@ -42,13 +42,14 @@ export const forgetPageWords = () => {
  */
 export const pageWords = (
   asset: Asset,
-  page: Pick<Page, 'corners' | 'turns' | 'angle'>,
+  page: Pick<Page, 'corners' | 'turns' | 'angle' | 'redactions'>,
   language: OcrLanguage,
   drawn?: Uint8Array,
 ): Promise<OcrWord[]> => {
   const rotation = pageRotation(page)
   const corners = drawn ? null : page.corners
-  const key = `${asset.id}:${drawn ? 'drawn' : JSON.stringify(corners)}:${rotation}:${language}`
+  const redactions = page.redactions ?? []
+  const key = `${asset.id}:${drawn ? 'drawn' : JSON.stringify(corners)}:${rotation}:${JSON.stringify(redactions)}:${language}`
   const hit = cache.get(key)
   if (hit) {
     cache.delete(key)
@@ -62,6 +63,7 @@ export const pageWords = (
       corners,
       rotation,
       OCR_EDGE,
+      redactions,
     )
     return recognizeWords(blob, width, height, language)
   })()

@@ -19,6 +19,7 @@ Only what you see on the pages, and what you chose to add:
 
 - **No photo metadata.** Phones store the camera, the time and often the GPS location inside each photo. Collated removes all of it before the image goes into the PDF; the picture itself is unchanged.
 - **No hidden parts.** If Fill or scaling hides part of an image, that part isn't stored.
+- **Blacked-out areas are removed, not covered.** Pixels under a box are painted over before the image is stored, a PDF page with a box goes in as a picture of the page, and searchable text leaves out words under a box. See [Black out part of a page](arranging-pages.md).
 - **PDF pages bring only what they show.** Filled-in form fields, stamps, signatures and highlights are drawn onto the page as they look; the form data behind them, comment text, attachments, scripts and the original file's metadata are left out, and so are images from pages you removed. A PDF page with a hidden layer is exported as it looks, as an image, so nothing hidden comes with it. Its own text can't be selected, but **Make text searchable** reads it from that image. Anything a PDF page draws outside its visible area is still there, clipped (as it was in the original).
 - **Searchable text,** only if you turn it on.
 - **Bookmarks,** only if you add them: the section names you type and, with **Bookmark each imported file** on, your files' names.

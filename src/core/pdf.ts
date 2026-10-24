@@ -28,8 +28,9 @@ import {
 } from '@cantoo/pdf-lib'
 import { layoutSheet, partLayout, snapPart, visiblePart, type Layout, type Part } from './geometry'
 import { compressionFor, targetPixels, type Compression } from './compression'
-import { contentSize, pictureKey, picturesOf } from './model'
-import type { Asset, Filter, Page, Settings } from './model'
+import { contentSize, isRedacted, pictureKey, picturesOf } from './model'
+import type { Asset, Filter, Page, Redaction, Settings } from './model'
+import { redactionShapes, wordsClear } from './redact'
 import { FULL_IMAGE, apply, homography, type Quad } from './perspective'
 import { NeedsDrawing, embedSanitized, reachesHiddenLayer, sanitizedPage } from './pdfSanitize'
 import { stripJpegMetadata } from './jpegClean'
@@ -88,6 +89,11 @@ export interface ImageJob {
    * the part is folded into them instead.
    */
   part: Part | null
+  /**
+   * Paint these rectangles of the upright image black before anything else
+   * (#77), so no pixel under them reaches the output.
+   */
+  redactions: readonly Redaction[]
   /** Output pixels: of the part, when there is one. */
   width: number
   height: number
@@ -103,14 +109,18 @@ export interface ImageJob {
  */
 export const imageJob = (
   asset: Pick<Asset, 'width' | 'height' | 'format'>,
-  page: Pick<Page, 'filter'> & Partial<Pick<Page, 'corners'>>,
+  page: Pick<Page, 'filter'> & Partial<Pick<Page, 'corners' | 'redactions'>>,
   drawnWidthPt: number,
   compression: Compression | null,
   part: Part | null = null,
 ): ImageJob | null => {
   const { filter } = page
   let corners = page.corners ?? null
-  if (asset.format === 'pdf' || (filter === 'original' && !compression && !corners && !part)) {
+  const redactions = page.redactions ?? []
+  if (
+    asset.format === 'pdf' ||
+    (filter === 'original' && !compression && !corners && !part && !redactions.length)
+  ) {
     return null
   }
   const full = targetPixels(contentSize(asset, page), drawnWidthPt, compression)
@@ -130,9 +140,10 @@ export const imageJob = (
     filter,
     corners,
     part: corners ? null : part,
+    redactions,
     width: Math.max(1, Math.round(full.width * share.x)),
     height: Math.max(1, Math.round(full.height * share.y)),
-    // B&W stays lossless; so does a PNG that is only cropped.
+    // B&W stays lossless; so does a PNG that is only cropped or blacked out.
     format:
       filter === 'bw' || (filter === 'original' && !compression && asset.format === 'png')
         ? 'png'
@@ -154,7 +165,7 @@ const encodable = (text: string, supported: Set<number>) => {
   return true
 }
 
-const drawTextLayer = (page: PDFPage, font: PDFFont, layout: Layout, words: OcrWord[]) => {
+const drawTextLayer = (page: PDFPage, font: PDFFont, layout: Layout, words: readonly OcrWord[]) => {
   const key = page.node.newFontDictionary(font.name, font.ref)
   const supported = new Set(font.getCharacterSet())
   page.pushOperators(
@@ -358,7 +369,7 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
    */
   const embed = async (asset: BuildInput['assets'][string], job: ImageJob | null) => {
     const key = job
-      ? `${asset.id}:${job.filter}:${job.width}x${job.height}:${job.format}:${job.quality}:${JSON.stringify(job.corners)}:${JSON.stringify(job.part)}`
+      ? `${asset.id}:${job.filter}:${job.width}x${job.height}:${job.format}:${job.quality}:${JSON.stringify(job.corners)}:${JSON.stringify(job.part)}:${JSON.stringify(job.redactions)}`
       : asset.id
     const cached = embedded.get(key)
     if (cached) return cached
@@ -383,8 +394,12 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
       if (job) {
         if (!options.processImage) throw new Error('This build can’t re-encode images.')
         const out = await options.processImage(original, job)
-        // Filters and crops must apply; plain recompression only if it helps.
-        const must = job.filter !== 'original' || job.corners !== null || job.part !== null
+        // Filters, crops and black-outs must apply; plain recompression only if it helps.
+        const must =
+          job.filter !== 'original' ||
+          job.corners !== null ||
+          job.part !== null ||
+          job.redactions.length > 0
         if (must || out.byteLength < original.byteLength) {
           bytes = out
           format = job.format
@@ -413,13 +428,20 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
   }
 
   // Every PDF page that must be drawn, found before anything is copied, so
-  // the export can draw them all and build again in one round.
-  const toDraw = Object.values(assets).filter((asset) => {
-    if (asset.format !== 'pdf' || drawings.has(asset.id)) return false
-    return pages.some((p) => picturesOf(p).some((slot) => slot.assetId === asset.id))
-  })
+  // the export can draw them all and build again in one round. Fail closed:
+  // a page with something blacked out is never copied as vectors, whose text
+  // and drawing would survive under any box (#77).
+  const shown = (asset: BuildInput['assets'][string]) =>
+    pages.flatMap((p) => picturesOf(p).filter((slot) => slot.assetId === asset.id))
+  const toDraw = Object.values(assets).filter(
+    (asset) => asset.format === 'pdf' && !drawings.has(asset.id) && shown(asset).length > 0,
+  )
   const mustDraw: string[] = []
   for (const asset of toDraw) {
+    if (shown(asset).some(isRedacted)) {
+      mustDraw.push(asset.id)
+      continue
+    }
     const src = await source(asset.bytesId)
     const srcPage = sanitizedPage(src, src.getPage(asset.pdfPage ?? 0))
     if (reachesHiddenLayer(src, srcPage)) mustDraw.push(asset.id)
@@ -470,8 +492,13 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
       else pdfPage.drawImage(content.image, draw)
       pdfPage.pushOperators(popGraphicsState())
 
-      const words = input.text?.[pictureKey(page, i)]
-      if (words?.length) {
+      // Words under a black-out are dropped with the pixels (#77).
+      const words = wordsClear(
+        input.text?.[pictureKey(page, i)] ?? [],
+        redactionShapes(look.redactions, stored.format === 'pdf' ? null : look.corners),
+        layout.image,
+      )
+      if (words.length) {
         textFont ??= await doc.embedFont(StandardFonts.Helvetica)
         drawTextLayer(pdfPage, textFont, layout, words)
       }
