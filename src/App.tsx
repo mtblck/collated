@@ -255,6 +255,11 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   /** The support note after an export; once a visit at most, and see supportPromptDue. */
   const [supportNote, setSupportNote] = useState(false)
   const supportAsked = useRef(false)
+  // Read when an export ends: a notice still up there means no support note.
+  const noticesUp = useRef(0)
+  useEffect(() => {
+    noticesUp.current = notices.length
+  }, [notices])
   const [keepWork, setKeepWork] = useState(() => loadKeepWork(deps.storage))
   /**
    * Last visit's document, offered until it's restored or discarded; `pending`
@@ -771,8 +776,12 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             ? `Couldn’t get every file under ${formatBytes(settings.maxBytes)}, even at ${used}. They were saved anyway.`
             : `Couldn’t get under ${formatBytes(settings.maxBytes)}: the smallest version is ${size} at ${used}. It was saved anyway.`,
         )
-      } else if (!supportAsked.current && supportPromptDue(deps.storage, deps.now())) {
-        // Only after an export that went as asked, and never over a problem.
+      } else if (
+        !supportAsked.current &&
+        noticesUp.current === 0 &&
+        supportPromptDue(deps.storage, deps.now())
+      ) {
+        // Only after an export that went as asked, and never with a problem showing.
         supportAsked.current = true
         saveSupportPrompt(deps.storage, deps.now())
         setSupportNote(true)

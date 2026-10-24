@@ -2003,6 +2003,21 @@ describe('App', () => {
       expect(note()).not.toBeInTheDocument()
     })
 
+    it('isn’t used up while an earlier notice is still showing', async () => {
+      const { user, store, upload } = setup()
+      await upload('a.jpg', 'notes.txt')
+      await screen.findByRole('alert')
+      await user.click(await findExportMenu())
+      await user.click(exportButton())
+      await waitFor(() => {
+        expect(status()).toHaveTextContent('Saved')
+      })
+      expect(note()).not.toBeInTheDocument()
+      expect(store.get('collated:support-prompt')).toBeUndefined()
+      await user.click(screen.getByRole('button', { name: 'Dismiss' }))
+      expect(note()).not.toBeInTheDocument()
+    })
+
     it('goes for good once a support link is followed, and Escape closes it', async () => {
       const { user, store, upload } = setup()
       await upload('a.jpg')
