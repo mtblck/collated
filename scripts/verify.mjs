@@ -3303,7 +3303,7 @@ await context.close()
   await ctx.close()
 }
 
-// 34. Support note (#PR): one quiet note after a good export, with plain
+// 34. Support note (#99): one quiet note after a good export, with plain
 // links out (nothing loads from Ko-fi or GitHub), and gone for good on
 // Don't ask again.
 {
