@@ -47,6 +47,19 @@ const setup = (overrides: Partial<AppDeps> = {}) => {
     estimateSkew: vi.fn((a: { name: string }) =>
       Promise.resolve(a.name.includes('blank') ? null : { angle: -2.5, confidence: 2 }),
     ),
+    // Photos named "paper…" show a sheet the detector finds; others don't.
+    findPaper: vi.fn((a: { name: string }) =>
+      Promise.resolve(
+        a.name.startsWith('paper')
+          ? ([
+              { x: 0.1, y: 0.2 },
+              { x: 0.9, y: 0.1 },
+              { x: 0.8, y: 0.9 },
+              { x: 0.2, y: 0.8 },
+            ] as const)
+          : null,
+      ),
+    ),
     // PDF pages named "layers" hide a layer, so they'd be exported drawn.
     drawnPage: vi.fn((a: { name: string }) =>
       Promise.resolve(a.name.startsWith('layers') ? new Uint8Array([0xff, 0xd8, 7]) : null),
@@ -347,6 +360,81 @@ describe('App', () => {
     expect(panel.getByRole('button', { name: 'Reset' })).toBeEnabled()
     await user.click(panel.getByRole('button', { name: 'Remove crop' }))
     expect(panel.getByRole('button', { name: 'Crop to the page…' })).toBeInTheDocument()
+  })
+
+  it('opens the crop editor on the paper it finds, applying nothing until asked', async () => {
+    const { user, upload } = setup()
+    await upload('paper.jpg')
+    const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+    await user.click(panel.getByRole('button', { name: 'Crop to the page…' }))
+    const dialog = within(await screen.findByRole('dialog', { name: 'Crop to the page' }))
+    expect(screen.getByRole('dialog')).toHaveAccessibleDescription(
+      /^The corners are on the paper found in the photo\. Check them, then apply\./,
+    )
+    expect(dialog.getByRole('button', { name: 'Top-left corner' })).toHaveAccessibleDescription(
+      '10% across, 20% down',
+    )
+    expect(dialog.getByRole('button', { name: 'Bottom-right corner' })).toHaveAccessibleDescription(
+      '80% across, 90% down',
+    )
+    // Cancel leaves the page uncropped.
+    await user.click(dialog.getByRole('button', { name: 'Cancel' }))
+    expect(panel.getByRole('button', { name: 'Crop to the page…' })).toBeInTheDocument()
+    expect(panel.getByRole('button', { name: 'Reset' })).toHaveAttribute('aria-disabled', 'true')
+
+    await user.click(panel.getByRole('button', { name: 'Crop to the page…' }))
+    await user.click(await screen.findByRole('button', { name: 'Apply crop' }))
+    expect(await panel.findByRole('button', { name: 'Adjust corners…' })).toBeInTheDocument()
+  })
+
+  it('opens the crop editor on the whole image when no paper is found', async () => {
+    const { user, upload } = setup()
+    await upload('photo.jpg')
+    const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+    await user.click(panel.getByRole('button', { name: 'Crop to the page…' }))
+    const dialog = within(await screen.findByRole('dialog', { name: 'Crop to the page' }))
+    expect(dialog.queryByText(/found in the photo/)).not.toBeInTheDocument()
+    expect(dialog.getByRole('button', { name: 'Bottom-right corner' })).toHaveAccessibleDescription(
+      '100% across, 100% down',
+    )
+  })
+
+  it('auto-crops all pages in one undo step, keeping crops already made', async () => {
+    const { user, upload, deps } = setup()
+    await upload('paper-1.jpg', 'paper-2.jpg', 'plain.jpg', 'paper-3.jpg', 'scan.pdf')
+    const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+    // Page 4 is cropped by hand first.
+    await user.click(screen.getByRole('button', { name: 'Page 4: paper-3.jpg' }))
+    await user.click(panel.getByRole('button', { name: 'Crop to the page…' }))
+    await user.click(await screen.findByRole('button', { name: 'Whole image' }))
+    const corner = screen.getByRole('button', { name: 'Top-left corner' })
+    corner.focus()
+    await user.keyboard('{Shift>}{ArrowRight}{/Shift}')
+    await user.click(screen.getByRole('button', { name: 'Apply crop' }))
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    vi.mocked(deps.findPaper)?.mockClear()
+    await user.click(panel.getByRole('button', { name: 'Auto-crop all pages' }))
+    await waitFor(() => {
+      expect(status()).toHaveTextContent(
+        'Cropped 2 of 3 pages to the paper. 1 page had no clear edges and was left as it is. 1 page you had already cropped was kept.',
+      )
+    })
+    // PDF pages and the page already cropped aren't looked at.
+    expect(deps.findPaper).toHaveBeenCalledTimes(3)
+    await user.click(screen.getByRole('button', { name: 'Page 1: paper-1.jpg' }))
+    expect(panel.getByRole('button', { name: 'Adjust corners…' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Page 3: plain.jpg' }))
+    expect(panel.getByRole('button', { name: 'Crop to the page…' })).toBeInTheDocument()
+
+    // One undo takes every auto-crop back; the hand crop stays.
+    await user.click(screen.getByRole('button', { name: /^Undo/ }))
+    await user.click(screen.getByRole('button', { name: 'Page 1: paper-1.jpg' }))
+    expect(panel.getByRole('button', { name: 'Crop to the page…' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Page 4: paper-3.jpg' }))
+    expect(panel.getByRole('button', { name: 'Adjust corners…' })).toBeInTheDocument()
   })
 
   it('crops a turned page as it is shown, and stores the corners upright (#43)', async () => {

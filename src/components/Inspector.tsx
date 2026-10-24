@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNod
 import { layoutPage, visiblePart } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
 import type { Asset, Filter, FitMode, Page, PageTransform, Settings } from '../core/model'
+import type { Quad } from '../core/perspective'
 import { ANGLE_LIMIT, SCALE_MAX, SCALE_MIN, isVector } from '../core/model'
 import { formatBytes, formatLength } from '../core/units'
 import { Button, IconButton, Segmented } from './controls'
@@ -47,6 +48,9 @@ export interface InspectorActions {
   onApplyToAll: () => void
   onRemove: () => void
   onAutoStraighten: (scope: 'page' | 'all') => void
+  /** The paper's corners in this page's photo, if there's a clear sheet. */
+  onFindPaper: () => Promise<Quad | null>
+  onAutoCropAll: () => void
 }
 
 const Stat = ({ term, children }: { term: string; children: ReactNode }) => (
@@ -65,6 +69,7 @@ export const Inspector = ({
   settings,
   actions,
   straightening = false,
+  autoCropping = false,
 }: {
   page: Page
   asset: Asset
@@ -74,6 +79,8 @@ export const Inspector = ({
   actions: InspectorActions
   /** An auto-straighten is running. */
   straightening?: boolean
+  /** Auto-crop all pages is running. */
+  autoCropping?: boolean
 }) => {
   const id = useId()
   const layout = useMemo(() => layoutPage(settings, asset, page), [settings, asset, page])
@@ -81,6 +88,32 @@ export const Inspector = ({
   const vector = isVector(asset)
   const thumbUrl = usePageThumb(asset, page)
   const [cropping, setCropping] = useState(false)
+  /** Looking for the paper before the crop editor opens; then what was found. */
+  const [finding, setFinding] = useState(false)
+  const [suggested, setSuggested] = useState<Quad | null>(null)
+  const pageId = useRef(page.id)
+  useEffect(() => {
+    pageId.current = page.id
+  }, [page.id])
+  const openCropEditor = async () => {
+    // A page already cropped opens with its own corners.
+    if (page.corners) {
+      setSuggested(null)
+      setCropping(true)
+      return
+    }
+    const asking = page.id
+    setFinding(true)
+    try {
+      const found = await actions.onFindPaper()
+      // Another page was selected meanwhile: don't open this one's editor.
+      if (pageId.current !== asking) return
+      setSuggested(found)
+      setCropping(true)
+    } finally {
+      setFinding(false)
+    }
+  }
   const [viewing, setViewing] = useState(false)
   // Stable per image and look, so the viewer loads it once.
   const { filter, corners } = page
@@ -186,16 +219,22 @@ export const Inspector = ({
             can’t be cropped.
           </p>
         ) : (
-          <div className="flex gap-2" role="group" aria-labelledby={`${id}-crop`}>
+          <div className="flex flex-wrap gap-2" role="group" aria-labelledby={`${id}-crop`}>
+            {/* Inactive while looking, rather than disabled, so focus stays put. */}
             <Button
               ref={cropButton}
               className="flex-1"
+              inactive={finding}
               onClick={() => {
-                setCropping(true)
+                void openCropEditor()
               }}
             >
               <CropIcon width={16} height={16} />
-              {page.corners ? 'Adjust corners…' : 'Crop to the page…'}
+              {finding
+                ? 'Finding the paper…'
+                : page.corners
+                  ? 'Adjust corners…'
+                  : 'Crop to the page…'}
             </Button>
             {page.corners && (
               <Button
@@ -208,6 +247,15 @@ export const Inspector = ({
                 Remove crop
               </Button>
             )}
+            <Button
+              size="sm"
+              className="basis-full"
+              disabled={count < 2}
+              inactive={autoCropping}
+              onClick={actions.onAutoCropAll}
+            >
+              {autoCropping ? 'Looking for the paper…' : 'Auto-crop all pages'}
+            </Button>
           </div>
         )}
         {cropping && (
@@ -215,6 +263,7 @@ export const Inspector = ({
             asset={asset}
             turns={page.turns}
             initial={page.corners}
+            suggested={suggested}
             onApply={(corners) => {
               actions.onTransform({ corners })
             }}
