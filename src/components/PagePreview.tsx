@@ -1,6 +1,7 @@
 import type { SheetLayout } from '../core/geometry'
 import type { Quad } from '../core/perspective'
 import { NUMBER_GREY, type NumberMark } from '../core/pageNumbers'
+import { WATERMARK_FONT, type WatermarkMark } from '../core/watermark'
 import { cx } from './cx'
 
 const pct = (part: number, whole: number) => `${(part / whole) * 100}%`
@@ -21,6 +22,7 @@ export const PagePreview = ({
   selected = false,
   mark = null,
   covers = [],
+  watermark = null,
   className,
 }: {
   sheet: SheetLayout
@@ -36,6 +38,8 @@ export const PagePreview = ({
   selected?: boolean
   /** The page number to draw, placed exactly as the export places it. */
   mark?: NumberMark | null
+  /** The watermark (#78), placed exactly as the export places it. */
+  watermark?: WatermarkMark | null
   className?: string
 }) => {
   const { page, content } = sheet
@@ -133,6 +137,29 @@ export const PagePreview = ({
             )}
           </div>
         ))}
+        {watermark && (
+          <span
+            aria-hidden="true"
+            // Drawn from the attribute (see index.css): the page's card is a
+            // button named for the page, and its visible text must be in that
+            // name (WCAG 2.5.3); generated content isn't text it holds.
+            data-watermark={watermark.text}
+            className="pointer-events-none absolute leading-none whitespace-nowrap select-none"
+            style={{
+              left: pct(watermark.x, page.width),
+              top: pct(watermark.baseline, page.height),
+              fontSize: `${(watermark.size / page.height) * 100}cqh`,
+              fontFamily: WATERMARK_FONT,
+              // Unkerned, as the PDF sets it.
+              fontKerning: 'none',
+              color: `rgb(${[watermark.colour.r, watermark.colour.g, watermark.colour.b].map((c) => Math.round(c * 255)).join(' ')})`,
+              opacity: watermark.opacity,
+              // The baseline's middle onto the anchor, then turned about it.
+              transformOrigin: '0 0',
+              transform: `rotate(${String(watermark.angle)}deg) translate(-50%, -0.72em)`,
+            }}
+          />
+        )}
         {mark && (
           <span
             aria-hidden="true"

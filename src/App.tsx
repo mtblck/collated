@@ -787,9 +787,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     [act, pages, selection.ids],
   )
   const onSettings = useCallback(
-    (patch: Partial<Settings>) => {
+    (patch: Partial<Settings>, coalesce?: string) => {
       // Typing a title shouldn't create an undo step per keystroke.
-      act({ type: 'setSettings', patch }, 'title' in patch ? 'title' : undefined)
+      act({ type: 'setSettings', patch }, coalesce ?? ('title' in patch ? 'title' : undefined))
     },
     [act],
   )
@@ -1454,6 +1454,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
               setSplit((current) => ({ ...current, ...patch }))
             }}
             selectedCount={selection.ids.length}
+            selectedIds={selection.ids}
             plan={plan}
           />
         ) : undefined}

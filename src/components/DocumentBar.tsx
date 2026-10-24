@@ -57,6 +57,7 @@ export const DocumentBar = ({
   split,
   onSplit,
   selectedCount,
+  selectedIds,
   plan,
 }: {
   settings: Settings
@@ -64,7 +65,7 @@ export const DocumentBar = ({
   canUndo: boolean
   canRedo: boolean
   exporting: ExportState
-  onSettings: (patch: Partial<Settings>) => void
+  onSettings: (patch: Partial<Settings>, coalesce?: string) => void
   onUndo: () => void
   onRedo: () => void
   onRotateAll: (by: -1 | 1) => void
@@ -97,6 +98,7 @@ export const DocumentBar = ({
   split: SplitOptions
   onSplit: (patch: Partial<SplitOptions>) => void
   selectedCount: number
+  selectedIds: readonly string[]
   plan: Plan
 }) => {
   const id = useId()
@@ -162,6 +164,7 @@ export const DocumentBar = ({
         split={split}
         onSplit={onSplit}
         selectedCount={selectedCount}
+        selectedIds={selectedIds}
         plan={plan}
         panelId={optionsId}
       />

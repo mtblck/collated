@@ -199,6 +199,11 @@
     filter: var(--sheet-filter);
   }
 
+  /* A page's watermark: its text comes from the attribute (see PagePreview). */
+  [data-watermark]::before {
+    content: attr(data-watermark);
+  }
+
   /* Native range, restyled: hairline track, ink thumb, accent when focused. */
   .range {
     appearance: none;

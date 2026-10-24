@@ -19,7 +19,17 @@ import { DEFAULT_TRANSFORM, blankPage } from './model'
 import type { Asset, Page, PageTransform, Settings, SheetKind, Slot } from './model'
 import { passthrough } from './imageInfo'
 import { pdfFilename } from './filename'
-import { buildPdf, imageJob, pageTurns, placement, visibleBox, type ImageJob } from './pdf'
+import {
+  FLATTEN_MIN_SCALE,
+  buildPdf,
+  imageJob,
+  pageTurns,
+  placement,
+  visibleBox,
+  type FlattenJob,
+  type ImageJob,
+} from './pdf'
+import { NO_WATERMARK, watermarkMark } from './watermark'
 
 const NOW = new Date('2026-10-21T12:00:00Z')
 
@@ -855,5 +865,167 @@ describe('cropping a page’s hidden part', () => {
       },
     )
     expect(job).toMatchObject({ format: 'jpeg', quality: 0.92, width: 800, height: 800 })
+  })
+})
+
+describe('watermark (#78)', () => {
+  const stamp = { ...NO_WATERMARK, show: true, text: 'Copy for Acme Bank only' }
+
+  /** Words of page `n` (from 1) with their boxes, in points from the top-left. */
+  const words = (bytes: Uint8Array, n: number) => {
+    const xml = execFileSync('pdftotext', ['-f', String(n), '-l', String(n), '-bbox', '-', '-'], {
+      input: Buffer.from(bytes),
+    }).toString()
+    return [
+      ...xml.matchAll(
+        /<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">([^<]*)<\/word>/g,
+      ),
+    ].map((m) => ({
+      x0: Number(m[1]),
+      y0: Number(m[2]),
+      x1: Number(m[3]),
+      y1: Number(m[4]),
+      text: m[5] ?? '',
+    }))
+  }
+  const union = (ws: ReturnType<typeof words>) => ({
+    x0: Math.min(...ws.map((w) => w.x0)),
+    y0: Math.min(...ws.map((w) => w.y0)),
+    x1: Math.max(...ws.map((w) => w.x1)),
+    y1: Math.max(...ws.map((w) => w.y1)),
+  })
+
+  it.skipIf(!hasPdftotext)('prints it as text where the layout puts it', async () => {
+    const s = settings({
+      size: 'letter',
+      orientation: 'portrait',
+      margin: 72,
+      watermark: { ...stamp, position: 'footer' },
+    })
+    const { bytes } = await build(s, [{ file: 'quad-landscape.jpg' }])
+    const ws = words(bytes, 1)
+    expect(ws.map((w) => w.text).join(' ')).toBe('Copy for Acme Bank only')
+    const mark = watermarkMark(s.watermark, 'p0', { width: 612, height: 792 }, 72, s.pageNumbers)
+    if (!mark) throw new Error('no mark')
+    const box = union(ws)
+    expect((box.x0 + box.x1) / 2).toBeCloseTo(mark.x, 0)
+    // The baseline lies between the capitals' top and the descenders' foot.
+    expect(box.y0).toBeLessThan(mark.baseline - mark.size * 0.6)
+    expect(box.y1).toBeGreaterThan(mark.baseline)
+    expect(box.y1).toBeLessThan(mark.baseline + mark.size * 0.35)
+  })
+
+  it.skipIf(!hasPdftotext)(
+    'runs across the middle of the page, on the chosen pages only',
+    async () => {
+      const s = settings({ size: 'letter', watermark: { ...stamp, pageIds: ['p1'] } })
+      const { bytes } = await build(s, [
+        { file: 'quad-landscape.jpg', page: { turns: 1 } },
+        { file: 'quad-landscape.jpg', page: { turns: 1 } },
+      ])
+      expect(words(bytes, 1)).toEqual([])
+      const mark = watermarkMark(s.watermark, 'p1', { width: 612, height: 792 }, 0, s.pageNumbers)
+      if (!mark) throw new Error('no mark')
+      // Every word sits on the diagonal through the centre, and the words
+      // spread evenly either side of it.
+      const r = (mark.angle * Math.PI) / 180
+      const along: number[] = []
+      for (const w of words(bytes, 2)) {
+        const dx = (w.x0 + w.x1) / 2 - 306
+        const dy = (w.y0 + w.y1) / 2 - 396
+        expect(Math.abs(-Math.sin(r) * dx + Math.cos(r) * dy)).toBeLessThan(mark.size * 0.6)
+        along.push(Math.cos(r) * dx + Math.sin(r) * dy)
+      }
+      expect(Math.max(...along) - Math.min(...along)).toBeGreaterThan(400)
+      expect(Math.abs((Math.max(...along) + Math.min(...along)) / 2)).toBeLessThan(mark.size)
+    },
+  )
+
+  it('refuses text the standard font can’t set, unless every page burns it in', async () => {
+    const s = settings({ watermark: { ...stamp, text: 'Kopia dla Łukasza' } })
+    await expect(build(s, [{ file: 'quad-landscape.jpg' }])).rejects.toThrow(
+      /font has no Ł\. Use Latin letters, or burn it into the pages/,
+    )
+  })
+
+  describe('burned in', () => {
+    const flatten = async (s: Settings, files: string[]) => {
+      const jobs: FlattenJob[] = []
+      const loaded = await Promise.all(files.map(fileAsset))
+      const bytes = await buildPdf(
+        {
+          settings: s,
+          pages: loaded.map(({ meta }, i) => page(`p${String(i)}`, meta.id)),
+          assets: Object.fromEntries(loaded.map(({ meta }) => [meta.id, meta])),
+        },
+        {
+          getBytes: (id) =>
+            loaded.find(({ meta }) => meta.bytesId === id)?.bytes ?? new Uint8Array(),
+          processImage: (b, job) => Promise.resolve(canvasStandIn(b, job)),
+          // Stands in for the canvas: a blank page of the asked size.
+          flattenPage: (job) => {
+            jobs.push(job)
+            const w = Math.round(job.page.width * job.scale)
+            const h = Math.round(job.page.height * job.scale)
+            return Promise.resolve(
+              new Uint8Array(
+                execFileSync('python3', [
+                  '-c',
+                  `import sys; from PIL import Image; Image.new('RGB', (${String(w)}, ${String(h)}), 'white').save(sys.stdout.buffer, 'JPEG')`,
+                ]),
+              ),
+            )
+          },
+          now: NOW,
+        },
+      )
+      return { bytes, jobs }
+    }
+
+    it('draws image pages as one picture, leaving no text to delete', async () => {
+      // Along the foot, so poppler reads the PDF page's words in order.
+      const s = settings({
+        size: 'letter',
+        watermark: { ...stamp, position: 'footer', flatten: true },
+      })
+      const { bytes, jobs } = await flatten(s, ['quad-landscape.jpg', 'quad-3pages.pdf#0'])
+      // The photo's page is one picture; the PDF page keeps it as text.
+      expect(jobs).toHaveLength(1)
+      const [job] = jobs
+      expect(job?.pictures).toHaveLength(1)
+      expect(job?.mark.text).toBe('Copy for Acme Bank only')
+      expect(job?.scale).toBeGreaterThanOrEqual(FLATTEN_MIN_SCALE)
+      expect(job?.pictures[0]?.image).toEqual(
+        layoutPage(
+          s,
+          (await fileAsset('quad-landscape.jpg')).meta,
+          page('p0', 'quad-landscape.jpg'),
+        ).image,
+      )
+      if (!hasPdftotext) return
+      expect(words(bytes, 1)).toEqual([])
+      expect(words(bytes, 2).map((w) => w.text)).toEqual(['Copy', 'for', 'Acme', 'Bank', 'only'])
+    })
+
+    it('can burn in what the standard font can’t set', async () => {
+      const s = settings({ watermark: { ...stamp, text: 'Kopia dla Łukasza', flatten: true } })
+      const { jobs } = await flatten(s, ['quad-landscape.jpg'])
+      expect(jobs[0]?.mark.text).toBe('Kopia dla Łukasza')
+    })
+
+    it('keeps the sharpness of a large photo, and its compression', async () => {
+      const s = settings({
+        size: 'letter',
+        quality: 'balanced',
+        watermark: { ...stamp, flatten: true },
+      })
+      const { jobs } = await flatten(s, ['doc-photo.jpg'])
+      const [job] = jobs
+      const picture = job?.pictures[0]
+      if (!job || !picture) throw new Error('no job')
+      // At least as many pixels per point as the embedded image would have had.
+      expect(job.scale * picture.image.width).toBeGreaterThanOrEqual((picture.job?.width ?? 0) - 1)
+      expect(job.quality).toBeLessThan(0.92)
+    })
   })
 })
