@@ -692,6 +692,38 @@ describe('App', () => {
     expect(panel.getByRole('button', { name: 'Crop to the page…' })).toBeInTheDocument()
   })
 
+  it('blacks out part of a page with the keyboard, undoably (#77)', async () => {
+    const { user, upload } = setup()
+    await upload('photo.jpg')
+    const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+    await user.click(panel.getByRole('button', { name: 'Black out part of the page…' }))
+    const dialog = within(await screen.findByRole('dialog', { name: 'Black out' }))
+    await user.click(dialog.getByRole('button', { name: 'Add a box' }))
+    const box = dialog.getByRole('button', { name: 'Box 1' })
+    expect(box).toHaveFocus()
+    expect(box).toHaveAccessibleDescription('30% across, 46% down, 40% wide, 8% high')
+    await user.keyboard('{Shift>}{ArrowUp}{ArrowLeft}{/Shift}')
+    expect(box).toHaveAccessibleDescription('25% across, 41% down, 40% wide, 8% high')
+    dialog.getByRole('button', { name: 'Box 1 size' }).focus()
+    await user.keyboard('{Shift>}{ArrowRight}{/Shift}')
+    expect(box).toHaveAccessibleDescription('25% across, 41% down, 45% wide, 8% high')
+    // A second box, removed again with Delete.
+    await user.click(dialog.getByRole('button', { name: 'Add a box' }))
+    await user.keyboard('{Delete}')
+    expect(dialog.queryByRole('button', { name: 'Box 2' })).not.toBeInTheDocument()
+    await user.click(dialog.getByRole('button', { name: 'Apply' }))
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+    expect(panel.getByRole('button', { name: 'Edit 1 blacked-out area…' })).toBeInTheDocument()
+    expect(document.querySelectorAll('[data-redactions] polygon').length).toBeGreaterThan(0)
+    // Reset leaves it; undo takes it away.
+    expect(panel.getByRole('button', { name: 'Reset' })).toHaveAttribute('aria-disabled', 'true')
+    await user.click(screen.getByRole('button', { name: /^Undo/ }))
+    expect(panel.getByRole('button', { name: 'Black out part of the page…' })).toBeInTheDocument()
+    expect(document.querySelector('[data-redactions]')).toBeNull()
+  })
+
   it('opens the crop editor on the paper it finds, applying nothing until asked', async () => {
     const { user, upload } = setup()
     await upload('paper.jpg')

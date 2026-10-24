@@ -196,4 +196,44 @@ describe('docReducer', () => {
       expect(docReducer(start, { type: 'shiftPages', ids: ['p0', 'p1'], by: -1 })).toBe(start)
     })
   })
+
+  describe('blacked-out areas (#77)', () => {
+    const box = { x0: 0.1, y0: 0.2, x1: 0.4, y1: 0.3 }
+    const withBox = () =>
+      docReducer(doc(2), { type: 'transformPage', id: 'p0', patch: { redactions: [box] } })
+
+    it('keeps them clean and inside the image', () => {
+      const state = docReducer(doc(1), {
+        type: 'transformPage',
+        id: 'p0',
+        patch: {
+          redactions: [
+            { x0: 0.4, y0: 1.2, x1: -0.1, y1: 0.9 },
+            { x0: 0.5, y0: 0.5, x1: 0.5, y1: 0.6 },
+          ],
+        },
+      })
+      expect(state.pages[0]?.redactions).toEqual([{ x0: 0, y0: 0.9, x1: 0.4, y1: 1 }])
+    })
+
+    it('survives Reset and Apply to all leaves other pages alone', () => {
+      const reset = docReducer(withBox(), { type: 'resetPage', id: 'p0' })
+      expect(reset.pages[0]?.redactions).toEqual([box])
+      const all = docReducer(withBox(), { type: 'applyToAll', id: 'p0' })
+      expect(all.pages[1]?.redactions).toBeUndefined()
+    })
+
+    it('goes with the picture onto a combined page and back', () => {
+      const combined = docReducer(withBox(), {
+        type: 'combinePages',
+        ids: ['p0', 'p1'],
+        kind: 'two',
+        newIds: ['s'],
+      })
+      expect(combined.pages[0]?.sheet?.slots[0]?.redactions).toEqual([box])
+      expect(combined.pages[0]?.sheet?.slots[1]).not.toHaveProperty('redactions')
+      const split = docReducer(combined, { type: 'splitPage', id: 's', newIds: ['a', 'b'] })
+      expect(split.pages[0]?.redactions).toEqual([box])
+    })
+  })
 })

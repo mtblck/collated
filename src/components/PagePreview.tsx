@@ -1,4 +1,5 @@
 import type { SheetLayout } from '../core/geometry'
+import type { Quad } from '../core/perspective'
 import { NUMBER_GREY, type NumberMark } from '../core/pageNumbers'
 import { cx } from './cx'
 
@@ -19,11 +20,17 @@ export const PagePreview = ({
   showMargins = false,
   selected = false,
   mark = null,
+  covers = [],
   className,
 }: {
   sheet: SheetLayout
   /** One per picture, in `sheet.pictures` order. */
   thumbUrls: readonly string[]
+  /**
+   * What's blacked out on each picture (#77), as fractions of what it shows
+   * (core/redact.ts `redactionShapes`), in `sheet.pictures` order.
+   */
+  covers?: readonly (readonly Quad[])[]
   showMargins?: boolean
   /** Rings the sheet itself: the page, not its card, is what's selected. */
   selected?: boolean
@@ -96,6 +103,34 @@ export const PagePreview = ({
                 transform: `translate(-50%, -50%) rotate(${image.rotation}deg)`,
               }}
             />
+            {!!covers[i]?.length && (
+              <svg
+                data-redactions
+                aria-hidden="true"
+                viewBox="0 0 1 1"
+                preserveAspectRatio="none"
+                className="pointer-events-none absolute overflow-visible"
+                style={{
+                  left: pct(image.cx - cell.x, cell.width),
+                  top: pct(image.cy - cell.y, cell.height),
+                  width: pct(image.width, cell.width),
+                  height: pct(image.height, cell.height),
+                  transform: `translate(-50%, -50%) rotate(${image.rotation}deg)`,
+                }}
+              >
+                {covers[i].map((shape, j) => (
+                  <polygon
+                    key={j}
+                    points={shape.map((p) => `${p.x},${p.y}`).join(' ')}
+                    fill="#000"
+                    // A hairline more, so the image's edge pixels never show round it.
+                    stroke="#000"
+                    strokeWidth={1}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ))}
+              </svg>
+            )}
           </div>
         ))}
         {mark && (
