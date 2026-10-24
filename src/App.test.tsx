@@ -661,6 +661,146 @@ describe('App', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
+  describe('several pages at once (#65)', () => {
+    const card = (n: number) => screen.getByRole('button', { name: new RegExp(`^Page ${n}:`) })
+    const withKey = async (
+      user: ReturnType<typeof userEvent.setup>,
+      key: 'Shift' | 'Control',
+      n: number,
+    ) => {
+      await user.keyboard(`{${key}>}`)
+      await user.click(card(n))
+      await user.keyboard(`{/${key}}`)
+    }
+    const turns = () =>
+      within(screen.getByRole('list', { name: /pages?$/ }))
+        .getAllByRole('button', { name: /^Page \d+:/ })
+        .map((b) => b.getAttribute('aria-current'))
+
+    it('selects a range with Shift, toggles with Ctrl, all with Ctrl+A, and Escape clears', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'b.jpg', 'c.jpg', 'd.jpg')
+      await screen.findByRole('list', { name: '4 pages' })
+      await user.click(card(2))
+      await withKey(user, 'Shift', 4)
+      expect(turns()).toEqual([null, 'true', 'true', 'true'])
+      expect(status()).toHaveTextContent('3 pages selected.')
+      const panel = within(screen.getByRole('complementary', { name: 'Selected page' }))
+      expect(panel.getByRole('heading', { level: 2, name: '3 pages selected' })).toBeInTheDocument()
+      expect(panel.getByText(/Pages 02–04/)).toBeInTheDocument()
+
+      await withKey(user, 'Control', 3)
+      expect(turns()).toEqual([null, 'true', null, 'true'])
+      expect(panel.getByText(/Pages 02, 04/)).toBeInTheDocument()
+
+      // From the keyboard too: Ctrl+Enter toggles, Shift+Enter extends.
+      card(1).focus()
+      await user.keyboard('{Control>}{Enter}{/Control}')
+      expect(turns()).toEqual(['true', 'true', null, 'true'])
+      await user.keyboard('{Control>}{Enter}{/Control}')
+      expect(turns()).toEqual([null, 'true', null, 'true'])
+
+      await user.keyboard('{Control>}a{/Control}')
+      expect(turns()).toEqual(['true', 'true', 'true', 'true'])
+      expect(status()).toHaveTextContent('All 4 pages selected.')
+
+      await user.keyboard('{Escape}')
+      // Back to the anchor: page 3 was toggled off, so the nearest page still selected.
+      expect(turns()).toEqual([null, 'true', null, null])
+      expect(panel.getByRole('heading', { level: 2, name: 'b.jpg' })).toBeInTheDocument()
+      expect(status()).toHaveTextContent('Selection cleared.')
+    })
+
+    it('rotates and removes the selected pages, each as one undo step', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'b.jpg', 'c.jpg')
+      await screen.findByRole('list', { name: '3 pages' })
+      await user.click(card(1))
+      await withKey(user, 'Control', 3)
+      const panel = within(screen.getByRole('complementary', { name: 'Selected page' }))
+      await user.click(panel.getByRole('button', { name: 'Right' }))
+      expect(panel.getByRole('button', { name: 'Reset' })).toBeEnabled()
+      await user.click(panel.getByRole('button', { name: 'Remove' }))
+      expect(pageLabels()).toEqual(['Page 1: b.jpg'])
+      expect(status()).toHaveTextContent('Removed 2 pages. Undo to bring them back.')
+      expect(card(1)).toHaveFocus()
+      expect(card(1)).toHaveAttribute('aria-current', 'true')
+
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      expect(status()).toHaveTextContent('Undone: removed 2 pages.')
+      expect(pageLabels()).toEqual(['Page 1: a.jpg', 'Page 2: b.jpg', 'Page 3: c.jpg'])
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      expect(status()).toHaveTextContent('Undone: edited 2 pages.')
+      expect(screen.getByRole('button', { name: /^Undo/ })).toBeEnabled()
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      // Back past the import: one step each.
+      expect(screen.queryByRole('list', { name: /pages?$/ })).not.toBeInTheDocument()
+    })
+
+    it('filters only the image pages, duplicates, and moves the group', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'scan.pdf', 'b.jpg')
+      await screen.findByRole('list', { name: '5 pages' })
+      await user.click(card(1))
+      await withKey(user, 'Shift', 2)
+      const panel = within(screen.getByRole('complementary', { name: 'Selected page' }))
+      expect(panel.getByText(/Applies to the 1 image page/)).toBeInTheDocument()
+      await user.click(panel.getByRole('radio', { name: 'B&W' }))
+      expect(panel.getByRole('radio', { name: 'B&W' })).toBeChecked()
+
+      // Mixed values show no option and say "Mixed".
+      await withKey(user, 'Control', 5)
+      expect(panel.getByRole('radio', { name: 'B&W' })).not.toBeChecked()
+      expect(panel.getByRole('radio', { name: 'Original' })).not.toBeChecked()
+      expect(panel.getByLabelText('Scale')).toHaveAttribute('aria-valuetext', '100 percent')
+
+      await user.click(panel.getByRole('button', { name: 'Move pages later' }))
+      expect(pageLabels()).toEqual([
+        'Page 1: scan.pdf · p2',
+        'Page 2: a.jpg',
+        'Page 3: scan.pdf · p1',
+        'Page 4: scan.pdf · p3',
+        'Page 5: b.jpg',
+      ])
+      await user.click(panel.getByRole('button', { name: 'Move pages later' }))
+      expect(pageLabels().slice(2)).toEqual([
+        'Page 3: a.jpg',
+        'Page 4: scan.pdf · p1',
+        'Page 5: b.jpg',
+      ])
+      expect(panel.getByRole('button', { name: 'Move pages later' })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      )
+
+      await user.click(panel.getByRole('button', { name: 'Duplicate' }))
+      expect(screen.getByRole('list', { name: '8 pages' })).toBeInTheDocument()
+      expect(panel.getByRole('heading', { level: 2, name: '3 pages selected' })).toBeInTheDocument()
+      expect(panel.getByText(/Pages 04, 06, 08/)).toBeInTheDocument()
+    })
+
+    it('has a select mode where a tap toggles a page, for touch', async () => {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'b.jpg', 'c.jpg')
+      await screen.findByRole('list', { name: '3 pages' })
+      const select = screen.getByRole('button', { name: 'Select' })
+      await user.click(select)
+      expect(select).toHaveAttribute('aria-pressed', 'true')
+      expect(card(1)).toHaveAttribute('aria-pressed', 'true')
+      await user.click(card(3))
+      expect(card(3)).toHaveAttribute('aria-pressed', 'true')
+      await user.click(card(1))
+      expect(card(1)).toHaveAttribute('aria-pressed', 'false')
+      expect(status()).toHaveTextContent('1 page selected.')
+      await user.click(screen.getByRole('button', { name: 'Select all' }))
+      expect(status()).toHaveTextContent('All 3 pages selected.')
+      await user.click(screen.getByRole('button', { name: 'Select none' }))
+      expect(screen.getByText(/Select a page to rotate/)).toBeInTheDocument()
+      await user.click(select)
+      expect(card(1)).not.toHaveAttribute('aria-pressed')
+    })
+  })
+
   describe('focus and announcements', () => {
     it('moves focus to the next page (else the previous) after removing one', async () => {
       const { user, upload } = setup()
