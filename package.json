@@ -21,7 +21,8 @@
     "test:watch": "vitest",
     "hosting:check": "node scripts/check-hosting.js",
     "verify": "node scripts/verify.mjs",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm test"
+    "changelog:check": "node scripts/changelog.mjs --check",
+    "check": "npm run format:check && npm run lint && npm run changelog:check && npm run typecheck && npm test"
   },
   "dependencies": {
     "@cantoo/pdf-lib": "^2.11.1",

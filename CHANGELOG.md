@@ -1,8 +1,9 @@
 # Changelog
 
-What changed for people using Collated, newest first. Each merged PR with a
-user-visible change gets a line under **Unreleased** (the `changelog.yml`
-workflow adds it, unless the PR wrote its own); the `release` skill
+What changed for people using Collated, newest first. Don't edit this file in
+a pull request: add a fragment to `changelog.d/` (see its README). When a PR
+merges, the `changelog.yml` workflow moves its fragment under **Unreleased**
+(or adds a line from the title if it had none); the `release` skill
 (`maintenance` plugin) moves them under a version or date when it ships.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
