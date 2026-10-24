@@ -406,7 +406,9 @@ export const SupportPrompt = ({
               href={SUPPORT_URL}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={onSupport}
+              onClick={() => {
+                leave(onSupport)
+              }}
             >
               Ko-fi<span className="sr-only"> (opens in a new tab)</span>
             </a>{' '}
@@ -416,7 +418,9 @@ export const SupportPrompt = ({
               href={SPONSORS_URL}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={onSupport}
+              onClick={() => {
+                leave(onSupport)
+              }}
             >
               GitHub Sponsors<span className="sr-only"> (opens in a new tab)</span>
             </a>
