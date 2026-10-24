@@ -957,6 +957,8 @@ await context.close()
   const panel = p.locator('aside[aria-label="Selected page"]')
   await panel.getByRole('button', { name: 'Crop to the page…' }).click()
   const dialog = p.getByRole('dialog', { name: 'Crop to the page' })
+  // It opens once the paper has been looked for (in a worker).
+  await dialog.waitFor({ timeout: 5000 }).catch(() => undefined)
   check(await dialog.isVisible(), 'the crop editor opens as a modal dialog')
   await axe(p, 'crop editor')
   // The paper's corners in the fixture, worked out from how it was made
@@ -1038,6 +1040,88 @@ await context.close()
     )
     check(shape.table < 20, `no table is left around the edges (${shape.table} px)`)
   }
+  await ctx.close()
+}
+
+// 9b. Finding the paper: the crop editor opens on it; auto-crop all pages. ----
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  const truth = JSON.parse(readFileSync(join(fixtures, 'paper-corners.json'), 'utf8'))
+  const photos = Object.keys(truth)
+  await p.setInputFiles(
+    '[data-testid="file-input"]',
+    [...photos, 'doc-photo.jpg'].map((name) => join(fixtures, name)),
+  )
+  await p.waitForSelector(`ol[aria-label="${photos.length + 1} pages"]`)
+  const panel = p.locator('aside[aria-label="Selected page"]')
+  const names = ['Top-left', 'Top-right', 'Bottom-right', 'Bottom-left']
+  /** The editor's corners, as fractions, read from each handle's description. */
+  const cornersIn = async (dialog) => {
+    const out = []
+    for (const name of names) {
+      const handle = dialog.getByRole('button', { name: `${name} corner`, exact: true })
+      const at = await handle.evaluate(
+        (el) =>
+          document.getElementById(el.getAttribute('aria-describedby') ?? '')?.textContent ?? '',
+      )
+      const [x, y] = (at.match(/[\d.]+/g) ?? []).map((n) => Number(n) / 100)
+      out.push([x, y])
+    }
+    return out
+  }
+  const worst = (found, expected) =>
+    Math.max(
+      ...found.map(([x, y], i) =>
+        Math.max(Math.abs(x - expected[i][0]), Math.abs(y - expected[i][1])),
+      ),
+    )
+  for (const [i, name] of photos.entries()) {
+    await p.getByRole('button', { name: `Page ${i + 1}: ${name}` }).click()
+    await panel.getByRole('button', { name: 'Crop to the page…' }).click()
+    const dialog = p.getByRole('dialog', { name: 'Crop to the page' })
+    await dialog.waitFor()
+    const off = worst(await cornersIn(dialog), truth[name])
+    check(
+      off <= 0.02,
+      `the crop editor opens on the paper in ${name} (worst corner ${(off * 100).toFixed(1)}% off)`,
+    )
+    if (i === 0) await p.screenshot({ path: join(shots, 'crop-found.png') })
+    await p.keyboard.press('Escape')
+  }
+  // A page that's all paper opens on the whole image.
+  await p.getByRole('button', { name: `Page ${photos.length + 1}: doc-photo.jpg` }).click()
+  await panel.getByRole('button', { name: 'Crop to the page…' }).click()
+  const whole = p.getByRole('dialog', { name: 'Crop to the page' })
+  await whole.waitFor()
+  check(
+    worst(await cornersIn(whole), [
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [0, 1],
+    ]) === 0,
+    'with no sheet to find, the crop editor opens on the whole image',
+  )
+  await p.keyboard.press('Escape')
+
+  await panel.getByRole('button', { name: 'Auto-crop all pages' }).click()
+  await p.waitForFunction(() =>
+    /Cropped \d+ of/.test(document.getElementById('status')?.textContent ?? ''),
+  )
+  const said = (await p.locator('#status').textContent()) ?? ''
+  check(
+    said.startsWith(`Cropped ${photos.length} of ${photos.length + 1} pages`),
+    'auto-crop all pages crops each photo of paper and skips the scan',
+    said,
+  )
+  await p.screenshot({ path: join(shots, 'auto-cropped.png'), fullPage: true })
+  await p.keyboard.press('Control+z')
+  await p.getByRole('button', { name: `Page 1: ${photos[0]}` }).click()
+  check(
+    (await panel.getByRole('button', { name: 'Crop to the page…' }).count()) === 1,
+    'one undo takes the auto-crop back',
+  )
   await ctx.close()
 }
 
