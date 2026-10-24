@@ -4,6 +4,8 @@ import { pdfFilename } from './core/filename'
 import { compressionFor, estimateBytes } from './core/compression'
 import type { Skew } from './core/deskew'
 import { skewOf } from './lib/skew'
+import { looksBlank } from './lib/blank'
+import { useBlankPages } from './hooks/useBlankPages'
 import { forgetPageWords, pageWords } from './lib/pageText'
 import { forgetPageThumbs } from './hooks/usePageThumb'
 import { forgetLayered, layeredImage } from './export/layered'
@@ -19,6 +21,7 @@ import { Inspector, type InspectorActions } from './components/Inspector'
 import { PageGrid } from './components/PageGrid'
 import { GroupInspector, type GroupActions } from './components/GroupInspector'
 import { SelectionBar } from './components/SelectionBar'
+import { BlankPagesBar } from './components/BlankPagesBar'
 import {
   EMPTY_SELECTION,
   blockDropIndex,
@@ -55,6 +58,8 @@ export interface AppDeps {
   download: (blob: Blob, filename: string) => void
   newId: () => string
   estimateSkew: (asset: Asset) => Promise<Skew | null>
+  /** Whether a page looks blank (#68); null if it can't tell. */
+  detectBlank: (asset: Asset, page: Page) => Promise<boolean | null>
   /**
    * Recognises a page's words (fractions of its content image); from
    * `drawn` instead for a PDF page exported as a drawing.
@@ -82,6 +87,7 @@ const defaultDeps = (): AppDeps => ({
   download: saveFile,
   newId: () => crypto.randomUUID(),
   estimateSkew: skewOf,
+  detectBlank: looksBlank,
   recognizeText: pageWords,
   drawnPage: (asset) => layeredImage(asset),
   storage: safeStorage(),
@@ -600,6 +606,35 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     [act],
   )
 
+  const { blankIds, checking: checkingBlank } = useBlankPages(pages, assets, deps.detectBlank)
+  // Said once a check settles, when it finds pages not flagged before (so
+  // undoing their removal doesn't say it again over the undo).
+  const saidBlank = useRef(new Set<string>())
+  useEffect(() => {
+    if (checkingBlank) return
+    if (blankIds.every((id) => saidBlank.current.has(id))) return
+    for (const id of blankIds) saidBlank.current.add(id)
+    const n = blankIds.length
+    announce(
+      `${n === 1 ? '1 page looks' : `${n} pages look`} blank. You can remove ${n === 1 ? 'it' : 'them'} from above the pages.`,
+    )
+  }, [announce, blankIds, checkingBlank])
+  const onRemoveBlank = useCallback(() => {
+    const ids = blankIds
+    const gone = new Set(ids)
+    const first = pages.findIndex((p) => gone.has(p.id))
+    const rest = pages.filter((p) => !gone.has(p.id))
+    const neighbour = rest[Math.min(first, rest.length - 1)]
+    act({ type: 'removePages', ids })
+    // Selected blank pages drop out of the selection; if that empties it,
+    // the page that took the first one's place is selected instead.
+    if (selection.ids.every((id) => gone.has(id))) selectOnly(neighbour?.id ?? null)
+    requestFocus(neighbour?.id ?? null, true)
+    announce(
+      `Removed ${ids.length === 1 ? '1 blank page' : `${ids.length} blank pages`}. Undo to bring ${ids.length === 1 ? 'it' : 'them'} back.`,
+    )
+  }, [act, announce, blankIds, pages, requestFocus, selectOnly, selection.ids])
+
   const [straightening, setStraightening] = useState(false)
   /**
    * Estimates each page's skew from its thumbnail and sets Straighten to
@@ -926,11 +961,24 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
                     }}
                   />
                 )}
+                {blankIds.length > 0 && (
+                  <BlankPagesBar
+                    count={blankIds.length}
+                    busy={importing !== null}
+                    onSelect={() => {
+                      const next = { ids: blankIds, anchor: blankIds[0] ?? null }
+                      setSelection(next)
+                      if (blankIds.length > 1) announceSelection(next)
+                    }}
+                    onRemove={onRemoveBlank}
+                  />
+                )}
                 <PageGrid
                   pages={pages}
                   assets={assets}
                   settings={settings}
                   selectedIds={selection.ids}
+                  blankIds={blankIds}
                   selecting={selecting}
                   onSelect={onSelect}
                   onRotate={onRotate}
