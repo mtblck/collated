@@ -35,6 +35,12 @@ Under the choices, a line says what you'll get, or what's wrong with the ranges.
 
 Adds a number to every page: bottom centre, bottom right or top right, starting from any number.
 
+## Bookmarks
+
+PDF readers list bookmarks in a side panel, to jump around a long file. To start a section, select its first page and type a name under **Section starts here** in the page's settings; the page shows a bookmark tag with the name. A section belongs to its page, so it moves when you move the page, and undo takes it back like any other change. Clear the name to remove it.
+
+**Bookmark each imported file** adds a bookmark named after each file you added (without its extension), at the first page that shows it. With sections, the files are listed under the section they're in. When you export several files, or only some pages, each file starts with the bookmark of the section its first page is in, so nothing loses its heading. The file names you bookmark are visible to anyone with the PDF, unless it has a password.
+
 ## Password
 
 **Password to open** encrypts the PDF (AES-256); it opens only with the password. Once open, nothing is restricted. Not hidden: the file's name, which comes from the title, and how many pages it has. The password isn't saved anywhere: if you lose it, the file can't be opened. **Show** reveals what you've typed. Passwords can be up to 127 bytes (roughly 60–120 characters, depending on the alphabet).
