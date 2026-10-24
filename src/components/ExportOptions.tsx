@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from 'react'
 import { QUALITY_PRESETS } from '../core/compression'
 import type { NumberPosition, Quality, Settings } from '../core/model'
+import { describePlan, type Plan, type SplitMode, type SplitOptions } from '../core/split'
 import { formatBytes } from '../core/units'
 import { Button } from './controls'
 import { cx } from './cx'
@@ -27,6 +28,13 @@ const MB = 1024 * 1024
 
 /** "1 page", "3 pages". */
 const pages = (n: number) => `${String(n)} ${n === 1 ? 'page' : 'pages'}`
+
+const MODES: readonly { value: SplitMode; label: string }[] = [
+  { value: 'all', label: 'All pages' },
+  { value: 'selection', label: 'Selected pages' },
+  { value: 'ranges', label: 'Split by page ranges' },
+  { value: 'every', label: 'Split every few pages' },
+]
 
 /** What the export is doing, for the button while it runs. */
 const progress = (exporting: ExportState) =>
@@ -56,6 +64,10 @@ export const ExportOptions = ({
   password,
   onPassword,
   passwordError = null,
+  split,
+  onSplit,
+  selectedCount,
+  plan,
   panelId: givenPanelId,
 }: {
   settings: Pick<Settings, 'title' | 'quality' | 'maxBytes' | 'pageNumbers' | 'ocr'>
@@ -72,6 +84,12 @@ export const ExportOptions = ({
   onPassword: (password: string) => void
   /** Why the password can't be used, shown under the field. */
   passwordError?: string | null
+  /** Which pages, into how many files (#66). */
+  split: SplitOptions
+  onSplit: (patch: Partial<SplitOptions>) => void
+  selectedCount: number
+  /** The files the export will make, or why it can't. */
+  plan: Plan
   /** The panel's id; `${panelId}-password` is the password field's. */
   panelId?: string
 }) => {
@@ -83,6 +101,21 @@ export const ExportOptions = ({
 
   useCloseOnFocusOut(panel, panelId)
   const locked = password !== ''
+  const planId = `${panelId}-plan`
+  const planError = 'error' in plan ? plan.error : null
+  const summary = describePlan(plan, split.mode)
+  const files = 'parts' in plan ? plan.parts.length : 1
+  const [only] = 'parts' in plan && files === 1 ? plan.parts : []
+  const splitting = split.mode === 'ranges' || split.mode === 'every'
+  /** The field to fix when the plan can't be made. */
+  const planField = () =>
+    document.getElementById(
+      split.mode === 'ranges'
+        ? `${id}-ranges`
+        : split.mode === 'every'
+          ? `${id}-every`
+          : `${id}-mode-${split.mode}`,
+    )
 
   return (
     <>
@@ -101,7 +134,10 @@ export const ExportOptions = ({
             </span>
           </>
         ) : (
-          <span>Export · {pages(pageCount)}</span>
+          <span>
+            Export ·{' '}
+            {files > 1 ? `${String(files)} files` : pages(only?.pageIds.length ?? pageCount)}
+          </span>
         )}
         <span className="sr-only">{locked ? ', locked with a password' : ''}, options</span>
       </Button>
@@ -142,6 +178,90 @@ export const ExportOptions = ({
                 Optional. Shown by PDF readers, and names the file.
               </p>
             </div>
+
+            <fieldset className="mt-4" aria-describedby={summary ? planId : undefined}>
+              <legend className="label mb-2 text-ink-faint">Pages</legend>
+              <div className="flex flex-col gap-1">
+                {MODES.map((mode) => (
+                  <label
+                    key={mode.value}
+                    className={cx(
+                      'flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-1.5 text-sm',
+                      'has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent',
+                      split.mode === mode.value
+                        ? 'border-ink bg-ink/[0.04]'
+                        : 'border-transparent hover:bg-ink/[0.03]',
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      id={`${id}-mode-${mode.value}`}
+                      name={`${id}-mode`}
+                      className="accent-[var(--c-ink)]"
+                      value={mode.value}
+                      checked={split.mode === mode.value}
+                      onChange={() => {
+                        onSplit({ mode: mode.value })
+                      }}
+                    />
+                    <span>
+                      {mode.label}
+                      {mode.value === 'selection' && (
+                        <span className="text-ink-muted"> ({String(selectedCount)})</span>
+                      )}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {split.mode === 'ranges' && (
+                <div className="mt-2">
+                  <label htmlFor={`${id}-ranges`} className="sr-only">
+                    Page ranges
+                  </label>
+                  <input
+                    id={`${id}-ranges`}
+                    className="field w-full"
+                    placeholder="1-3, 4-10, 11-"
+                    value={split.ranges}
+                    autoComplete="off"
+                    spellCheck={false}
+                    inputMode="text"
+                    aria-invalid={planError ? true : undefined}
+                    aria-describedby={planId}
+                    onChange={(event) => {
+                      onSplit({ ranges: event.target.value })
+                    }}
+                  />
+                </div>
+              )}
+              {split.mode === 'every' && (
+                <div className="mt-2 flex items-center gap-3">
+                  <label htmlFor={`${id}-every`} className="text-sm">
+                    Every
+                  </label>
+                  <NumberField
+                    id={`${id}-every`}
+                    className="w-24"
+                    value={split.every}
+                    min={1}
+                    max={Math.max(1, pageCount)}
+                    suffix={split.every === 1 ? 'page' : 'pages'}
+                    aria-describedby={planId}
+                    onCommit={(every) => {
+                      onSplit({ every: Math.round(every) })
+                    }}
+                  />
+                </div>
+              )}
+              {summary && (
+                <p
+                  id={planId}
+                  className={cx('mt-1.5 text-xs', planError ? 'text-accent' : 'text-ink-muted')}
+                >
+                  {summary}
+                </p>
+              )}
+            </fieldset>
 
             <fieldset className="mt-4">
               <legend className="label mb-2 text-ink-faint">Image quality</legend>
@@ -202,7 +322,8 @@ export const ExportOptions = ({
                   }}
                 />
                 <p id={`${id}-max-hint`} className="text-xs text-ink-muted">
-                  Optional. Leave empty for no limit; lower quality is tried until it fits.
+                  Optional. Leave empty for no limit; lower quality is tried until it fits
+                  {splitting ? ' (each file on its own)' : ''}.
                 </p>
               </div>
             </div>
@@ -287,6 +408,24 @@ export const ExportOptions = ({
                   </div>
                 </div>
               )}
+              {settings.pageNumbers.show && splitting && (
+                <div className="mt-3">
+                  <label htmlFor={`${id}-numbering`} className="label mb-2 block text-ink-faint">
+                    In each file
+                  </label>
+                  <select
+                    id={`${id}-numbering`}
+                    className="field w-full"
+                    value={split.numbering}
+                    onChange={(event) => {
+                      onSplit({ numbering: event.target.value as SplitOptions['numbering'] })
+                    }}
+                  >
+                    <option value="restart">Start again</option>
+                    <option value="continue">Carry on from the file before</option>
+                  </select>
+                </div>
+              )}
             </div>
 
             <div className="mt-4">
@@ -359,8 +498,16 @@ export const ExportOptions = ({
               // Inactive, not disabled: it stays reachable, and with a password
               // problem it says why and takes you to the field.
               inactive={!canExport}
-              {...(passwordError ? { 'aria-describedby': `${passwordId}-error` } : {})}
+              {...(planError
+                ? { 'aria-describedby': planId }
+                : passwordError
+                  ? { 'aria-describedby': `${passwordId}-error` }
+                  : {})}
               onClick={(event) => {
+                if (planError) {
+                  planField()?.focus()
+                  return
+                }
                 if (passwordError) {
                   document.getElementById(passwordId)?.focus()
                   return
@@ -374,7 +521,11 @@ export const ExportOptions = ({
               ) : (
                 <DownloadIcon width={16} height={16} />
               )}
-              {locked ? 'Export locked PDF' : 'Export PDF'}
+              {files > 1
+                ? `Export ${String(files)} ${locked ? 'locked ' : ''}PDFs`
+                : locked
+                  ? 'Export locked PDF'
+                  : 'Export PDF'}
             </Button>
           </div>
         </div>
