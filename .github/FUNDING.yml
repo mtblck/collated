@@ -1,0 +1,4 @@
+# Shows the Sponsor button on the repository. The same two pages are
+# linked from the app: SUPPORT_URL and SPONSORS_URL in src/components/links.ts.
+github: mtblck
+ko_fi: mtblck
