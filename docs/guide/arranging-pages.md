@@ -7,6 +7,14 @@ order: 3
 
 Select a page to edit it in the panel on the right. The large preview there is exactly what the PDF page will look like. Click or tap it to see the page full screen, at full resolution: pinch (or use a trackpad pinch, Ctrl + scroll, or the + and − keys) to zoom, and drag to move around. **0** fits the page again; Escape closes it.
 
+## Several pages at once
+
+- **Shift-click** a page to select every page from the last one you picked to this one. **⌘-click** (Ctrl-click on Windows and Linux) adds or removes one page. With the keyboard, hold Shift or ⌘/Ctrl and press Enter on a page.
+- **⌘A** / **Ctrl+A** selects every page; **Escape** goes back to one.
+- On a phone or tablet, tap **Select** above the pages, then tap each page you want; each one shows a check mark.
+
+With more than one page selected, the panel changes everything you've selected at once: rotate, straighten (or auto-straighten), scale, placement, filter, move earlier or later, duplicate, reset and remove. Each change is one step for **Undo**. A filter changes only image pages; PDF pages keep their vector content. Dragging any selected page moves them all, together, to where you drop it, and so does picking one up with the keyboard.
+
 ## Order
 
 - Drag a page by its handle (⠿).
