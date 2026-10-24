@@ -130,6 +130,15 @@ export interface Page {
    */
   corners: Quad | null
   /**
+   * Areas to black out (#77), as rectangles of the upright image in fractions
+   * (0–1), the space `corners` use, so a later crop doesn't move them off
+   * what they cover. The export removes what's under them: image pixels are
+   * painted over before anything else, a PDF page goes as a drawing, and
+   * recognised words under them are dropped. Unset or empty: none. Reset
+   * keeps them; only the editor takes them away.
+   */
+  redactions?: readonly Redaction[]
+  /**
    * Set when several pictures share this page (#76). The page's own
    * `assetId` is then its first picture's and its own look is unused: each
    * picture keeps its rotation, crop and filter in its slot. Sorting and
@@ -166,7 +175,22 @@ export const picturesOf = (page: Page): readonly Slot[] => page.sheet?.slots ?? 
 export const pictureKey = (page: Pick<Page, 'id' | 'sheet'>, slot: number) =>
   page.sheet ? `${page.id}/${String(slot)}` : page.id
 
-export type PageTransform = Pick<Page, 'turns' | 'angle' | 'scale' | 'fit' | 'filter' | 'corners'>
+export type PageTransform = Pick<
+  Page,
+  'turns' | 'angle' | 'scale' | 'fit' | 'filter' | 'corners' | 'redactions'
+>
+
+/** A rectangle to black out, as fractions of the upright image (see `Page.redactions`). */
+export interface Redaction {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
+
+/** Whether a picture has anything to black out. */
+export const isRedacted = (picture: Pick<Page, 'redactions'>) =>
+  (picture.redactions?.length ?? 0) > 0
 
 export const DEFAULT_TRANSFORM: PageTransform = {
   turns: 0,

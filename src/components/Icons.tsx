@@ -141,6 +141,12 @@ export const CropIcon = (p: P) => (
     <path d="M5.5 2.5v11a1 1 0 0 0 1 1h11M2.5 5.5h11a1 1 0 0 1 1 1v11" />
   </Icon>
 )
+export const RedactIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="2.5" y="4.5" width="15" height="11" rx="1" />
+    <rect x="5" y="8.5" width="8" height="3" fill="currentColor" stroke="none" />
+  </Icon>
+)
 export const LockIcon = (p: P) => (
   <Icon {...p}>
     <rect x="4.5" y="9" width="11" height="8" rx="1" />

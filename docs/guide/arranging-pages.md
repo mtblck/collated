@@ -53,6 +53,20 @@ Without dragging: tap or click a corner to select it, then tap or click where it
 
 **Auto-crop all pages** crops every photo to the paper it finds, in one step that a single Undo takes back. Pages you've already cropped keep their corners, and pages where no clear sheet is found are left as they are; the status line says how many of each.
 
+## Black out part of a page
+
+To hide an account number, an ID number or anything else before you send the PDF, choose **Black out part of the page…** and drag a box over it. Draw as many boxes as you need, drag one to move it, or drag its corner to size it; **Apply** puts them on the page, and **Undo** takes them back. Without dragging: **Add a box** puts one in the middle, then tap the box (or its corner) and tap where it should go. With the keyboard, use **Add a box**, then the arrow keys on the box or its corner (hold Shift for bigger steps); Delete removes it.
+
+The editor shows the whole photo, so a box stays on what it covers if you crop, rotate or change the placement later. **Reset** and **Apply to all pages** leave boxes alone; **Remove all** in the panel takes them off.
+
+**What is removed.** Many tools only draw a box on top, so the text is still in the file and can be copied out from under it. Collated removes it:
+
+- On a photo or scan, the pixels under each box are painted black before anything else happens to the image. The original pixels aren't in the PDF.
+- A PDF page with a box goes into the file as a picture of the page, with the boxes painted on. None of its text, fonts or drawing come with it, so nothing under a box can be selected, searched or copied. The rest of that page's text can't be either, unless you turn on **Make text searchable** when you export; then it's read from the picture, and words under or touching a box are left out. If you duplicated the page, the copies go in as a picture too.
+- Searchable text never includes a word under or touching a box.
+
+**What isn't.** Only what's under the boxes. A number that also appears elsewhere on the page, or on another page, needs its own box. The file you started from is unchanged, and the copy of your work kept on this device still holds it as it was, until you **Start over** (see [Privacy and security](privacy-and-security.md)).
+
 ## Filters
 
 - **Original:** as photographed.

@@ -1,6 +1,7 @@
 import { PAGE_MAX, PAGE_MIN } from './limits'
 import { interleave, reverse, sort, type SortKey } from './order'
 import { isConvex, type Point, type Quad } from './perspective'
+import { cleanRedactions } from './redact'
 import type {
   Asset,
   DocState,
@@ -80,6 +81,7 @@ const cleanTransform = (patch: Partial<PageTransform>): Partial<PageTransform> =
     if (isConvex(corners)) out.corners = corners
     else delete out.corners
   }
+  if (out.redactions) out.redactions = cleanRedactions(out.redactions)
   return out
 }
 
@@ -110,7 +112,7 @@ const mapPage = (state: DocState, id: string, fn: Look): DocState => ({
 })
 
 /** A picture as a slot: a page's look and content, without its id or sheet. */
-const slotOf = ({ assetId, turns, angle, scale, fit, filter, corners }: Slot): Slot => ({
+const slotOf = ({
   assetId,
   turns,
   angle,
@@ -118,6 +120,16 @@ const slotOf = ({ assetId, turns, angle, scale, fit, filter, corners }: Slot): S
   fit,
   filter,
   corners,
+  redactions,
+}: Slot): Slot => ({
+  assetId,
+  turns,
+  angle,
+  scale,
+  fit,
+  filter,
+  corners,
+  ...(redactions?.length ? { redactions } : {}),
 })
 
 export const docReducer = (state: DocState, action: Action): DocState => {
