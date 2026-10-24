@@ -1,3 +1,4 @@
+import type * as Tesseract from 'tesseract.js'
 import type { Worker as TesseractWorker } from 'tesseract.js'
 import type { OcrWord } from '../core/textLayer'
 import { TimeoutError, withTimeout } from './timeout'
@@ -18,60 +19,113 @@ const base = () => new URL(`${import.meta.env.BASE_URL}ocr/`, location.href).hre
 export const OCR_START_TIMEOUT_MS = 180_000
 export const OCR_PAGE_TIMEOUT_MS = 120_000
 
-let worker: Promise<TesseractWorker> | undefined
-/** The started worker behind `worker`, once it has started. */
-let ready: TesseractWorker | undefined
-
-/**
- * One worker for the session. If starting it fails or a page stalls, it's
- * terminated and forgotten, so the next attempt starts fresh rather than
- * reusing a broken worker forever.
- */
-const getWorker = () => {
-  if (worker) return worker
-  const starting = (async () => {
-    const { createWorker, OEM } = await import('tesseract.js')
-    return createWorker('eng', OEM.LSTM_ONLY, {
-      workerPath: `${base()}worker.min.js`,
-      corePath: `${base()}core`,
-      langPath: `${base()}lang`,
-      workerBlobURL: false,
-      gzip: true,
-    })
-  })()
-  const current: Promise<TesseractWorker> = withTimeout(
-    starting,
-    OCR_START_TIMEOUT_MS,
-    'Text recognition took too long to start, so it was stopped. Try again.',
-    () => {
-      // If it does start after all, don't leave it running.
-      starting.then((w) => w.terminate()).catch(() => undefined)
-    },
-  ).then(
-    (w) => {
-      if (worker === current) ready = w
-      return w
-    },
-    (error: unknown) => {
-      if (worker === current) worker = undefined
-      throw error instanceof TimeoutError
-        ? error
-        : new Error('Text recognition couldn’t start. Check the connection and try again.', {
-            cause: error,
-          })
-    },
-  )
-  worker = current
-  return current
+interface Engine {
+  /** The started worker, starting it the first time. */
+  get: () => Promise<TesseractWorker>
+  /** Terminates a worker and, if it's the cached one, forgets it. */
+  reset: (w: TesseractWorker) => void
 }
 
-/** Terminates a worker and, if it's the cached one, forgets it. */
-const reset = (w: TesseractWorker) => {
-  if (ready === w) {
-    worker = undefined
-    ready = undefined
+/**
+ * One worker per engine for the session. If starting it fails or a page
+ * stalls, it's terminated and forgotten, so the next attempt starts fresh
+ * rather than reusing a broken worker forever.
+ */
+const engine = (
+  start: (tesseract: typeof Tesseract) => Promise<TesseractWorker>,
+  messages: { slow: string; failed: string },
+): Engine => {
+  let worker: Promise<TesseractWorker> | undefined
+  /** The started worker behind `worker`, once it has started. */
+  let ready: TesseractWorker | undefined
+  return {
+    get: () => {
+      if (worker) return worker
+      const starting = import('tesseract.js').then(start)
+      const current: Promise<TesseractWorker> = withTimeout(
+        starting,
+        OCR_START_TIMEOUT_MS,
+        messages.slow,
+        () => {
+          // If it does start after all, don't leave it running.
+          starting.then((w) => w.terminate()).catch(() => undefined)
+        },
+      ).then(
+        (w) => {
+          if (worker === current) ready = w
+          return w
+        },
+        (error: unknown) => {
+          if (worker === current) worker = undefined
+          throw error instanceof TimeoutError ? error : new Error(messages.failed, { cause: error })
+        },
+      )
+      worker = current
+      return current
+    },
+    reset: (w) => {
+      if (ready === w) {
+        worker = undefined
+        ready = undefined
+      }
+      w.terminate().catch(() => undefined)
+    },
   }
-  w.terminate().catch(() => undefined)
+}
+
+const paths = () => ({
+  workerPath: `${base()}worker.min.js`,
+  corePath: `${base()}core`,
+  langPath: `${base()}lang`,
+  workerBlobURL: false,
+  gzip: true,
+})
+
+const reader = engine(({ createWorker, OEM }) => createWorker('eng', OEM.LSTM_ONLY, paths()), {
+  slow: 'Text recognition took too long to start, so it was stopped. Try again.',
+  failed: 'Text recognition couldn’t start. Check the connection and try again.',
+})
+
+/**
+ * Orientation detection (OSD) is Tesseract's legacy engine: its own core
+ * variant (~1.8 MB gzipped, the LSTM-only one can't do it) and `osd` data
+ * (4.3 MB), so it's a second worker, started only when asked.
+ */
+const orienter = engine(
+  async ({ createWorker, OEM }) => {
+    const w = await createWorker('osd', OEM.TESSERACT_ONLY, {
+      ...paths(),
+      legacyCore: true,
+      legacyLang: true,
+    })
+    // OSD reports "Too few characters" and a missing dpi on the console for
+    // every page without text; the answer (null) already says so.
+    await w.setParameters({ debug_file: '/dev/null' })
+    return w
+  },
+  {
+    slow: 'Finding which way up the pages are took too long to start, so it was stopped. Try again.',
+    failed:
+      'Finding which way up the pages are couldn’t start. Check the connection and try again.',
+  },
+)
+
+/** Runs one job on an engine's worker, replacing the worker if it fails or stalls. */
+const run = async <T>(
+  { get, reset }: Engine,
+  job: (w: TesseractWorker) => Promise<T>,
+  slow: string,
+): Promise<T> => {
+  const w = await get()
+  try {
+    return await withTimeout(job(w), OCR_PAGE_TIMEOUT_MS, slow, () => {
+      reset(w)
+    })
+  } catch (error) {
+    // A failed job may have left the engine in a bad state.
+    reset(w)
+    throw error
+  }
 }
 
 /** Words below this confidence (0–100) are more likely noise than text. */
@@ -86,22 +140,11 @@ export const recognizeWords = async (
   width: number,
   height: number,
 ): Promise<OcrWord[]> => {
-  const w = await getWorker()
-  let data
-  try {
-    ;({ data } = await withTimeout(
-      w.recognize(image, {}, { blocks: true }),
-      OCR_PAGE_TIMEOUT_MS,
-      'Reading the text on a page took too long, so it was stopped. Try again, or turn off searchable text.',
-      () => {
-        reset(w)
-      },
-    ))
-  } catch (error) {
-    // A failed recognise may have left the engine in a bad state.
-    reset(w)
-    throw error
-  }
+  const { data } = await run(
+    reader,
+    (w) => w.recognize(image, {}, { blocks: true }),
+    'Reading the text on a page took too long, so it was stopped. Try again, or turn off searchable text.',
+  )
   const words: OcrWord[] = []
   for (const block of data.blocks ?? []) {
     for (const paragraph of block.paragraphs) {
@@ -127,4 +170,21 @@ export const recognizeWords = async (
     }
   }
   return words
+}
+
+/**
+ * Which way the text in an image runs, by Tesseract's orientation detection:
+ * the clockwise degrees (0, 90, 180 or 270) that would turn it upright, and
+ * how sure it is. Null when there's too little text to tell.
+ */
+export const detectOrientation = async (
+  image: Blob,
+): Promise<{ degrees: number; confidence: number } | null> => {
+  const { data } = await run(
+    orienter,
+    (w) => w.detect(image),
+    'Finding which way up a page is took too long, so it was stopped. Try again.',
+  )
+  const { orientation_degrees: degrees, orientation_confidence: confidence } = data
+  return degrees === null || confidence === null ? null : { degrees, confidence }
 }

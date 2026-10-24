@@ -40,6 +40,7 @@ The toolbar's **More** menu reorders the whole document at once, or just the sel
 ## Rotate, straighten and scale
 
 - **Rotate** turns the page a quarter turn left or right. To turn every page at once, use **Rotate all pages** in the toolbar's **More** menu.
+- **Auto-rotate pages**, also in the **More** menu, turns upside-down and sideways pages the right way up by reading their text (the selected pages, when several are selected). It's one step for **Undo**, and the status line names the pages it turned. Pages without enough text to go by, like photos, are left as they are, and it says how many. On a page holding several pictures, each picture is turned on its own. The first time, it downloads about 6 MB (from Collated's own site).
 - **Straighten** tilts the page up to 45° either way, to fix a crooked scan. **Auto-straighten** finds the angle from the lines of text; **All pages** does every page.
 - **Scale** shrinks or enlarges the image on its page (10–400%).
 - **Placement:** **Fit** shows the whole image; **Fill** covers the page edge to edge, cropping what overflows. Parts of an image that don't show on the page are left out of the PDF.

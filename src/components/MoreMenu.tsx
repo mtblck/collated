@@ -12,6 +12,7 @@ import {
   SortIcon,
   SunIcon,
   TrashIcon,
+  UprightIcon,
 } from './Icons'
 import { DOCS_URL, PRIVACY_URL, SOURCE_URL, SUPPORT_URL } from './links'
 import { POPOVER_PANEL, closeOwnPopover, useCloseOnFocusOut } from './popover'
@@ -50,14 +51,16 @@ const Group = ({ label, children }: { label: string; children: ReactNode }) => (
 )
 
 /**
- * Everything the toolbar doesn't need on show: whole-document rotation,
- * page order (interleave, reverse, sort), Start over, the theme, and links out. A disclosure (a popover of ordinary buttons and
+ * Everything the toolbar doesn't need on show: whole-document rotation and
+ * auto-rotate, page order (interleave, reverse, sort), Start over, the theme, and links out. A disclosure (a popover of ordinary buttons and
  * links, Tab to move), not an ARIA menu: menus promise arrow-key behaviour
  * and roles screen readers treat differently, for no gain here.
  */
 export const MoreMenu = ({
   pageCount,
   onRotateAll,
+  onAutoRotate,
+  rotating,
   duplex,
   orderScope,
   onArrange,
@@ -68,6 +71,10 @@ export const MoreMenu = ({
 }: {
   pageCount: number
   onRotateAll: (by: -1 | 1) => void
+  /** Turns pages upright by reading their text (the selected ones, if any). */
+  onAutoRotate: () => void
+  /** Auto-rotate is running. */
+  rotating: boolean
   /** How Interleave would split the document; null with under two pages. */
   duplex: DuplexGroups | null
   /** How many selected pages page order works on; null for every page. */
@@ -132,6 +139,28 @@ export const MoreMenu = ({
                 {label}
               </button>
             ))}
+            <button
+              type="button"
+              className={ITEM}
+              aria-describedby={`${id}-upright-help`}
+              {...(pageCount === 0 || rotating ? { 'aria-disabled': true } : {})}
+              onClick={(event) => {
+                if (pageCount === 0 || rotating) return
+                closeOwnPopover(event.currentTarget)
+                onAutoRotate()
+              }}
+            >
+              <UprightIcon width={18} height={18} className="text-ink-muted" />
+              {rotating
+                ? 'Finding which way up…'
+                : orderScope !== null
+                  ? `Auto-rotate ${String(orderScope)} selected pages`
+                  : 'Auto-rotate pages'}
+            </button>
+            <p id={`${id}-upright-help`} className="px-3 pb-1 text-xs text-ink-muted">
+              Reads the text to turn upside-down and sideways pages upright. Downloads about 6 MB
+              the first time.
+            </p>
           </Group>
           <Group label="Page order">
             {orderScope !== null && (
