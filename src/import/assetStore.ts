@@ -6,7 +6,8 @@
  * undo can bring a removed page back, so nothing is released while the
  * document can still reach it (even the reducer's `clear` action is undoable,
  * so it keeps the bytes too). `clear()` frees everything, for Start over,
- * which drops the undo history with it; so does reloading the page.
+ * which drops the undo history with it; so does reloading the page (the copy
+ * kept on this device, state/workStore.ts, is how a reload gets them back).
  */
 const bytes = new Map<string, Uint8Array>()
 /** Thumbnail object URLs and their blobs (filters read the blob back). */

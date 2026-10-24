@@ -23,13 +23,19 @@ Only what you see on the pages, and what you chose to add:
 - **Searchable text,** only if you turn it on.
 - **The title** you gave, "Collated" as the creating tool, and the date (without the time of day).
 
+## Your work is kept on this device
+
+So that a reload, a crashed tab or a phone closing the page in the background doesn't lose your work, Collated keeps a copy of the document in your browser's storage on this device as you go: the files, the pages, your settings and the undo history. It never leaves the device, and the password is never part of it. Next time you open Collated it asks **Restore your last document?**: **Restore** brings it back, undo history and all; **Discard** deletes it. If you add files instead, they start a new document, which replaces the saved one.
+
+On a shared computer, or if you'd rather nothing were kept, turn off **Keep work after a reload** in the toolbar's **More** menu; that deletes the copy and stops keeping one. A very large document may not fit in the space the browser allows; Collated says so, and then keeps nothing, so export before you close the tab.
+
 ## Passwords
 
-A password encrypts the PDF's content with AES-256. The filename and the page count aren't hidden. Collated keeps the password in memory while the page is open and never stores it; closing the tab forgets it, along with your pages.
+A password encrypts the PDF's content with AES-256. The filename and the page count aren't hidden. Collated keeps the password in memory while the page is open and never stores it, not even with the copy of your work kept on this device; closing or reloading the tab forgets it.
 
 ## Starting over
 
-Pages you remove stay in the page's memory so **Undo** can bring them back. On a shared computer, **Start over** in the toolbar's **More** menu clears everything at once: the pages (removed ones too), the undo history, recognised text and the password. It can't be undone. Your page setup is kept.
+Pages you remove stay in the page's memory so **Undo** can bring them back. On a shared computer, **Start over** in the toolbar's **More** menu clears everything at once: the pages (removed ones too), the undo history, recognised text, the password and the copy kept on this device. It can't be undone. Your page setup is kept.
 
 ## Open source
 
