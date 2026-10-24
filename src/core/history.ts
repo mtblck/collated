@@ -22,6 +22,8 @@ export type HistoryAction<A, S = unknown> =
   | { type: 'commit' }
   /** Replaces everything, history included: nothing to undo back to. */
   | { type: 'reset'; present: S }
+  /** Puts back a whole saved history (a document kept on this device). */
+  | { type: 'restore'; history: History<S> }
 
 export const HISTORY_LIMIT = 100
 
@@ -53,6 +55,8 @@ export const withHistory =
       }
       case 'reset':
         return initHistory(action.present)
+      case 'restore':
+        return { ...action.history, lastKey: null }
       case 'commit':
         return history.lastKey === null ? history : { ...history, lastKey: null }
       case 'do': {
