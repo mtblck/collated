@@ -7,15 +7,15 @@ import {
 import { DragDropProvider } from '@dnd-kit/react'
 import { isSortable, useSortable } from '@dnd-kit/react/sortable'
 import { memo, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
-import { layoutPage } from '../core/geometry'
+import { layoutSheet } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
-import type { Asset, Page, Settings } from '../core/model'
+import { picturesOf, type Asset, type Page, type Settings } from '../core/model'
 import { IconButton } from './controls'
 import { cx } from './cx'
-import { pageNumber } from './format'
+import { pageName, pageNumber } from './format'
 import { CheckIcon, GripIcon, RotateLeftIcon, RotateRightIcon, TrashIcon } from './Icons'
 import { pickModeOf, type PickMode } from '../core/selection'
-import { usePageThumb } from '../hooks/usePageThumb'
+import { usePageThumbs } from '../hooks/usePageThumb'
 import { PagePreview } from './PagePreview'
 
 /** Card preview boxes are 4:5, close to every paper size, so rows stay level. */
@@ -23,7 +23,7 @@ const CARD_RATIO = 4 / 5
 
 interface CardProps {
   page: Page
-  asset: Asset
+  assets: Record<string, Asset>
   index: number
   settings: Settings
   selected: boolean
@@ -40,7 +40,7 @@ interface CardProps {
 
 const PageCard = memo(function PageCard({
   page,
-  asset,
+  assets,
   index,
   settings,
   selected,
@@ -52,9 +52,15 @@ const PageCard = memo(function PageCard({
   onRemove,
 }: CardProps) {
   const { ref, handleRef, isDragging } = useSortable({ id: page.id, index })
-  const layout = useMemo(() => layoutPage(settings, asset, page), [settings, asset, page])
-  const mark = numberMark(settings.pageNumbers, index, layout.page, layout.content.x)
-  const thumbUrl = usePageThumb(asset, page)
+  const sheet = useMemo(() => layoutSheet(settings, assets, page), [settings, assets, page])
+  const mark = numberMark(settings.pageNumbers, index, sheet.page, sheet.content.x)
+  const thumbUrls = usePageThumbs(
+    picturesOf(page).flatMap((slot) => {
+      const asset = assets[slot.assetId]
+      return asset ? [{ asset, page: slot }] : []
+    }),
+  )
+  const name = pageName(page, assets)
   const n = pageNumber(index)
 
   const reveal =
@@ -86,7 +92,7 @@ const PageCard = memo(function PageCard({
             ? { 'aria-pressed': selected }
             : { 'aria-current': selected ? 'true' : undefined })}
           data-page-select
-          aria-label={`Page ${index + 1}: ${asset.name}`}
+          aria-label={`Page ${index + 1}: ${name}`}
           onClick={(event) => {
             const mode = pickModeOf(event)
             onSelect(page.id, selecting && mode === 'only' ? 'toggle' : mode)
@@ -100,8 +106,8 @@ const PageCard = memo(function PageCard({
           }}
         >
           <PagePreview
-            layout={layout}
-            thumbUrl={thumbUrl}
+            sheet={sheet}
+            thumbUrls={thumbUrls}
             boxRatio={CARD_RATIO}
             selected={selected}
             mark={mark}
@@ -172,8 +178,8 @@ const PageCard = memo(function PageCard({
         >
           {n}
         </span>
-        <span className="min-w-0 flex-1 truncate text-xs text-ink-muted" title={asset.name}>
-          {asset.name}
+        <span className="min-w-0 flex-1 truncate text-xs text-ink-muted" title={name}>
+          {name}
         </span>
       </div>
     </li>
@@ -305,13 +311,12 @@ export const PageGrid = ({
         aria-label={`${count} ${count === 1 ? 'page' : 'pages'}`}
       >
         {pages.map((page, index) => {
-          const asset = assets[page.assetId]
-          if (!asset) return null
+          if (picturesOf(page).some((slot) => !assets[slot.assetId])) return null
           return (
             <PageCard
               key={page.id}
               page={page}
-              asset={asset}
+              assets={assets}
               index={index}
               settings={settings}
               selected={selected.has(page.id)}

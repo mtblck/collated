@@ -1,8 +1,8 @@
-import type { Asset, Page, Settings } from './model'
-import { contentSize, pageRotation } from './model'
+import type { Asset, Page, Settings, SheetKind, Slot } from './model'
+import { SHEET_CAPACITY, contentSize, pageRotation } from './model'
 import { pageSize } from './pageSizes'
 import { PAGE_MAX, PAGE_MIN } from './limits'
-import { PT_PER_IN } from './units'
+import { PT_PER_IN, toPoints } from './units'
 
 export interface Rect {
   x: number
@@ -63,35 +63,50 @@ const matchedSize = (
   return { width: fit(bounds.width), height: fit(bounds.height) }
 }
 
+/** Margins can't eat the whole page; keep at least 10% of each side printable. */
+const printable = (size: { width: number; height: number }, margin: number): Rect => {
+  const m = Math.max(0, Math.min(margin, size.width * 0.45, size.height * 0.45))
+  return { x: m, y: m, width: size.width - m * 2, height: size.height - m * 2 }
+}
+
+/** A page of a given size, and the part of it one picture is placed in. */
+export interface Cell {
+  page: { width: number; height: number }
+  content: Rect
+}
+
 /**
  * Where an image goes on its page. The single source of truth for both the
  * on-screen preview and the PDF, so the export matches what you see.
  *
  * The image is fitted by its rotated bounding box (so a straightened scan never
  * pokes out of the printable area at scale 1), then multiplied by the page's
- * scale, and always centred.
+ * scale, and always centred. On a combined page (#76) `cell` gives the page
+ * and the picture's part of it, from `layoutSheet`; the picture is fitted,
+ * scaled, centred and clipped to that part instead.
  */
 export const layoutPage = (
   settings: Pick<Settings, 'size' | 'custom' | 'orientation' | 'margin' | 'imageDpi'>,
   asset: Pick<Asset, 'width' | 'height'> & Partial<Pick<Asset, 'format'>>,
   page: Pick<Page, 'turns' | 'angle' | 'scale' | 'fit'> & Partial<Pick<Page, 'corners'>>,
+  cell?: Cell,
 ): Layout => {
   // What the page shows: the whole image, or the corrected crop.
   const source = { ...asset, ...contentSize(asset, page) }
-  const size =
-    settings.size === 'image'
-      ? matchedSize(settings, source, pageRotation(page))
-      : pageSize(settings, isLandscape(source, page))
-  // Margins can't eat the whole page; keep at least 10% of each side printable.
-  const margin = Math.max(0, Math.min(settings.margin, size.width * 0.45, size.height * 0.45))
-  const content: Rect = {
-    x: margin,
-    y: margin,
-    width: size.width - margin * 2,
-    height: size.height - margin * 2,
+  const rotation = pageRotation(page)
+  let size: { width: number; height: number }
+  let content: Rect
+  if (cell) {
+    size = cell.page
+    content = cell.content
+  } else {
+    size =
+      settings.size === 'image'
+        ? matchedSize(settings, source, rotation)
+        : pageSize(settings, isLandscape(source, page))
+    content = printable(size, settings.margin)
   }
 
-  const rotation = pageRotation(page)
   const bounds = rotatedBounds(source.width, source.height, rotation)
   const fitX = content.width / bounds.width
   const fitY = content.height / bounds.height
@@ -111,6 +126,179 @@ export const layoutPage = (
       rotation,
     },
     dpi: source.width / (width / PT_PER_IN),
+  }
+}
+
+/** A whole page: its size, its printable area, and each picture's layout. */
+export interface SheetLayout {
+  page: { width: number; height: number }
+  content: Rect
+  /** One per picture, in slot order; each one's `content` is its cell. */
+  pictures: Layout[]
+}
+
+/** Space between the pictures on a combined page: a quarter inch, to cut along. */
+export const SHEET_GAP = 18
+
+/** An ID-1 card (ID cards, driving licences, bank cards): 85.6 × 54 mm, ISO/IEC 7810. */
+export const ID_CARD = { width: toPoints(85.6, 'mm'), height: toPoints(54, 'mm') }
+
+type SizedAsset = Pick<Asset, 'width' | 'height'> & Partial<Pick<Asset, 'format'>>
+
+/** A single picture's page as a sheet, so every page draws the same way. */
+export const singleSheet = (layout: Layout): SheetLayout => ({
+  page: layout.page,
+  content: layout.content,
+  pictures: [layout],
+})
+
+/** `n` cells of `cols` columns filling `area`, with gaps between them. */
+const gridCells = (area: Rect, n: number, cols: number): Rect[] => {
+  const rows = Math.ceil(n / cols)
+  const width = (area.width - SHEET_GAP * (cols - 1)) / cols
+  const height = (area.height - SHEET_GAP * (rows - 1)) / rows
+  return Array.from({ length: n }, (_, i) => ({
+    x: area.x + (i % cols) * (width + SHEET_GAP),
+    y: area.y + Math.floor(i / cols) * (height + SHEET_GAP),
+    width,
+    height,
+  }))
+}
+
+/**
+ * Card-sized cells, one above the other and centred on `area`: landscape,
+ * unless the picture in it stands upright. Shrunk together if the area is
+ * too small for them at real size (never enlarged).
+ */
+const cardCells = (area: Rect, upright: readonly boolean[]): Rect[] => {
+  const sizes = upright.map((tall) =>
+    tall ? { width: ID_CARD.height, height: ID_CARD.width } : ID_CARD,
+  )
+  const blockW = Math.max(...sizes.map((s) => s.width))
+  const blockH = sizes.reduce((sum, s) => sum + s.height, 0) + SHEET_GAP * (sizes.length - 1)
+  const k = Math.min(1, area.width / blockW, area.height / blockH)
+  let y = area.y + (area.height - blockH * k) / 2
+  return sizes.map((s) => {
+    const cell = {
+      x: area.x + (area.width - s.width * k) / 2,
+      y,
+      width: s.width * k,
+      height: s.height * k,
+    }
+    y += (s.height + SHEET_GAP) * k
+    return cell
+  })
+}
+
+/** Total area the pictures cover when fitted into their cells at scale 1. */
+const coverage = (
+  pictures: readonly { asset: SizedAsset; slot: Slot }[],
+  cells: readonly Rect[],
+): number =>
+  pictures.reduce((sum, { asset, slot }, i) => {
+    const cell = cells[i]
+    if (!cell) return sum
+    const source = contentSize(asset, slot)
+    const b = rotatedBounds(source.width, source.height, pageRotation(slot))
+    const k = Math.min(cell.width / b.width, cell.height / b.height)
+    return sum + b.width * k * b.height * k
+  }, 0)
+
+/**
+ * Where everything goes on a page: one picture through `layoutPage`, or a
+ * combined page's pictures (#76), each through `layoutPage` with its cell.
+ *
+ * Two pictures sit along the page's long side, four in a 2 × 2 grid; with
+ * Auto orientation the page turns whichever way shows the pictures larger.
+ * An ID card page puts each side at real card size. "Match image" pages are
+ * sized to hold the pictures at their own size, plus the margins.
+ */
+export const layoutSheet = (
+  settings: Pick<Settings, 'size' | 'custom' | 'orientation' | 'margin' | 'imageDpi'>,
+  assets: Readonly<Record<string, SizedAsset | undefined>>,
+  page: Page,
+): SheetLayout => {
+  const missing = () => new Error('A page refers to missing content.')
+  if (!page.sheet) {
+    const asset = assets[page.assetId]
+    if (!asset) throw missing()
+    return singleSheet(layoutPage(settings, asset, page))
+  }
+  const { kind } = page.sheet
+  const pictures = page.sheet.slots.map((slot) => {
+    const asset = assets[slot.assetId]
+    if (!asset) throw missing()
+    return { asset, slot }
+  })
+  const upright = pictures.map(({ asset, slot }) => !isLandscape(contentSize(asset, slot), slot))
+
+  const sheetFor = (size: { width: number; height: number }) => {
+    const content = printable(size, settings.margin)
+    const cells =
+      kind === 'id-card'
+        ? cardCells(content, upright)
+        : // A sheet that isn't full keeps its empty cells, so pictures match in size.
+          gridCells(
+            content,
+            SHEET_CAPACITY[kind],
+            kind === 'four' || size.width > size.height ? 2 : 1,
+          )
+    return { page: size, content, cells }
+  }
+
+  let sheet: ReturnType<typeof sheetFor>
+  if (settings.size === 'image') {
+    sheet = sheetFor(packedSize(settings, kind, pictures, upright))
+  } else {
+    const orientations =
+      settings.orientation === 'auto' ? [false, true] : [settings.orientation === 'landscape']
+    const candidates = orientations.map((landscape) => sheetFor(pageSize(settings, landscape)))
+    // Portrait unless landscape shows the pictures larger.
+    sheet = candidates.reduce((best, next) =>
+      coverage(pictures, next.cells) > coverage(pictures, best.cells) * 1.001 ? next : best,
+    )
+  }
+  return {
+    page: sheet.page,
+    content: sheet.content,
+    pictures: pictures.map(({ asset, slot }, i) =>
+      layoutPage(settings, asset, slot, {
+        page: sheet.page,
+        content: sheet.cells[i] ?? sheet.content,
+      }),
+    ),
+  }
+}
+
+/** A "match image" combined page: room for each picture at its own size. */
+const packedSize = (
+  settings: Pick<Settings, 'margin' | 'imageDpi'>,
+  kind: SheetKind,
+  pictures: readonly { asset: SizedAsset; slot: Slot }[],
+  upright: readonly boolean[],
+) => {
+  const fit = (n: number) => Math.min(PAGE_MAX, Math.max(PAGE_MIN, n + settings.margin * 2))
+  if (kind === 'id-card') {
+    const width = Math.max(...upright.map((tall) => (tall ? ID_CARD.height : ID_CARD.width)))
+    const height =
+      upright.reduce((sum, tall) => sum + (tall ? ID_CARD.width : ID_CARD.height), 0) +
+      SHEET_GAP * (upright.length - 1)
+    return { width: fit(width), height: fit(height) }
+  }
+  // Every cell is as big as the biggest picture, so none is shrunk.
+  const natural = pictures.map(({ asset, slot }) => {
+    const source = { ...asset, ...contentSize(asset, slot) }
+    const perUnit = asset.format === 'pdf' ? 1 : PT_PER_IN / settings.imageDpi
+    return rotatedBounds(source.width * perUnit, source.height * perUnit, pageRotation(slot))
+  })
+  const cellW = Math.max(...natural.map((b) => b.width))
+  const cellH = Math.max(...natural.map((b) => b.height))
+  // Two wide pictures stack; two tall ones sit side by side.
+  const cols = kind === 'four' ? 2 : cellW > cellH ? 1 : 2
+  const rows = SHEET_CAPACITY[kind] / cols
+  return {
+    width: fit(cellW * cols + SHEET_GAP * (cols - 1)),
+    height: fit(cellH * rows + SHEET_GAP * (rows - 1)),
   }
 }
 

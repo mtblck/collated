@@ -1,8 +1,18 @@
 import { PAGE_MAX, PAGE_MIN } from './limits'
 import { interleave, reverse, sort, type SortKey } from './order'
 import { isConvex, type Point, type Quad } from './perspective'
-import type { Asset, DocState, Page, PageTransform, QuarterTurns, Settings } from './model'
-import { ANGLE_LIMIT, DEFAULT_TRANSFORM, SCALE_MAX, SCALE_MIN } from './model'
+import type {
+  Asset,
+  DocState,
+  Page,
+  PageTransform,
+  QuarterTurns,
+  Settings,
+  SheetKind,
+  Slot,
+} from './model'
+import { ANGLE_LIMIT, DEFAULT_TRANSFORM, SCALE_MAX, SCALE_MIN, SHEET_CAPACITY } from './model'
+import { picturesOf } from './model'
 
 export { PAGE_MAX, PAGE_MIN }
 
@@ -24,6 +34,15 @@ export type Action =
   | { type: 'shiftPages'; ids: string[]; by: -1 | 1 }
   | { type: 'rotatePages'; ids: string[]; by: -1 | 1 }
   | { type: 'rotateAll'; by: -1 | 1 }
+  /*
+   * Several pictures on one page (#76). `combinePages` puts the selected
+   * pages' pictures, in document order, onto as many sheets of `kind` as
+   * they fill (one id each from `newIds`), where the first of them was.
+   * `splitPage` turns a combined page back into one page per picture.
+   */
+  | { type: 'combinePages'; ids: string[]; kind: SheetKind; newIds: string[] }
+  | { type: 'splitPage'; id: string; newIds: string[] }
+  | { type: 'setSheetKind'; id: string; kind: SheetKind }
   | { type: 'transformPage'; id: string; patch: Partial<PageTransform> }
   /** Several pages at once, as one undo step (e.g. auto-straighten all). */
   | { type: 'transformPages'; patches: { id: string; patch: Partial<PageTransform> }[] }
@@ -70,9 +89,29 @@ const cleanSettings = (patch: Partial<Settings>): Partial<Settings> => {
   return out
 }
 
-const mapPage = (state: DocState, id: string, fn: (page: Page) => Page): DocState => ({
+/**
+ * A change to how a page looks. On a combined page it goes to each picture,
+ * so rotating, filtering or resetting the page does that to all of them.
+ */
+type Look = <T extends Slot>(picture: T) => T
+
+const restyle = (page: Page, fn: Look): Page =>
+  page.sheet ? { ...page, sheet: { ...page.sheet, slots: page.sheet.slots.map(fn) } } : fn(page)
+
+const mapPage = (state: DocState, id: string, fn: Look): DocState => ({
   ...state,
-  pages: state.pages.map((p) => (p.id === id ? fn(p) : p)),
+  pages: state.pages.map((p) => (p.id === id ? restyle(p, fn) : p)),
+})
+
+/** A picture as a slot: a page's look and content, without its id or sheet. */
+const slotOf = ({ assetId, turns, angle, scale, fit, filter, corners }: Slot): Slot => ({
+  assetId,
+  turns,
+  angle,
+  scale,
+  fit,
+  filter,
+  corners,
 })
 
 export const docReducer = (state: DocState, action: Action): DocState => {
@@ -161,7 +200,7 @@ export const docReducer = (state: DocState, action: Action): DocState => {
       return {
         ...state,
         pages: state.pages.map((p) =>
-          ids.has(p.id) ? { ...p, turns: turn(p.turns, action.by) } : p,
+          ids.has(p.id) ? restyle(p, (s) => ({ ...s, turns: turn(s.turns, action.by) })) : p,
         ),
       }
     }
@@ -172,7 +211,9 @@ export const docReducer = (state: DocState, action: Action): DocState => {
     case 'rotateAll':
       return {
         ...state,
-        pages: state.pages.map((p) => ({ ...p, turns: turn(p.turns, action.by) })),
+        pages: state.pages.map((p) =>
+          restyle(p, (s) => ({ ...s, turns: turn(s.turns, action.by) })),
+        ),
       }
 
     case 'transformPage':
@@ -185,7 +226,13 @@ export const docReducer = (state: DocState, action: Action): DocState => {
         ...state,
         pages: state.pages.map((p) => {
           const patch = byId.get(p.id)
-          return patch ? { ...p, ...patch } : p
+          if (!patch) return p
+          // PDF pictures on a combined page keep their vector content.
+          const { filter: _filter, ...vector } = patch
+          return restyle(p, (s) => ({
+            ...s,
+            ...(p.sheet && state.assets[s.assetId]?.format === 'pdf' ? vector : patch),
+          }))
         }),
       }
     }
@@ -208,7 +255,58 @@ export const docReducer = (state: DocState, action: Action): DocState => {
       const { turns, angle, scale, fit, filter } = source
       return {
         ...state,
-        pages: state.pages.map((p) => ({ ...p, turns, angle, scale, fit, filter })),
+        pages: state.pages.map((p) =>
+          restyle(p, (s) => ({ ...s, turns, angle, scale, fit, filter })),
+        ),
+      }
+    }
+
+    case 'combinePages': {
+      const ids = new Set(action.ids)
+      const chosen = state.pages.filter((p) => ids.has(p.id))
+      const pictures = chosen.flatMap((p) => picturesOf(p).map(slotOf))
+      if (pictures.length < 2) return state
+      const per = SHEET_CAPACITY[action.kind]
+      const sheets: Page[] = []
+      for (let i = 0; i < pictures.length; i += per) {
+        const slots = pictures.slice(i, i + per)
+        const first = slots[0]
+        if (!first) break
+        sheets.push({
+          id:
+            action.newIds[sheets.length] ?? `${chosen[0]?.id ?? 'sheet'}-${String(sheets.length)}`,
+          assetId: first.assetId,
+          ...DEFAULT_TRANSFORM,
+          sheet: { kind: action.kind, slots },
+        })
+      }
+      // Where the first of them was: no chosen page comes before it.
+      const at = state.pages.findIndex((p) => ids.has(p.id))
+      const rest = state.pages.filter((p) => !ids.has(p.id))
+      return { ...state, pages: rest.toSpliced(at, 0, ...sheets) }
+    }
+
+    case 'splitPage': {
+      const index = state.pages.findIndex((p) => p.id === action.id)
+      const sheet = state.pages[index]?.sheet
+      if (!sheet) return state
+      const pages = sheet.slots.map((slot, i): Page => ({
+        ...slot,
+        id: action.newIds[i] ?? `${action.id}-${String(i)}`,
+      }))
+      return { ...state, pages: state.pages.toSpliced(index, 1, ...pages) }
+    }
+
+    case 'setSheetKind': {
+      const page = state.pages.find((p) => p.id === action.id)
+      const sheet = page?.sheet
+      if (!sheet || sheet.kind === action.kind) return state
+      if (sheet.slots.length > SHEET_CAPACITY[action.kind]) return state
+      return {
+        ...state,
+        pages: state.pages.map((p) =>
+          p.id === action.id ? { ...p, sheet: { ...sheet, kind: action.kind } } : p,
+        ),
       }
     }
 
