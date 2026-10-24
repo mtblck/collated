@@ -795,6 +795,11 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   }, [act, assets, deps, pages])
 
   const [rotating, setRotating] = useState(false)
+  /** The pages as they are now, for work that outlasts a render (auto-rotate). */
+  const pagesRef = useRef(pages)
+  useLayoutEffect(() => {
+    pagesRef.current = pages
+  }, [pages])
   /**
    * Reads which way up each page's text is and adds the quarter turns that
    * bring it upright, as one undo step. Pages with too little text are left
@@ -807,26 +812,38 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       setStatus('Finding which way up each page is…')
       const started = generation.current
       try {
-        const patches: { id: string; patch: { turns: QuarterTurns } }[] = []
-        const turned: number[] = []
+        const found: { id: string; from: QuarterTurns; by: QuarterTurns }[] = []
         let upright = 0
         let unclear = 0
         for (const id of ids) {
-          const index = pages.findIndex((p) => p.id === id)
-          const page = pages[index]
+          const page = pages.find((p) => p.id === id)
           const asset = page ? assets[page.assetId] : undefined
           if (!page || !asset) continue
           const turns = uprightTurns(await deps.detectOrientation(asset, page))
           if (generation.current !== started) return
           if (turns === null) unclear += 1
           else if (turns === 0) upright += 1
-          else {
-            patches.push({ id, patch: { turns: ((page.turns + turns) % 4) as QuarterTurns } })
-            turned.push(index + 1)
-          }
+          else found.push({ id, from: page.turns, by: turns })
         }
+        // Reading takes seconds a page: a page turned, moved or removed by
+        // hand meanwhile keeps what was done to it.
+        const now = pagesRef.current
+        const patches: { id: string; patch: { turns: QuarterTurns } }[] = []
+        const turned: number[] = []
+        let kept = 0
+        for (const { id, from, by } of found) {
+          const index = now.findIndex((p) => p.id === id)
+          if (index < 0) continue
+          if (now[index]?.turns !== from) {
+            kept += 1
+            continue
+          }
+          patches.push({ id, patch: { turns: ((from + by) % 4) as QuarterTurns } })
+          turned.push(index + 1)
+        }
+        turned.sort((a, b) => a - b)
         act({ type: 'transformPages', patches })
-        setStatus(describeAutoRotate({ turned, upright, unclear }))
+        setStatus(describeAutoRotate({ turned, upright, unclear, kept }))
       } catch (error) {
         if (generation.current !== started) return
         notify(

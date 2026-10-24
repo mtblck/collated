@@ -1616,6 +1616,36 @@ describe('App', () => {
       ).toHaveAttribute('href', 'https://ko-fi.com/mtblck')
     })
 
+    it('leaves a page turned by hand while auto-rotate was reading it', async () => {
+      let finish: () => void = () => undefined
+      const detectOrientation = vi.fn<AppDeps['detectOrientation']>(
+        () =>
+          new Promise((resolve) => {
+            finish = () => {
+              resolve({ degrees: 180, confidence: 20 })
+            }
+          }),
+      )
+      const { user, upload, deps } = setup({ detectOrientation })
+      await upload('a.jpg')
+      const panel = within(await screen.findByRole('complementary', { name: 'Selected page' }))
+      await user.click(screen.getByRole('button', { name: 'Auto-rotate pages', hidden: true }))
+      await user.click(panel.getByRole('button', { name: 'Right' }))
+      await act(async () => {
+        finish()
+        await Promise.resolve()
+      })
+      await waitFor(() => {
+        expect(status()).toHaveTextContent(
+          '1 page you turned while it was reading was kept as you left it.',
+        )
+      })
+      await user.click(exportButton())
+      const { exportPdf } = deps
+      if (!exportPdf) throw new Error('no exportPdf')
+      expect(vi.mocked(exportPdf).mock.lastCall?.[0].pages[0]?.turns).toBe(1)
+    })
+
     it('auto-rotates pages by their text, as one undo step, naming the pages turned (#70)', async () => {
       // "upside" pages need a half turn, "left" ones a quarter turn right;
       // "photo" has no text to go by.

@@ -47,6 +47,7 @@ export const describeAutoRotate = ({
   turned,
   upright,
   unclear,
+  kept = 0,
 }: {
   /** 1-based positions of the pages it turned. */
   turned: number[]
@@ -54,19 +55,23 @@ export const describeAutoRotate = ({
   upright: number
   /** Pages with too little text to tell. */
   unclear: number
+  /** Pages it would have turned, but that were turned by hand while it read them. */
+  kept?: number
 }): string => {
   const total = turned.length + upright + unclear
   const one = total === 1
   const parts = [
-    turned.length > 0
-      ? `Turned ${one ? 'the page' : pageList(turned)} the right way up.`
-      : unclear === total
-        ? ''
-        : one
-          ? 'The page is already the right way up.'
-          : unclear === 0
-            ? `All ${String(total)} pages are already the right way up.`
-            : 'No pages needed turning.',
+    total === 0
+      ? ''
+      : turned.length > 0
+        ? `Turned ${one ? 'the page' : pageList(turned)} the right way up.`
+        : unclear === total
+          ? ''
+          : one
+            ? 'The page is already the right way up.'
+            : unclear === 0
+              ? `All ${String(total)} pages are already the right way up.`
+              : 'No pages needed turning.',
     unclear === 0
       ? ''
       : one
@@ -74,6 +79,11 @@ export const describeAutoRotate = ({
         : unclear === 1
           ? '1 page had too little text to tell and was left as it is.'
           : `${String(unclear)} pages had too little text to tell and were left as they are.`,
+    kept === 0
+      ? ''
+      : kept === 1
+        ? '1 page you turned while it was reading was kept as you left it.'
+        : `${String(kept)} pages you turned while it was reading were kept as you left them.`,
   ]
   return parts.filter(Boolean).join(' ')
 }

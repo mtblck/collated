@@ -45,6 +45,15 @@ describe('describeAutoRotate', () => {
     )
   })
 
+  it('counts pages turned by hand while it read them', () => {
+    expect(describeAutoRotate({ turned: [], upright: 0, unclear: 0, kept: 1 })).toBe(
+      '1 page you turned while it was reading was kept as you left it.',
+    )
+    expect(describeAutoRotate({ turned: [3], upright: 1, unclear: 0, kept: 2 })).toBe(
+      'Turned page 3 the right way up. 2 pages you turned while it was reading were kept as you left them.',
+    )
+  })
+
   it('speaks of one page as the page', () => {
     expect(describeAutoRotate({ turned: [4], upright: 0, unclear: 0 })).toBe(
       'Turned the page the right way up.',
