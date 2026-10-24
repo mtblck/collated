@@ -6,7 +6,7 @@ public: true
 
 - **Status:** Accepted
 - **Date:** 2026-10-24
-- **PR:** <to fill in>
+- **PR:** [#93](https://github.com/mtblck/collated/pull/93)
 
 ## Context
 
