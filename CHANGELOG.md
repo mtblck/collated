@@ -1,8 +1,9 @@
 # Changelog
 
-What changed for people using Collated, newest first. Each merged PR with a
-user-visible change gets a line under **Unreleased** (the `changelog.yml`
-workflow adds it, unless the PR wrote its own); the `release` skill
+What changed for people using Collated, newest first. Don't edit this file in
+a pull request: add a fragment to `changelog.d/` (see its README). When a PR
+merges, the `changelog.yml` workflow moves its fragment under **Unreleased**
+(or adds a line from the title if it had none); the `release` skill
 (`maintenance` plugin) moves them under a version or date when it ships.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
@@ -10,7 +11,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **Watermark** in Export (#78): stamp text such as "Copy for Acme Bank only" across every page or just the selected ones, corner to corner or along the foot, in any size, colour and opacity, shown on the pages as it will print. **Add date** adds today's date. **Burn into image pages** draws it into photo and scan pages so it can't be deleted from the PDF.
+- Install Collated as an app (#73). It opens and works with no connection after your first visit, and in Chrome and Edge (and on Android) it shows up in the share sheet, so photos from the gallery or a PDF from an email go into your document once you confirm them, and in "Open with" for PDFs and images on your computer.
 - **Enhance** filter (#71): whitens the paper and lifts shadows while keeping colour, for photos of forms with stamps, highlighted pages and receipts with logos. It sits between Greyscale and B&W.
 - Select several pages at once (#65): Shift-click for a range, ⌘/Ctrl-click for one more, ⌘A / Ctrl+A for all, or **Select** on a phone. Rotate, straighten, scale, filter, move, duplicate or remove them together, each as one undo step, and drag any of them to move them all.
 - Blank pages (#68): pages that look blank (allowing for show-through, punch holes and dust) are marked **Looks blank**, and **Remove N blank pages** above the pages takes them all out in one undoable step. Nothing is removed without asking.

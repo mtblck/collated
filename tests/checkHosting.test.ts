@@ -178,6 +178,21 @@ describe('hosting:check', () => {
       },
       'Access-Control-Allow-Origin',
     ],
+    [
+      'sw.js loses its no-cache block',
+      (config: Config) => {
+        config.headers = config.headers.filter((b) => b.source !== '/sw.js')
+      },
+      'sw.js must be served with Cache-Control: no-cache',
+    ],
+    [
+      'sw.js is cached for a day',
+      (config: Config) => {
+        const block = config.headers.find((b) => b.source === '/sw.js')
+        if (block) block.headers = [{ key: 'Cache-Control', value: 'max-age=86400' }]
+      },
+      'sw.js must be served with Cache-Control: no-cache',
+    ],
   ])('fails when %s', (_, mutate, mentions) => {
     const { status, output } = run(mutate)
     expect(status).toBe(1)

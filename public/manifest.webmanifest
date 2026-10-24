@@ -1,0 +1,52 @@
+{
+  "id": "/",
+  "name": "Collated",
+  "short_name": "Collated",
+  "description": "Turn scanned pages and phone photos into one PDF, entirely on your device.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fcfaf6",
+  "theme_color": "#fcfaf6",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "share_target": {
+    "action": "/share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "files": [
+        {
+          "name": "files",
+          "accept": ["image/*", ".heic", ".heif", "application/pdf", ".pdf"]
+        }
+      ]
+    }
+  },
+  "file_handlers": [
+    {
+      "action": "/",
+      "accept": {
+        "application/pdf": [".pdf"],
+        "image/jpeg": [".jpg", ".jpeg"],
+        "image/png": [".png"],
+        "image/webp": [".webp"],
+        "image/avif": [".avif"],
+        "image/gif": [".gif"],
+        "image/bmp": [".bmp"],
+        "image/heic": [".heic"],
+        "image/heif": [".heif"]
+      }
+    }
+  ],
+  "launch_handler": { "client_mode": ["focus-existing", "auto"] }
+}
