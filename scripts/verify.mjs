@@ -2712,8 +2712,12 @@ await context.close()
       'nothing under the box is left as text',
       text.trim(),
     )
-    const raw = readFileSync(out).toString('latin1')
-    check(!/\/Font\b/.test(raw), 'the blacked-out PDF page is exported as a picture, no fonts')
+    const fonts = execFileSync('pdffonts', [out]).toString().trim().split('\n').slice(2)
+    check(
+      fonts.length === 0,
+      'the blacked-out PDF page is exported as a picture, no fonts',
+      fonts.join('\n'),
+    )
     const render = (n) => {
       const prefix = join(dir, `page-${n}`)
       execFileSync('pdftoppm', [
