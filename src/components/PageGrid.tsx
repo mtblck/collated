@@ -18,6 +18,8 @@ import { pickModeOf, type PickMode } from '../core/selection'
 import { usePageThumbs } from '../hooks/usePageThumb'
 import { PagePreview } from './PagePreview'
 
+const NONE: readonly string[] = []
+
 /** Card preview boxes are 4:5, close to every paper size, so rows stay level. */
 const CARD_RATIO = 4 / 5
 
@@ -33,6 +35,8 @@ interface CardProps {
   carried: boolean
   /** Where a dragged group would land. */
   dropTarget: boolean
+  /** Looks blank (#68): badged, and said in its name. */
+  blank: boolean
   onSelect: (id: string, mode: PickMode) => void
   onRotate: (id: string, by: -1 | 1) => void
   onRemove: (id: string) => void
@@ -47,6 +51,7 @@ const PageCard = memo(function PageCard({
   selecting,
   carried,
   dropTarget,
+  blank,
   onSelect,
   onRotate,
   onRemove,
@@ -92,7 +97,7 @@ const PageCard = memo(function PageCard({
             ? { 'aria-pressed': selected }
             : { 'aria-current': selected ? 'true' : undefined })}
           data-page-select
-          aria-label={`Page ${index + 1}: ${name}`}
+          aria-label={`Page ${index + 1}: ${name}${blank ? ', looks blank' : ''}`}
           onClick={(event) => {
             const mode = pickModeOf(event)
             onSelect(page.id, selecting && mode === 'only' ? 'toggle' : mode)
@@ -113,6 +118,14 @@ const PageCard = memo(function PageCard({
             mark={mark}
           />
         </button>
+        {blank && (
+          <span
+            className="label pointer-events-none absolute bottom-2.5 left-2.5 rounded-full bg-paper px-2 py-1 text-ink-muted shadow-panel"
+            aria-hidden="true"
+          >
+            Looks blank
+          </span>
+        )}
         {selecting && (
           <span
             className={cx(
@@ -191,6 +204,7 @@ export const PageGrid = ({
   assets,
   settings,
   selectedIds,
+  blankIds = NONE,
   selecting,
   onSelect,
   onRotate,
@@ -203,6 +217,8 @@ export const PageGrid = ({
   assets: Record<string, Asset>
   settings: Settings
   selectedIds: readonly string[]
+  /** Pages that look blank (#68). */
+  blankIds?: readonly string[]
   selecting: boolean
   onSelect: (id: string, mode: PickMode) => void
   onRotate: (id: string, by: -1 | 1) => void
@@ -215,6 +231,7 @@ export const PageGrid = ({
 }) => {
   const count = pages.length
   const selected = useMemo(() => new Set(selectedIds), [selectedIds])
+  const blank = useMemo(() => new Set(blankIds), [blankIds])
   // Dragging a page of a multi-page selection carries the selection (#65).
   // The list isn't sorted under the pointer then (only the dragged page
   // could move); the card it would land on is marked instead.
@@ -323,6 +340,7 @@ export const PageGrid = ({
               selecting={selecting}
               carried={carrying !== null && carrying.from !== page.id && selected.has(page.id)}
               dropTarget={carrying?.over === page.id && carrying.from !== page.id}
+              blank={blank.has(page.id)}
               onSelect={onSelect}
               onRotate={onRotate}
               onRemove={onRemove}

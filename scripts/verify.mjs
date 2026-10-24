@@ -2481,6 +2481,56 @@ await context.close()
   await ctx.close()
 }
 
+// 25. Blank pages (#68): flagged from real scans, removed together, undone. --
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  // A printed page, the back of a sheet (show-through, punch holes, dust, lid
+  // shadow), a sparse page of four lines, and that back again.
+  await p.setInputFiles(
+    '[data-testid="file-input"]',
+    [
+      'scan-letter-300dpi.jpg',
+      'scan-blank-back.jpg',
+      'text-page-sideways.jpg',
+      'scan-blank-back.jpg',
+    ].map((f) => join(fixtures, f)),
+  )
+  await p.waitForSelector('ol[aria-label="4 pages"]')
+  const remove = p.getByRole('button', { name: 'Remove 2 blank pages' })
+  await remove.waitFor({ timeout: 10_000 }).catch(() => undefined)
+  const flagged = await p
+    .locator('[data-page-select]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')?.endsWith('looks blank')))
+  check(
+    JSON.stringify(flagged) === '[false,true,false,true]',
+    'only the blank backs are flagged (show-through, punch holes and dust ignored)',
+    JSON.stringify(flagged),
+  )
+  check(
+    (await p.getByText('Looks blank', { exact: true }).count()) === 2,
+    'each blank page carries a visible badge',
+  )
+  await p.waitForFunction(() =>
+    /2 pages look blank/.test(document.getElementById('status')?.textContent ?? ''),
+  )
+  check(true, 'the blank pages are announced')
+  await axe(p, 'blank pages flagged')
+  await p.screenshot({ path: join(shots, 'blank-pages.png') })
+  await remove.click()
+  await p.waitForSelector('ol[aria-label="2 pages"]')
+  check(
+    JSON.stringify(await pageNames(p)) ===
+      JSON.stringify(['scan-letter-300dpi.jpg', 'text-page-sideways.jpg']),
+    'Remove blank pages takes out only the flagged pages',
+    (await pageNames(p)).join(', '),
+  )
+  await p.getByRole('button', { name: /^Undo/ }).click()
+  await p.waitForSelector('ol[aria-label="4 pages"]')
+  check(true, 'one undo brings both blank pages back')
+  await ctx.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()
