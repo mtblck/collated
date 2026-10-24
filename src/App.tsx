@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { isVector, type Asset, type Page, type Settings } from './core/model'
-import { pdfFilename } from './core/filename'
+import type { Asset, Settings, SheetKind, Slot } from './core/model'
+import { SHEET_CAPACITY, isVector, pictureKey, picturesOf } from './core/model'
+import { partFilename, pdfFilename, zipFilename } from './core/filename'
 import { compressionFor, estimateBytes } from './core/compression'
 import type { Skew } from './core/deskew'
 import { skewOf } from './lib/skew'
@@ -12,7 +13,8 @@ import { forgetPageWords, pageWords } from './lib/pageText'
 import { forgetPageThumbs } from './hooks/usePageThumb'
 import { forgetLayered, layeredImage } from './export/layered'
 import type { OcrWord } from './core/textLayer'
-import { layoutPage } from './core/geometry'
+import type { SplitPart } from './core/splitBuild'
+import { layoutSheet } from './core/geometry'
 import { formatBytes } from './core/units'
 import { describeChange } from './core/describeChange'
 import { duplexGroups } from './core/order'
@@ -24,6 +26,7 @@ import { PageGrid } from './components/PageGrid'
 import { GroupInspector, type GroupActions } from './components/GroupInspector'
 import { SelectionBar } from './components/SelectionBar'
 import { BlankPagesBar } from './components/BlankPagesBar'
+import { SheetInspector, type SheetActions } from './components/SheetInspector'
 import {
   EMPTY_SELECTION,
   blockDropIndex,
@@ -34,6 +37,7 @@ import {
   type Selection,
 } from './core/selection'
 import { DEFAULT_TRANSFORM } from './core/model'
+import { DEFAULT_SPLIT, pagesUsed, planExport, type SplitOptions } from './core/split'
 import { download as saveFile, exportPdf, prepareExport, type Exported } from './export/exportPdf'
 import { STALE_BUILD_MESSAGE, isStaleBuild } from './lib/staleBuild'
 import { assetStore } from './import/assetStore'
@@ -56,20 +60,22 @@ export interface AppDeps {
       password?: string
       text?: Record<string, OcrWord[]>
       readDrawn?: (assetId: string, jpeg: Uint8Array) => Promise<Record<string, OcrWord[]>>
+      /** Several files, as one ZIP (#66); see exportPdf.ts. */
+      parts?: SplitPart[]
     },
   ) => Promise<Exported>
   download: (blob: Blob, filename: string) => void
   newId: () => string
   estimateSkew: (asset: Asset) => Promise<Skew | null>
   /** Whether a page looks blank (#68); null if it can't tell. */
-  detectBlank: (asset: Asset, page: Page) => Promise<boolean | null>
+  detectBlank: (asset: Asset, picture: Slot) => Promise<boolean | null>
   /** The paper's corners in a photo, to suggest as its crop (null: no clear sheet). */
   findPaper: (asset: Asset) => Promise<Quad | null>
   /**
    * Recognises a page's words (fractions of its content image); from
    * `drawn` instead for a PDF page exported as a drawing.
    */
-  recognizeText: (asset: Asset, page: Page, drawn?: Uint8Array) => Promise<OcrWord[]>
+  recognizeText: (asset: Asset, page: Slot, drawn?: Uint8Array) => Promise<OcrWord[]>
   /** A PDF page drawn as the preview shows it, if it hides a layer (else null). */
   drawnPage: (asset: Asset) => Promise<Uint8Array | null>
   storage: Pick<Storage, 'getItem' | 'setItem'> | undefined
@@ -166,6 +172,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const [exporting, setExporting] = useState<ExportState>({ busy: false, done: 0, total: 0 })
   // In memory only: never in settings, storage or undo history.
   const [password, setPassword] = useState('')
+  /** Which pages to export, and into how many files (#66). Per document, so not saved. */
+  const [split, setSplit] = useState<SplitOptions>(DEFAULT_SPLIT)
   const [lastExport, setLastExport] = useState<{
     size: string
     used: string
@@ -198,6 +206,16 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   // Undo can remove selected pages; those simply drop out of the selection.
   const selection = useMemo(() => keepExisting(pages, rawSelection), [pages, rawSelection])
   const group = selection.ids.length > 1
+  const plan = useMemo(
+    () => planExport(pages, selection.ids, split, settings.pageNumbers.start),
+    [pages, selection.ids, split, settings.pageNumbers.start],
+  )
+  /** The pages the export takes, each once, in document order. */
+  const exportPages = useMemo(() => {
+    if ('error' in plan) return []
+    const used = new Set(pagesUsed(plan))
+    return pages.filter((p) => used.has(p.id))
+  }, [pages, plan])
   const selectedId = group ? null : (selection.ids[0] ?? null)
   const railKey = group ? 'group' : selectedId
   useLayoutEffect(() => {
@@ -555,8 +573,30 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       : null
 
   const onExport = useCallback(async () => {
-    if (passwordError) return
-    setExporting({ busy: true, done: 0, total: pages.length })
+    if (passwordError || 'error' in plan) return
+    const total = plan.parts.reduce((n, part) => n + part.pageIds.length, 0)
+    const byId = new Map(pages.map((p) => [p.id, p]))
+    // One file is built as before, from just its pages; several go to the
+    // worker as parts and come back as one ZIP.
+    const [single] = plan.parts.length === 1 ? plan.parts : []
+    const parts = single
+      ? undefined
+      : plan.parts.map((part, i) => ({
+          name: partFilename(settings.title, i, plan.parts.length),
+          pageIds: part.pageIds,
+          start: part.start,
+        }))
+    const exportDoc = single
+      ? {
+          ...doc,
+          pages: single.pageIds.flatMap((id) => byId.get(id) ?? []),
+          settings: {
+            ...settings,
+            pageNumbers: { ...settings.pageNumbers, start: single.start },
+          },
+        }
+      : { ...doc, pages: exportPages }
+    setExporting({ busy: true, done: 0, total })
     setStatus('Building PDF…')
     try {
       // OCR first, page by page, so progress is visible. Vector PDF pages
@@ -565,20 +605,24 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       let text: Record<string, OcrWord[]> | undefined
       if (settings.ocr) {
         text = {}
-        const readable: { page: Page; asset: Asset; drawn?: Uint8Array }[] = []
-        for (const page of pages) {
-          const asset = assets[page.assetId]
-          if (!asset) continue
-          if (asset.format !== 'pdf') readable.push({ page, asset })
-          else {
-            const drawn = await deps.drawnPage(asset)
-            if (drawn) readable.push({ page, asset, drawn })
+        // Each picture of a combined page is read on its own (#76).
+        const readable: { key: string; slot: Slot; asset: Asset; drawn?: Uint8Array }[] = []
+        for (const page of exportPages) {
+          for (const [i, slot] of picturesOf(page).entries()) {
+            const asset = assets[slot.assetId]
+            if (!asset) continue
+            const key = pictureKey(page, i)
+            if (asset.format !== 'pdf') readable.push({ key, slot, asset })
+            else {
+              const drawn = await deps.drawnPage(asset)
+              if (drawn) readable.push({ key, slot, asset, drawn })
+            }
           }
         }
-        for (const [i, { page, asset, drawn }] of readable.entries()) {
-          setStatus(`Reading text on page ${i + 1} of ${readable.length}…`)
+        for (const [i, { key, slot, asset, drawn }] of readable.entries()) {
+          setStatus(`Reading text on picture ${i + 1} of ${readable.length}…`)
           setExporting({ busy: true, done: i, total: readable.length, phase: 'ocr' })
-          text[page.id] = await deps.recognizeText(asset, page, drawn)
+          text[key] = await deps.recognizeText(asset, slot, drawn)
         }
       }
       // Pages the export finds it must draw after all are read then.
@@ -587,21 +631,25 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             const words: Record<string, OcrWord[]> = {}
             const asset = assets[assetId]
             if (!asset) return words
-            const reading = pages.filter((p) => p.assetId === assetId)
-            for (const [i, page] of reading.entries()) {
+            const reading = exportPages.flatMap((page) =>
+              picturesOf(page).flatMap((slot, i) =>
+                slot.assetId === assetId ? [{ key: pictureKey(page, i), slot }] : [],
+              ),
+            )
+            for (const [i, { key, slot }] of reading.entries()) {
               setStatus(`Reading text on drawn page ${i + 1} of ${reading.length}…`)
               setExporting({ busy: true, done: i, total: reading.length, phase: 'ocr' })
-              words[page.id] = await deps.recognizeText(asset, page, jpeg)
+              words[key] = await deps.recognizeText(asset, slot, jpeg)
             }
             // The build runs again next.
             setStatus('Building PDF…')
-            setExporting({ busy: true, done: 0, total: pages.length })
+            setExporting({ busy: true, done: 0, total })
             return words
           }
         : undefined
       setStatus('Building PDF…')
       const result = await deps.exportPdf(
-        doc,
+        exportDoc,
         (done, total, attempt) => {
           setExporting({ busy: true, done, total, attempt })
         },
@@ -609,19 +657,22 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           ...(lockPassword ? { password: lockPassword } : {}),
           ...(text ? { text } : {}),
           ...(readDrawn ? { readDrawn } : {}),
+          ...(parts ? { parts } : {}),
         },
       )
-      const filename = pdfFilename(settings.title)
+      const filename = parts ? zipFilename(settings.title) : pdfFilename(settings.title)
       deps.download(result.blob, filename)
       const size = formatBytes(result.blob.size)
       const used = result.compression ? `${result.compression.dpi} dpi` : 'original images'
       setLastExport({ size, used, fits: result.fits })
       setStatus(
-        `Saved ${filename} (${size}, ${used}${text ? ', searchable' : ''}${lockPassword ? ', password-protected' : ''}).`,
+        `Saved ${filename} (${parts ? `${String(parts.length)} PDFs, ` : ''}${size}, ${used}${text ? ', searchable' : ''}${lockPassword ? ', password-protected' : ''}).`,
       )
       if (!result.fits && settings.maxBytes !== null) {
         notify(
-          `Couldn’t get under ${formatBytes(settings.maxBytes)}: the smallest version is ${size} at ${used}. It was saved anyway.`,
+          parts
+            ? `Couldn’t get every file under ${formatBytes(settings.maxBytes)}, even at ${used}. They were saved anyway.`
+            : `Couldn’t get under ${formatBytes(settings.maxBytes)}: the smallest version is ${size} at ${used}. It was saved anyway.`,
         )
       }
     } catch (error) {
@@ -634,18 +685,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     } finally {
       setExporting({ busy: false, done: 0, total: 0 })
     }
-  }, [
-    deps,
-    doc,
-    notify,
-    pages,
-    assets,
-    settings.title,
-    settings.maxBytes,
-    settings.ocr,
-    lockPassword,
-    passwordError,
-  ])
+  }, [deps, doc, notify, pages, assets, settings, plan, exportPages, lockPassword, passwordError])
 
   const onRotate = useCallback(
     (id: string, by: -1 | 1) => {
@@ -734,7 +774,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         let unclear = 0
         for (const id of ids) {
           const page = pages.find((p) => p.id === id)
-          const asset = page ? assets[page.assetId] : undefined
+          // A combined page's pictures are straightened before combining.
+          const asset = page && !page.sheet ? assets[page.assetId] : undefined
           if (!asset) continue
           const skew = await deps.estimateSkew(asset)
           if (skew) patches.push({ id, patch: { angle: skew.angle } })
@@ -781,8 +822,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     setStatus('Looking for the paper…')
     const started = generation.current
     try {
+      // Combined pages are skipped: their pictures are cropped before combining.
       const photos = pages.filter((p) => {
-        const asset = assets[p.assetId]
+        const asset = p.sheet ? undefined : assets[p.assetId]
         return asset && !isVector(asset)
       })
       const todo = photos.filter((p) => p.corners === null)
@@ -879,10 +921,11 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const groupActions = useMemo<GroupActions | null>(() => {
     if (!group) return null
     const ids = selection.ids
+    // Only PDF content: a combined page with a photo on it takes the filter
+    // (the reducer keeps it off its PDF pictures).
     const vector = (id: string) => {
       const page = pages.find((p) => p.id === id)
-      const asset = page ? assets[page.assetId] : undefined
-      return asset?.format === 'pdf'
+      return page ? picturesOf(page).every((slot) => assets[slot.assetId]?.format === 'pdf') : false
     }
     const n = ids.length
     return {
@@ -930,6 +973,20 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         clearGroup()
         requestFocus(selection.anchor, true)
       },
+      onCombine: (kind) => {
+        const chosen = pages.filter((p) => ids.includes(p.id))
+        const pictures = chosen.reduce((sum, p) => sum + picturesOf(p).length, 0)
+        const made = Math.ceil(pictures / SHEET_CAPACITY[kind])
+        const newIds = Array.from({ length: made }, () => deps.newId())
+        act({ type: 'combinePages', ids, kind, newIds })
+        // The new pages are selected: one shows in the inspector.
+        setSelection({ ids: newIds, anchor: newIds[0] ?? null })
+        setSelecting(false)
+        requestFocus(newIds[0] ?? null, true)
+        announce(
+          `Combined ${plural(pictures, 'picture')} onto ${made === 1 ? 'one page' : `${String(made)} pages`}.`,
+        )
+      },
     }
   }, [
     act,
@@ -946,18 +1003,66 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     selection,
   ])
 
+  const sheetActions = useMemo<SheetActions | null>(() => {
+    if (!selected?.sheet) return null
+    const id = selected.id
+    const { slots } = selected.sheet
+    return {
+      onKind: (kind: SheetKind) => {
+        act({ type: 'setSheetKind', id, kind })
+      },
+      onRotate: (by) => {
+        act({ type: 'rotatePage', id, by })
+      },
+      onMove: (by) => {
+        act({ type: 'movePage', from: selectedIndex, to: selectedIndex + by })
+        announce(`Moved to position ${selectedIndex + by + 1} of ${pages.length}.`)
+      },
+      onDuplicate: () => {
+        const newId = deps.newId()
+        act({ type: 'duplicatePage', id, newId })
+        selectOnly(newId)
+      },
+      onSplit: () => {
+        const newIds = slots.map(() => deps.newId())
+        act({ type: 'splitPage', id, newIds })
+        // The pictures, back as pages, stay selected together.
+        setSelection({ ids: newIds, anchor: newIds[0] ?? null })
+        requestFocus(newIds[0] ?? null, true)
+        announce(`Split page ${selectedIndex + 1} into ${plural(newIds.length, 'page')}.`)
+      },
+      onRemove: () => {
+        onRemove(id)
+      },
+    }
+  }, [
+    act,
+    announce,
+    deps,
+    onRemove,
+    pages.length,
+    requestFocus,
+    selectOnly,
+    selected,
+    selectedIndex,
+  ])
+
   const estimate = useMemo(
     () =>
       estimateBytes(
-        pages.flatMap((page) => {
-          const asset = assets[page.assetId]
-          return asset
-            ? [{ asset, drawnWidthPt: layoutPage(settings, asset, page).image.width }]
-            : []
+        exportPages.flatMap((page) => {
+          const pictures = picturesOf(page)
+          if (pictures.some((slot) => !assets[slot.assetId])) return []
+          const sheet = layoutSheet(settings, assets, page)
+          return pictures.flatMap((slot, i) => {
+            const asset = assets[slot.assetId]
+            const layout = sheet.pictures[i]
+            return asset && layout ? [{ asset, drawnWidthPt: layout.image.width }] : []
+          })
         }),
         compressionFor(settings.quality),
       ),
-    [assets, pages, settings],
+    [assets, exportPages, settings],
   )
 
   /**
@@ -979,6 +1084,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     selectOnly(null)
     setSelecting(false)
     setPassword('')
+    setSplit(DEFAULT_SPLIT)
     setLastExport(null)
     setNotices([])
     requestFocus(null, true)
@@ -1110,6 +1216,12 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             password={password}
             onPassword={setPassword}
             passwordError={passwordError}
+            split={split}
+            onSplit={(patch) => {
+              setSplit((current) => ({ ...current, ...patch }))
+            }}
+            selectedCount={selection.ids.length}
+            plan={plan}
           />
         ) : undefined}
       </Header>
@@ -1211,6 +1323,15 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
                     count={pages.length}
                     actions={groupActions}
                     straightening={straightening}
+                  />
+                ) : selected?.sheet && sheetActions ? (
+                  <SheetInspector
+                    page={{ ...selected, sheet: selected.sheet }}
+                    assets={assets}
+                    index={selectedIndex}
+                    count={pages.length}
+                    settings={settings}
+                    actions={sheetActions}
                   />
                 ) : selected && selectedAsset && inspectorActions ? (
                   <Inspector

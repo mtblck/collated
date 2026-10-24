@@ -23,9 +23,10 @@ import {
   type PDFImage,
   type PDFPage,
 } from '@cantoo/pdf-lib'
-import { layoutPage, partLayout, snapPart, visiblePart, type Layout, type Part } from './geometry'
+import { layoutSheet, partLayout, snapPart, visiblePart, type Layout, type Part } from './geometry'
 import { compressionFor, targetPixels, type Compression } from './compression'
-import { contentSize, type Asset, type Filter, type Page, type Settings } from './model'
+import { contentSize, pictureKey, picturesOf } from './model'
+import type { Asset, Filter, Page, Settings } from './model'
 import { FULL_IMAGE, apply, homography, type Quad } from './perspective'
 import { NeedsDrawing, embedSanitized, reachesHiddenLayer, sanitizedPage } from './pdfSanitize'
 import { stripJpegMetadata } from './jpegClean'
@@ -43,7 +44,7 @@ export interface BuildInput {
   pages: Page[]
   /** Encrypts the PDF (AES-256) so it opens only with this. Never stored. */
   password?: string
-  /** Recognised words per page id, written as an invisible, searchable text layer. */
+  /** Recognised words per picture (see `pictureKey`), written as an invisible, searchable text layer. */
   text?: Record<string, OcrWord[]>
   /**
    * PDF pages to export as drawn instead of as vectors (ones that hide a
@@ -360,7 +361,7 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
   // the export can draw them all and build again in one round.
   const toDraw = Object.values(assets).filter((asset) => {
     if (asset.format !== 'pdf' || drawings.has(asset.id)) return false
-    return pages.some((p) => p.assetId === asset.id)
+    return pages.some((p) => picturesOf(p).some((slot) => slot.assetId === asset.id))
   })
   const mustDraw: string[] = []
   for (const asset of toDraw) {
@@ -371,51 +372,63 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
   if (mustDraw.length) throw new NeedsDrawing(mustDraw)
 
   for (const [index, page] of pages.entries()) {
-    const asset = assets[page.assetId]
-    if (!asset) throw new Error(`Page ${index + 1} refers to missing content.`)
-    const layout = layoutPage(settings, asset, page)
-    const pdfPage = doc.addPage([layout.page.width, layout.page.height])
-    const drawn = drawings.get(asset.id)
-    const stored = drawn ?? asset
-    // A drawn page is shown as it is: PDF pages take no crop and no filter.
-    const look = drawn ? { ...page, corners: null, filter: 'original' as const } : page
-    const visible = stored.format === 'pdf' ? null : visiblePart(layout)
-    // Whole source pixels, unless corners resample anyway.
-    const source = contentSize(stored, look)
-    const part = visible && !look.corners ? snapPart(visible, source.width, source.height) : visible
-    const content = await embed(
-      stored,
-      imageJob(stored, look, layout.image.width, compression, part),
-    )
-    const box = layout.content
-    const at = placement(content.cropped && part ? partLayout(layout, part) : layout, content.turns)
+    const pictures = picturesOf(page)
+    if (pictures.some((slot) => !assets[slot.assetId])) {
+      throw new Error(`Page ${index + 1} refers to missing content.`)
+    }
+    const sheet = layoutSheet(settings, assets, page)
+    const pdfPage = doc.addPage([sheet.page.width, sheet.page.height])
+    for (const [i, slot] of pictures.entries()) {
+      const asset = assets[slot.assetId]
+      const layout = sheet.pictures[i]
+      if (!asset || !layout) continue
+      const drawn = drawings.get(asset.id)
+      const stored = drawn ?? asset
+      // A drawn page is shown as it is: PDF pages take no crop and no filter.
+      const look = drawn ? { ...slot, corners: null, filter: 'original' as const } : slot
+      const visible = stored.format === 'pdf' ? null : visiblePart(layout)
+      // Whole source pixels, unless corners resample anyway.
+      const source = contentSize(stored, look)
+      const part =
+        visible && !look.corners ? snapPart(visible, source.width, source.height) : visible
+      const content = await embed(
+        stored,
+        imageJob(stored, look, layout.image.width, compression, part),
+      )
+      const box = layout.content
+      const at = placement(
+        content.cropped && part ? partLayout(layout, part) : layout,
+        content.turns,
+      )
 
-    // Clip to the printable area so a scaled-up or filled image never prints
-    // into the margins — the preview clips the same way.
-    pdfPage.pushOperators(
-      pushGraphicsState(),
-      rectangle(box.x, layout.page.height - box.y - box.height, box.width, box.height),
-      clip(),
-      endPath(),
-    )
-    const draw = { ...at, rotate: degrees(at.rotate) }
-    if (content.kind === 'page') pdfPage.drawPage(content.page, draw)
-    else pdfPage.drawImage(content.image, draw)
-    pdfPage.pushOperators(popGraphicsState())
+      // Clip to the printable area (on a combined page, the picture's own
+      // cell) so a scaled-up or filled image never prints into the margins —
+      // the preview clips the same way.
+      pdfPage.pushOperators(
+        pushGraphicsState(),
+        rectangle(box.x, layout.page.height - box.y - box.height, box.width, box.height),
+        clip(),
+        endPath(),
+      )
+      const draw = { ...at, rotate: degrees(at.rotate) }
+      if (content.kind === 'page') pdfPage.drawPage(content.page, draw)
+      else pdfPage.drawImage(content.image, draw)
+      pdfPage.pushOperators(popGraphicsState())
 
-    const words = input.text?.[page.id]
-    if (words?.length) {
-      textFont ??= await doc.embedFont(StandardFonts.Helvetica)
-      drawTextLayer(pdfPage, textFont, layout, words)
+      const words = input.text?.[pictureKey(page, i)]
+      if (words?.length) {
+        textFont ??= await doc.embedFont(StandardFonts.Helvetica)
+        drawTextLayer(pdfPage, textFont, layout, words)
+      }
     }
 
-    const mark = numberMark(settings.pageNumbers, index, layout.page, layout.content.x)
+    const mark = numberMark(settings.pageNumbers, index, sheet.page, sheet.content.x)
     if (mark) {
       font ??= await doc.embedFont(StandardFonts.Helvetica)
       const width = font.widthOfTextAtSize(mark.text, mark.size)
       pdfPage.drawText(mark.text, {
         x: mark.align === 'center' ? mark.x - width / 2 : mark.x - width,
-        y: layout.page.height - mark.baseline,
+        y: sheet.page.height - mark.baseline,
         size: mark.size,
         font,
         color: grayscale(NUMBER_GREY),

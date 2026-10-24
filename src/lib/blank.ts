@@ -1,23 +1,23 @@
 import { blankness } from '../core/blank'
-import type { Asset, Page } from '../core/model'
+import type { Asset, Slot } from '../core/model'
 import { assetStore } from '../import/assetStore'
 import { previewToBlob } from './filterCanvas'
 
 /**
- * Whether a page looks blank (#68), from its thumbnail — cropped to the
+ * Whether a picture looks blank (#68), from its thumbnail — cropped to the
  * paper first when it has corners, so a photo's table doesn't count. Turns,
  * straightening and filters don't change blankness. Null when there's no
  * thumbnail to read.
  */
 export const looksBlank = async (
   asset: Pick<Asset, 'thumbUrl' | 'format'>,
-  page: Pick<Page, 'corners'>,
+  picture: Pick<Slot, 'corners'>,
 ): Promise<boolean | null> => {
   const thumb = assetStore.thumbBlob(asset.thumbUrl)
   if (!thumb) return null
   const source =
-    page.corners && asset.format !== 'pdf'
-      ? await previewToBlob(thumb, 'original', page.corners)
+    picture.corners && asset.format !== 'pdf'
+      ? await previewToBlob(thumb, 'original', picture.corners)
       : thumb
   const bitmap = await createImageBitmap(source)
   try {

@@ -33,11 +33,13 @@ export default tseslint.config(
   },
   {
     // pdf-lib is ~240 KB gzipped and only needed to export: keep it in the
-    // worker. Importing it (or core/pdf) from UI code puts it in the main bundle.
+    // worker. Importing it (or core/pdf, or splitBuild and its fflate) from UI
+    // code puts it in the main bundle.
     files: ['src/**/*.{ts,tsx}'],
     ignores: [
       'src/core/pdf.ts',
       'src/core/pdfSanitize.ts',
+      'src/core/splitBuild.ts',
       'src/**/*.test.ts',
       'src/export/pdf.worker.ts',
     ],
@@ -48,7 +50,7 @@ export default tseslint.config(
           paths: [{ name: '@cantoo/pdf-lib', message: 'pdf-lib loads only in the export worker.' }],
           patterns: [
             {
-              regex: '/core/pdf(Sanitize)?$|^\\./pdf(Sanitize)?$',
+              regex: '/core/(pdf(Sanitize)?|splitBuild)$|^\\./(pdf(Sanitize)?|splitBuild)$',
               allowTypeImports: true,
               message: 'core/pdf pulls pdf-lib into the main bundle; use it from the worker.',
             },
