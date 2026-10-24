@@ -18,6 +18,7 @@ export const settings = (patch: Partial<Settings> = {}): Settings => ({
   imageDpi: 300,
   pageNumbers: { show: false, position: 'bottom-center', start: 1 },
   ocr: false,
+  bookmarkFiles: false,
   ...patch,
 })
 

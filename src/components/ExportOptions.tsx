@@ -70,7 +70,10 @@ export const ExportOptions = ({
   plan,
   panelId: givenPanelId,
 }: {
-  settings: Pick<Settings, 'title' | 'quality' | 'maxBytes' | 'pageNumbers' | 'ocr'>
+  settings: Pick<
+    Settings,
+    'title' | 'quality' | 'maxBytes' | 'pageNumbers' | 'ocr' | 'bookmarkFiles'
+  >
   pageCount: number
   exporting: ExportState
   /** Estimated bytes for the current pages and quality. */
@@ -430,6 +433,26 @@ export const ExportOptions = ({
                   </select>
                 </div>
               )}
+            </div>
+
+            <div className="mt-4">
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 accent-[var(--c-ink)]"
+                  checked={settings.bookmarkFiles}
+                  aria-describedby={`${id}-bookmarks-hint`}
+                  onChange={(event) => {
+                    onSettings({ bookmarkFiles: event.target.checked })
+                  }}
+                />
+                Bookmark each imported file
+              </label>
+              <p id={`${id}-bookmarks-hint`} className="mt-1 ml-6 text-xs text-ink-muted">
+                Named after the file, at its first page. Sections you name in a page’s settings are
+                always bookmarked
+                {splitting ? ', and each file opens under the section it starts in' : ''}.
+              </p>
             </div>
 
             <div className="mt-4">

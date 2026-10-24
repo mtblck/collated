@@ -2581,6 +2581,51 @@ await context.close()
   await ctx.close()
 }
 
+// 29. Bookmarks (#75): a section follows its page; files under it; poppler reads them.
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles(
+    '[data-testid="file-input"]',
+    ['quad-landscape.jpg', 'quad-portrait.jpg', 'quad-3pages.pdf'].map((f) => join(fixtures, f)),
+  )
+  await p.waitForSelector('ol[aria-label="5 pages"]', { timeout: 20_000 })
+  const panel = p.locator('aside[aria-label="Selected page"]')
+  const card = (n) => p.locator(`ol[aria-label] > li:nth-child(${n}) [data-page-select]`)
+  await card(2).click()
+  await panel.getByLabel('Section starts here').fill('Receipts')
+  await panel.getByLabel('Section starts here').blur()
+  // The section moves with its page: page 2 goes to the end.
+  for (let i = 0; i < 3; i++) await panel.getByRole('button', { name: 'Move page later' }).click()
+  check(
+    /starts section Receipts/.test((await card(5).getAttribute('aria-label')) ?? ''),
+    'the section moves with its page',
+    (await card(5).getAttribute('aria-label')) ?? '',
+  )
+  await p.screenshot({ path: join(shots, 'bookmarks-section.png') })
+  await axe(p, 'section field')
+  await exportMenu(p).click()
+  const dialog = p.getByRole('dialog', { name: 'Export options' })
+  await dialog.getByRole('checkbox', { name: 'Bookmark each imported file' }).check()
+  await p.keyboard.press('Escape')
+  const [dl] = await Promise.all([p.waitForEvent('download'), exportNow(p)])
+  const out = join(mkdtempSync(join(tmpdir(), 'collated-verify-bookmarks-')), 'bookmarks.pdf')
+  await dl.saveAs(out)
+  if (hasPoppler) {
+    const xml = execFileSync('pdftohtml', ['-xml', '-i', '-stdout', '-q', out, 'x']).toString()
+    const items = [...xml.matchAll(/<item page="(\d+)">([^<]*)<\/item>/g)].map(
+      ([, n, t]) => `${t}@${n}`,
+    )
+    check(
+      JSON.stringify(items) ===
+        JSON.stringify(['quad-landscape@1', 'quad-3pages@2', 'Receipts@5', 'quad-portrait@5']),
+      'poppler reads the files and the section, each at its page',
+      items.join(', '),
+    )
+  }
+  await ctx.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()

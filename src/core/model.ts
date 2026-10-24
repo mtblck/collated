@@ -61,6 +61,8 @@ export interface Settings {
   pageNumbers: PageNumbers
   /** Recognise text (on this device) and add an invisible, searchable layer. */
   ocr: boolean
+  /** Bookmark each imported file at its first page (#75). Missing in work saved before. */
+  bookmarkFiles: boolean
 }
 
 /**
@@ -136,6 +138,12 @@ export interface Page {
    * duplex ordering go by `assetId`, so by the first picture.
    */
   sheet?: Sheet
+  /**
+   * Names a section that starts at this page: a bookmark in the exported
+   * PDF (#75). As typed; trimmed on export, and blank starts none. It
+   * belongs to the page, so it moves when the page does.
+   */
+  section?: string
 }
 
 /**

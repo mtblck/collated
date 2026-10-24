@@ -17,6 +17,7 @@ import {
 import { usePageThumbs } from '../hooks/usePageThumb'
 import { PagePreview } from './PagePreview'
 import { SHEET_NAMES, pageNumber } from './format'
+import { SectionField } from './SectionField'
 
 const KINDS: readonly { value: SheetKind; label: string }[] = [
   { value: 'two', label: '2' },
@@ -31,6 +32,9 @@ export interface SheetActions {
   onDuplicate: () => void
   onSplit: () => void
   onRemove: () => void
+  /** Names the section that starts at this page; blank removes it. */
+  onSection: (title: string) => void
+  onGestureEnd: () => void
 }
 
 /**
@@ -165,6 +169,12 @@ export const SheetInspector = ({
           </Button>
         </div>
       </div>
+
+      <SectionField
+        value={page.section ?? ''}
+        onChange={actions.onSection}
+        onDone={actions.onGestureEnd}
+      />
 
       <div className="flex flex-col gap-2">
         <div className="flex" role="group" aria-label="Reorder">
