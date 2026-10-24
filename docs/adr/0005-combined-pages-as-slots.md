@@ -2,7 +2,7 @@
 public: true
 ---
 
-# 0004: A combined page holds its pictures as slots, placed by `layoutPage`
+# 0005: A combined page holds its pictures as slots, placed by `layoutPage`
 
 - **Status:** Accepted
 - **Date:** 2026-10-24
