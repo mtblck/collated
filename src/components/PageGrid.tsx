@@ -21,9 +21,6 @@ import { PagePreview } from './PagePreview'
 
 const NONE: readonly string[] = []
 
-/** Card preview boxes are 4:5, close to every paper size, so rows stay level. */
-const CARD_RATIO = 4 / 5
-
 interface CardProps {
   page: Page
   assets: Record<string, Asset>
@@ -91,6 +88,7 @@ const PageCard = memo(function PageCard({
       >
         <button
           type="button"
+          // 4:5, close to every paper size, so rows stay level.
           className="block aspect-[4/5] w-full focus-visible:outline-offset-4"
           // A plain click selects just this page, so it isn't a toggle; in
           // select mode it is one. Shift and ⌘/Ctrl extend the selection,
@@ -116,7 +114,6 @@ const PageCard = memo(function PageCard({
             sheet={sheet}
             thumbUrls={thumbUrls}
             covers={covers}
-            boxRatio={CARD_RATIO}
             selected={selected}
             mark={mark}
           />

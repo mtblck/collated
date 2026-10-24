@@ -23,7 +23,7 @@ export type FitMode = 'contain' | 'cover'
  * and white (an adaptive threshold that keeps text crisp under uneven light).
  * Images only; PDF pages are vector and pass through untouched.
  */
-export type Filter = 'original' | 'grey' | 'bw'
+export type Filter = 'original' | 'grey' | 'enhance' | 'bw'
 
 export type QuarterTurns = 0 | 1 | 2 | 3
 

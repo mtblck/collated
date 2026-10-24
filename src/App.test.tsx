@@ -1393,6 +1393,32 @@ describe('App', () => {
       expect(doc?.pages[3]?.filter).toBe('bw')
     })
 
+    it('enhances every photo on a combined page', async () => {
+      const exportPdf = vi.fn<AppDeps['exportPdf']>(() =>
+        Promise.resolve({ blob: new Blob(['%PDF']), compression: null, fits: true }),
+      )
+      const { user, upload } = setup({ exportPdf })
+      await upload('a.jpg', 'b.jpg', 'c.jpg')
+      await screen.findByRole('list', { name: '3 pages' })
+      await user.click(card(1))
+      await user.keyboard('{Control>}')
+      await user.click(card(2))
+      await user.keyboard('{/Control}')
+      await user.click(panel().getByRole('button', { name: '2 per page' }))
+      await user.click(card(1))
+      await user.keyboard('{Control>}')
+      await user.click(card(2))
+      await user.keyboard('{/Control}')
+      await user.click(panel().getByRole('radio', { name: 'Enhance' }))
+      await user.click(exportButton())
+      await waitFor(() => {
+        expect(exportPdf).toHaveBeenCalled()
+      })
+      const [doc] = exportPdf.mock.calls[0] ?? []
+      expect(doc?.pages[0]?.sheet?.slots.map((s) => s.filter)).toEqual(['enhance', 'enhance'])
+      expect(doc?.pages[1]?.filter).toBe('enhance')
+    })
+
     it('exports the combined page, reading text from each picture', async () => {
       const exportPdf = vi.fn<AppDeps['exportPdf']>(() =>
         Promise.resolve({ blob: new Blob(['%PDF']), compression: null, fits: true }),

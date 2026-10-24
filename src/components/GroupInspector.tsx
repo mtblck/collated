@@ -17,6 +17,7 @@ import { pageNumber } from './format'
 const FILTERS: readonly { value: Filter; label: string }[] = [
   { value: 'original', label: 'Original' },
   { value: 'grey', label: 'Greyscale' },
+  { value: 'enhance', label: 'Enhance' },
   { value: 'bw', label: 'B&W' },
 ]
 
@@ -260,7 +261,7 @@ export const GroupInspector = ({
               ? `Applies to the ${images.length} image ${images.length === 1 ? 'page' : 'pages'}; PDF pages keep their vector content.`
               : filter === null
                 ? 'These pages use different filters.'
-                : 'Greyscale and B&W clean up photographed paper.'}
+                : 'Greyscale, Enhance and B&W clean up photographed paper.'}
         </p>
       </div>
 

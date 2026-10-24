@@ -322,8 +322,6 @@ export const PageViewer = ({
     }
   }, [])
 
-  const boxRatio = size.width / size.height
-
   return (
     <dialog
       ref={dialog}
@@ -411,7 +409,6 @@ export const PageViewer = ({
               sheet={singleSheet(layout)}
               thumbUrls={[detail ?? thumbUrl]}
               covers={[covers]}
-              boxRatio={boxRatio}
               mark={mark}
             />
           </div>

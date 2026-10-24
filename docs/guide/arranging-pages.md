@@ -71,6 +71,7 @@ The editor shows the whole photo, so a box stays on what it covers if you crop, 
 
 - **Original:** as photographed.
 - **Greyscale:** removes colour casts.
+- **Enhance:** whitens the paper and evens out shadows while keeping the colours of ink, stamps, highlighter and logos. Best for colour documents photographed with a phone; crop to the paper first so the table isn't lightened too.
 - **B&W:** pure black and white for text, even when the page was lit unevenly. Saved losslessly, so text edges stay sharp.
 
 ## Duplicate, reset and remove
