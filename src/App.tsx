@@ -29,6 +29,7 @@ import { PageGrid } from './components/PageGrid'
 import { GroupInspector, type GroupActions } from './components/GroupInspector'
 import { SelectionBar } from './components/SelectionBar'
 import { BlankPagesBar } from './components/BlankPagesBar'
+import { ShareConfirm } from './components/ShareConfirm'
 import { SheetInspector, type SheetActions } from './components/SheetInspector'
 import {
   EMPTY_SELECTION,
@@ -1240,8 +1241,17 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   // Files shared to Collated or opened with it (#73) join the work in
   // progress: a document kept from last time is restored first, never
   // replaced by files the person may not have known would replace it. Until
-  // we know whether there is one, they wait in lib/incoming.
+  // we know whether there is one, they wait in lib/incoming. Shared files
+  // wait again, for the person to say they shared them (ShareConfirm).
   const settled = offer !== 'pending' && !restoring
+  const [shared, setShared] = useState<File[]>([])
+  const addIncoming = useCallback(
+    async (files: File[]) => {
+      if (offer) await onRestore()
+      await addFiles(files)
+    },
+    [addFiles, offer, onRestore],
+  )
   useEffect(() => {
     if (!settled) return
     return deps.incoming((incoming) => {
@@ -1249,12 +1259,10 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         notify('Nothing was shared that Collated could add.')
         return
       }
-      void (async () => {
-        if (offer) await onRestore()
-        await addFiles(incoming.files)
-      })()
+      if (incoming.from === 'share') setShared((list) => [...list, ...incoming.files])
+      else void addIncoming(incoming.files)
     })
-  }, [addFiles, deps, notify, offer, onRestore, settled])
+  }, [addIncoming, deps, notify, settled])
 
   const onDiscard = useCallback(() => {
     setOffer(null)
@@ -1527,6 +1535,19 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       <p id="status" className="sr-only" role="status" aria-live="polite">
         {status}
       </p>
+      {shared.length > 0 && (
+        <ShareConfirm
+          files={shared}
+          onAdd={() => {
+            setShared([])
+            void addIncoming(shared)
+          }}
+          onDismiss={() => {
+            setShared([])
+            announce('The shared files were not added.')
+          }}
+        />
+      )}
       <DropOverlay active={dragging} />
       <Notices
         items={notices}

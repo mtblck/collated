@@ -6,8 +6,12 @@
  */
 import { INBOX_CACHE, NAME_HEADER, SHARE_PARAM, inInbox } from '../sw/routes'
 
-/** What arrived: files, or a share that carried none Collated could keep. */
-export type Incoming = { files: File[] } | { empty: 'share' }
+/**
+ * What arrived: files, or a share that carried none Collated could keep.
+ * Shared files are asked about before they go in (any site can post to the
+ * share address); files opened from the desktop were chosen by the person.
+ */
+export type Incoming = { files: File[]; from: 'share' | 'launch' } | { empty: 'share' }
 
 type Listener = (incoming: Incoming) => void
 let listener: Listener | null = null
@@ -71,7 +75,7 @@ export const startIncoming = (win: Window = window) => {
         return []
       })
       .then((files) => {
-        deliver(files.length > 0 ? { files } : { empty: 'share' })
+        deliver(files.length > 0 ? { files, from: 'share' } : { empty: 'share' })
       })
   }
   const queue = (win as Window & { launchQueue?: LaunchQueue }).launchQueue
@@ -79,7 +83,7 @@ export const startIncoming = (win: Window = window) => {
     const reads = params.files.flatMap((h) => (h.kind === 'file' && h.getFile ? [h.getFile()] : []))
     void Promise.all(reads)
       .then((files) => {
-        if (files.length > 0) deliver({ files })
+        if (files.length > 0) deliver({ files, from: 'launch' })
       })
       .catch((error: unknown) => {
         console.error(error)

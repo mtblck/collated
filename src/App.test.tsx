@@ -258,12 +258,36 @@ describe('App', () => {
         }
       }
 
-      it('become pages of a new document when nothing was kept', async () => {
+      it('opened from the desktop, become pages of a new document when nothing was kept', async () => {
         const { incoming, send } = source()
-        send({ files: [file('shared.jpg'), file('scan.pdf')] })
+        send({ files: [file('opened.jpg'), file('scan.pdf')], from: 'launch' })
         setup({ incoming })
         expect(await screen.findByRole('list', { name: '4 pages' })).toBeInTheDocument()
-        expect(pageLabels()[0]).toBe('Page 1: shared.jpg')
+        expect(pageLabels()[0]).toBe('Page 1: opened.jpg')
+        expect(screen.queryByRole('dialog')).toBeNull()
+      })
+
+      it('shared, are added only once the person says so', async () => {
+        const { incoming, send } = source()
+        const { user } = setup({ incoming })
+        send({
+          files: ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => file(`${n}.jpg`)),
+          from: 'share',
+        })
+        const ask = await screen.findByRole('dialog', {
+          name: 'Add 6 files shared with Collated?',
+        })
+        expect(ask).toHaveTextContent('a.jpgb.jpgc.jpgd.jpgand 2 files more')
+        expect(screen.queryByRole('list', { name: /pages?$/ })).toBeNull()
+        await user.click(within(ask).getByRole('button', { name: 'Don’t add' }))
+        expect(screen.queryByRole('dialog')).toBeNull()
+        expect(screen.queryByRole('list', { name: /pages?$/ })).toBeNull()
+        expect(status()).toHaveTextContent('The shared files were not added.')
+
+        send({ files: [file('mine.jpg')], from: 'share' })
+        await user.click(await screen.findByRole('button', { name: 'Add 1 file' }))
+        expect(await screen.findByRole('list', { name: '1 page' })).toBeInTheDocument()
+        expect(pageLabels()).toEqual(['Page 1: mine.jpg'])
       })
 
       it('join the kept document instead of replacing it', async () => {
@@ -274,16 +298,17 @@ describe('App', () => {
 
         const { incoming, send } = source()
         // Shared while the app is still looking for the kept document.
-        send({ files: [file('shared.jpg')] })
+        send({ files: [file('shared.jpg')], from: 'share' })
         // Ids unlike the first visit's, as random ones would be.
         let n = 0
-        visit({ incoming, newId: () => `later${++n}` })
+        const { user } = visit({ incoming, newId: () => `later${++n}` })
+        await user.click(await screen.findByRole('button', { name: 'Add 1 file' }))
         await waitFor(() => {
           expect(pageLabels()).toEqual(['Page 1: a.jpg', 'Page 2: b.jpg', 'Page 3: shared.jpg'])
         })
         expect(screen.queryByRole('region', { name: /Restore/ })).toBeNull()
-        // And once open, later ones are added to it.
-        send({ files: [file('later.jpg')] })
+        // And once open, files opened from the desktop are added to it.
+        send({ files: [file('later.jpg')], from: 'launch' })
         await waitFor(() => {
           expect(pageLabels()).toHaveLength(4)
         })

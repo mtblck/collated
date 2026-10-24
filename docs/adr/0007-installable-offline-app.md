@@ -40,6 +40,9 @@ at once and deletes caches no build of its own uses; anything not in its lists
 goes to the network untouched, so an old tab asking for a deleted chunk still
 gets the 404 and the stale-build message. A share is kept in a third cache,
 `collated-share-inbox`, until the app opens on `/?share=<id>` and takes it.
+Any site can post to `/share`, and the worker can't tell that from the share
+sheet (`Sec-Fetch-Site` never reaches it, and both arrive as `Origin: null`),
+so shared files are added only after the person confirms them by name.
 Files shared or opened join the work in progress; a document kept from last
 time (ADR 0002) is restored first rather than replaced.
 

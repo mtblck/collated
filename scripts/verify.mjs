@@ -2781,10 +2781,25 @@ await context.close()
     sheet.waitForURL(`${URL_ROOT}**`),
     sheet.evaluate(() => document.forms[0].submit()),
   ])
-  // The document there (kept since the offline export) is restored and the
-  // shared files are added to it.
+  // Nothing goes in until the person says they shared it: any site can post
+  // to /share. Then the document there (kept since the offline export) is
+  // restored and the shared files are added to it.
+  const ask = sheet.getByRole('dialog', { name: 'Add 2 files shared with Collated?' })
+  await ask.waitFor({ timeout: 20_000 })
+  ok('the service worker takes the shared files and the app asks before adding them')
+  check(
+    (await ask.textContent()).includes('From the gallery.jpgLease from email.pdf'),
+    'the question names the shared files',
+  )
+  check(
+    await ask
+      .getByRole('button', { name: 'Don’t add' })
+      .evaluate((el) => el === document.activeElement),
+    'it opens on Don’t add',
+  )
+  await axe(sheet, 'shared files question')
+  await ask.getByRole('button', { name: 'Add 2 files' }).click()
   await sheet.waitForSelector('ol[aria-label="9 pages"]', { timeout: 20_000 })
-  ok('the service worker takes the shared files and the app opens on them')
   const names = await pageNames(sheet)
   check(
     names[5] === 'From the gallery.jpg' && names.at(-1) === 'Lease from email · p3',

@@ -20,7 +20,7 @@ Install Collated as an app (the install button in Chrome or Edge's address bar, 
 - **In the share sheet:** share photos from your gallery or a PDF from an email to **Collated**, and they open as pages.
 - **In "Open with":** right-click a PDF or image on your computer and open it with Collated.
 
-Shared or opened files are added to the document you're working on. If you have one saved from last time, it's restored first and the new files go after its pages, so nothing you kept is replaced.
+Before shared files go in, Collated names them and asks **Add N files shared with Collated?**, because any website could try to send files there; choose **Add** only if you shared them yourself. Files you open with Collated go straight in. Either way they're added to the document you're working on. If you have one saved from last time, it's restored first and the new files go after its pages, so nothing you kept is replaced.
 
 ## What Collated reads
 

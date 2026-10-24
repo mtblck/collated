@@ -86,7 +86,7 @@ describe('files arriving from outside (#73)', () => {
     })
     return vi.waitFor(() => {
       const stop = listenForIncoming((incoming) => got.push(incoming))
-      expect(got).toEqual([{ files: [opened] }])
+      expect(got).toEqual([{ files: [opened], from: 'launch' }])
       stop()
     })
   })
@@ -107,6 +107,7 @@ describe('files arriving from outside (#73)', () => {
     await vi.waitFor(() => {
       expect(got).toHaveLength(1)
     })
+    expect(got.map((g) => 'files' in g && g.from)).toEqual(['share'])
     expect(got.flatMap((g) => ('files' in g ? g.files.map((f) => f.name) : []))).toEqual([
       'photo.jpg',
     ])
