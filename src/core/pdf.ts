@@ -16,6 +16,7 @@ import {
   setTextRenderingMode,
   showText,
   grayscale,
+  rgb,
   PDFName,
   PDFString,
   type PDFFont,
@@ -33,6 +34,7 @@ import { stripJpegMetadata } from './jpegClean'
 import { headerSize } from './imageInfo'
 import { placeWord, type OcrWord } from './textLayer'
 import { NUMBER_GREY, numberMark } from './pageNumbers'
+import { textWidth, unsupportedCharacters, watermarkMark, type WatermarkMark } from './watermark'
 
 export interface BuildInput {
   settings: Settings
@@ -66,6 +68,11 @@ export interface BuildOptions {
    * applies EXIF orientation).
    */
   processImage?: (bytes: Uint8Array, job: ImageJob) => Promise<Uint8Array>
+  /**
+   * Draws a whole page into one JPEG, watermark included (see `FlattenJob`).
+   * Needs a canvas, so the worker provides it.
+   */
+  flattenPage?: (job: FlattenJob) => Promise<Uint8Array>
   onProgress?: (done: number, total: number) => void
   /** Fixed for reproducible output in tests. */
   now?: Date
@@ -89,6 +96,34 @@ export interface ImageJob {
   /** JPEG quality, 0–1. */
   quality: number
 }
+
+/**
+ * A page drawn as one picture so its watermark is part of the pixels (#78):
+ * each picture as the export would embed it, placed and clipped as the
+ * layout says, then the watermark over them. The canvas side lives in
+ * lib/filterCanvas.ts.
+ */
+export interface FlattenJob {
+  /** The page, in points. */
+  page: { width: number; height: number }
+  /** Canvas pixels per point (the canvas may cap it). */
+  scale: number
+  pictures: {
+    /** The stored bytes; `job`, when set, is applied to them first. */
+    bytes: Uint8Array
+    job: ImageJob | null
+    /** Where the (processed) upright image goes, as in `Layout.image`. */
+    image: Layout['image']
+    /** Its cell: nothing is drawn outside it. */
+    clip: Layout['content']
+  }[]
+  mark: WatermarkMark
+  /** JPEG quality, 0–1. */
+  quality: number
+}
+
+/** Flattened pages are drawn at least this sharp, so the watermark's edges are clean. */
+export const FLATTEN_MIN_SCALE = 150 / 72
 
 /**
  * How an image page is stored. Untouched unless it has a filter or the export
@@ -184,6 +219,26 @@ const drawTextLayer = (page: PDFPage, font: PDFFont, layout: Layout, words: OcrW
     )
   }
   page.pushOperators(endText(), popGraphicsState())
+}
+
+/**
+ * The watermark as text, over the content (`opacity` becomes the page's fill
+ * alpha). pdf-lib's drawText rotates counter-clockwise about the baseline's
+ * start, so that start is found from the mark's middle. Measured unkerned,
+ * as drawText sets it (pdf-lib's own measure adds kerning).
+ */
+const drawWatermark = (page: PDFPage, font: PDFFont, mark: WatermarkMark, height: number) => {
+  const width = textWidth(mark.text, mark.size)
+  const r = (mark.angle * Math.PI) / 180
+  page.drawText(mark.text, {
+    x: mark.x - (Math.cos(r) * width) / 2,
+    y: height - (mark.baseline - (Math.sin(r) * width) / 2),
+    size: mark.size,
+    font,
+    color: rgb(mark.colour.r, mark.colour.g, mark.colour.b),
+    opacity: mark.opacity,
+    rotate: degrees(-mark.angle),
+  })
 }
 
 export const PRODUCER = 'Collated'
@@ -378,10 +433,18 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     }
     const sheet = layoutSheet(settings, assets, page)
     const pdfPage = doc.addPage([sheet.page.width, sheet.page.height])
-    for (const [i, slot] of pictures.entries()) {
+    const watermark = watermarkMark(
+      settings.watermark,
+      page.id,
+      sheet.page,
+      sheet.content.x,
+      settings.pageNumbers,
+    )
+    /** What a picture embeds: the asset, or its drawing, with the look and part that apply. */
+    const prepared = pictures.flatMap((slot, i) => {
       const asset = assets[slot.assetId]
       const layout = sheet.pictures[i]
-      if (!asset || !layout) continue
+      if (!asset || !layout) return []
       const drawn = drawings.get(asset.id)
       const stored = drawn ?? asset
       // A drawn page is shown as it is: PDF pages take no crop and no filter.
@@ -391,35 +454,88 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
       const source = contentSize(stored, look)
       const part =
         visible && !look.corners ? snapPart(visible, source.width, source.height) : visible
-      const content = await embed(
-        stored,
-        imageJob(stored, look, layout.image.width, compression, part),
-      )
-      const box = layout.content
-      const at = placement(
-        content.cropped && part ? partLayout(layout, part) : layout,
-        content.turns,
-      )
+      const job = imageJob(stored, look, layout.image.width, compression, part)
+      return [{ i, layout, stored, part, job }]
+    })
+    // Burned in only where every picture is pixels: a vector page keeps its
+    // text and gets the watermark as text.
+    const flatten =
+      watermark !== null &&
+      settings.watermark.flatten &&
+      prepared.every(({ stored }) => stored.format !== 'pdf')
 
-      // Clip to the printable area (on a combined page, the picture's own
-      // cell) so a scaled-up or filled image never prints into the margins —
-      // the preview clips the same way.
-      pdfPage.pushOperators(
-        pushGraphicsState(),
-        rectangle(box.x, layout.page.height - box.y - box.height, box.width, box.height),
-        clip(),
-        endPath(),
-      )
-      const draw = { ...at, rotate: degrees(at.rotate) }
-      if (content.kind === 'page') pdfPage.drawPage(content.page, draw)
-      else pdfPage.drawImage(content.image, draw)
-      pdfPage.pushOperators(popGraphicsState())
+    if (watermark && flatten) {
+      if (!options.flattenPage) throw new Error('This build can’t flatten pages.')
+      let scale = FLATTEN_MIN_SCALE
+      const pieces: FlattenJob['pictures'] = []
+      for (const { layout, stored, part, job } of prepared) {
+        const placed = job && part ? partLayout(layout, part) : layout
+        const pixels = job ? job.width : stored.width
+        scale = Math.max(scale, pixels / placed.image.width)
+        pieces.push({
+          bytes: await options.getBytes(stored.bytesId),
+          job,
+          image: placed.image,
+          clip: layout.content,
+        })
+      }
+      const jpeg = await options.flattenPage({
+        page: sheet.page,
+        scale,
+        pictures: pieces,
+        mark: watermark,
+        quality: compression?.quality ?? 0.92,
+      })
+      pdfPage.drawImage(await doc.embedJpg(jpeg), {
+        x: 0,
+        y: 0,
+        width: sheet.page.width,
+        height: sheet.page.height,
+      })
+    } else {
+      for (const { layout, stored, part, job } of prepared) {
+        const content = await embed(stored, job)
+        const box = layout.content
+        const at = placement(
+          content.cropped && part ? partLayout(layout, part) : layout,
+          content.turns,
+        )
 
+        // Clip to the printable area (on a combined page, the picture's own
+        // cell) so a scaled-up or filled image never prints into the margins —
+        // the preview clips the same way.
+        pdfPage.pushOperators(
+          pushGraphicsState(),
+          rectangle(box.x, layout.page.height - box.y - box.height, box.width, box.height),
+          clip(),
+          endPath(),
+        )
+        const draw = { ...at, rotate: degrees(at.rotate) }
+        if (content.kind === 'page') pdfPage.drawPage(content.page, draw)
+        else pdfPage.drawImage(content.image, draw)
+        pdfPage.pushOperators(popGraphicsState())
+      }
+    }
+
+    for (const { i, layout } of prepared) {
       const words = input.text?.[pictureKey(page, i)]
       if (words?.length) {
         textFont ??= await doc.embedFont(StandardFonts.Helvetica)
         drawTextLayer(pdfPage, textFont, layout, words)
       }
+    }
+
+    if (watermark && !flatten) {
+      const missing = unsupportedCharacters(watermark.text)
+      if (missing.length) {
+        // Only pixels can show them; PDF pages take the watermark as text.
+        const fix = settings.watermark.flatten
+          ? 'Use Latin letters: PDF pages take it as text'
+          : 'Use Latin letters, or burn it into the pages'
+        throw new Error(`the watermark’s font has no ${missing.join(' ')}. ${fix}.`)
+      }
+      font ??= await doc.embedFont(StandardFonts.Helvetica)
+      drawWatermark(pdfPage, font, watermark, sheet.page.height)
     }
 
     const mark = numberMark(settings.pageNumbers, index, sheet.page, sheet.content.x)

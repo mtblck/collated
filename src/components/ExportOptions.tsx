@@ -1,8 +1,16 @@
 import { useId, useRef, useState } from 'react'
 import { QUALITY_PRESETS } from '../core/compression'
-import type { NumberPosition, Quality, Settings } from '../core/model'
+import type {
+  NumberPosition,
+  Quality,
+  Settings,
+  Watermark,
+  WatermarkPosition,
+  WatermarkSize,
+} from '../core/model'
 import { describePlan, type Plan, type SplitMode, type SplitOptions } from '../core/split'
 import { formatBytes } from '../core/units'
+import { WATERMARK_OPACITY_MIN, unsupportedCharacters } from '../core/watermark'
 import { Button } from './controls'
 import { cx } from './cx'
 import type { ExportState } from './DocumentBar'
@@ -67,16 +75,18 @@ export const ExportOptions = ({
   split,
   onSplit,
   selectedCount,
+  selectedIds = [],
   plan,
   panelId: givenPanelId,
 }: {
-  settings: Pick<Settings, 'title' | 'quality' | 'maxBytes' | 'pageNumbers' | 'ocr'>
+  settings: Pick<Settings, 'title' | 'quality' | 'maxBytes' | 'pageNumbers' | 'watermark' | 'ocr'>
   pageCount: number
   exporting: ExportState
   /** Estimated bytes for the current pages and quality. */
   estimate: number
   lastExport: { size: string; used: string; fits: boolean } | null
-  onSettings: (patch: Partial<Settings>) => void
+  /** `coalesce` makes a run of changes (typing, a slider) one undo step. */
+  onSettings: (patch: Partial<Settings>, coalesce?: string) => void
   onExport: () => void
   canExport: boolean
   /** Held in memory for this visit only — never saved. */
@@ -88,6 +98,8 @@ export const ExportOptions = ({
   split: SplitOptions
   onSplit: (patch: Partial<SplitOptions>) => void
   selectedCount: number
+  /** The selected pages, for a watermark on just those. */
+  selectedIds?: readonly string[]
   /** The files the export will make, or why it can't. */
   plan: Plan
   /** The panel's id; `${panelId}-password` is the password field's. */
@@ -107,6 +119,17 @@ export const ExportOptions = ({
   const files = 'parts' in plan ? plan.parts.length : 1
   const [only] = 'parts' in plan && files === 1 ? plan.parts : []
   const splitting = split.mode === 'ranges' || split.mode === 'every'
+  const watermark = settings.watermark
+  const setWatermark = (patch: Partial<Watermark>, coalesce?: string) => {
+    onSettings({ watermark: { ...watermark, ...patch } }, coalesce)
+  }
+  const missing = unsupportedCharacters(watermark.text)
+  const chosen = watermark.pageIds
+  /** The selection differs from the pages the watermark is on. */
+  const newSelection =
+    chosen !== null &&
+    selectedIds.length > 0 &&
+    (selectedIds.length !== chosen.length || selectedIds.some((p) => !chosen.includes(p)))
   /** The field to fix when the plan can't be made. */
   const planField = () =>
     document.getElementById(
@@ -428,6 +451,210 @@ export const ExportOptions = ({
                     <option value="restart">Start again</option>
                     <option value="continue">Carry on from the file before</option>
                   </select>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="accent-[var(--c-ink)]"
+                  checked={watermark.show}
+                  onChange={(event) => {
+                    setWatermark({ show: event.target.checked })
+                  }}
+                />
+                Watermark
+              </label>
+              {watermark.show && (
+                <div
+                  className="mt-3 flex flex-col gap-3"
+                  role="group"
+                  aria-label="Watermark options"
+                >
+                  <div>
+                    <label htmlFor={`${id}-wm-text`} className="label mb-2 block text-ink-faint">
+                      Text
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        id={`${id}-wm-text`}
+                        className="field min-w-0 flex-1"
+                        placeholder="Copy for Acme Bank only"
+                        value={watermark.text}
+                        maxLength={120}
+                        autoComplete="off"
+                        aria-invalid={missing.length && !watermark.flatten ? true : undefined}
+                        aria-describedby={`${id}-wm-hint`}
+                        onChange={(event) => {
+                          setWatermark({ text: event.target.value }, 'watermark-text')
+                        }}
+                      />
+                      <Button
+                        onClick={() => {
+                          const today = new Date().toLocaleDateString(undefined, {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                          })
+                          const text = watermark.text.trimEnd()
+                          setWatermark({ text: text ? `${text} · ${today}` : today })
+                        }}
+                      >
+                        Add date
+                      </Button>
+                    </div>
+                    <p
+                      id={`${id}-wm-hint`}
+                      className={cx(
+                        'mt-1.5 text-xs',
+                        missing.length ? 'text-accent' : 'text-ink-muted',
+                      )}
+                    >
+                      {missing.length
+                        ? `The PDF’s font has no ${missing.join(' ')}: ${watermark.flatten ? 'only image pages can show it' : 'use Latin letters, or burn it in below'}.`
+                        : 'Say who the copy is for, so it can’t be reused for anything else.'}
+                    </p>
+                  </div>
+                  <div className="flex items-end gap-3">
+                    <div className="flex-1">
+                      <label htmlFor={`${id}-wm-pos`} className="label mb-2 block text-ink-faint">
+                        Position
+                      </label>
+                      <select
+                        id={`${id}-wm-pos`}
+                        className="field w-full"
+                        value={watermark.position}
+                        onChange={(event) => {
+                          setWatermark({ position: event.target.value as WatermarkPosition })
+                        }}
+                      >
+                        <option value="diagonal">Across the page</option>
+                        <option value="footer">Along the foot</option>
+                      </select>
+                    </div>
+                    <div className="w-28">
+                      <label htmlFor={`${id}-wm-size`} className="label mb-2 block text-ink-faint">
+                        Size
+                      </label>
+                      <select
+                        id={`${id}-wm-size`}
+                        className="field w-full"
+                        value={watermark.size}
+                        onChange={(event) => {
+                          setWatermark({ size: event.target.value as WatermarkSize })
+                        }}
+                      >
+                        <option value="small">Small</option>
+                        <option value="medium">Medium</option>
+                        <option value="large">Large</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <label htmlFor={`${id}-wm-colour`} className="text-sm">
+                      Colour
+                    </label>
+                    <input
+                      id={`${id}-wm-colour`}
+                      type="color"
+                      className="h-8 w-10 shrink-0 cursor-pointer rounded-md border border-rule bg-paper p-0.5"
+                      value={watermark.colour}
+                      onChange={(event) => {
+                        setWatermark({ colour: event.target.value }, 'watermark-colour')
+                      }}
+                    />
+                    <label htmlFor={`${id}-wm-opacity`} className="ml-2 text-sm">
+                      Opacity
+                    </label>
+                    <input
+                      id={`${id}-wm-opacity`}
+                      type="range"
+                      className="range min-w-0 flex-1"
+                      min={WATERMARK_OPACITY_MIN * 100}
+                      max={100}
+                      step={5}
+                      value={Math.round(watermark.opacity * 100)}
+                      aria-valuetext={`${String(Math.round(watermark.opacity * 100))}%`}
+                      onChange={(event) => {
+                        setWatermark(
+                          { opacity: Number(event.target.value) / 100 },
+                          'watermark-opacity',
+                        )
+                      }}
+                    />
+                    <span className="w-10 text-right text-sm tabular-nums" aria-hidden="true">
+                      {Math.round(watermark.opacity * 100)}%
+                    </span>
+                  </div>
+                  <fieldset>
+                    <legend className="label mb-2 text-ink-faint">On</legend>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name={`${id}-wm-pages`}
+                          className="accent-[var(--c-ink)]"
+                          checked={chosen === null}
+                          onChange={() => {
+                            setWatermark({ pageIds: null })
+                          }}
+                        />
+                        All pages
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name={`${id}-wm-pages`}
+                          className="accent-[var(--c-ink)]"
+                          checked={chosen !== null}
+                          disabled={chosen === null && selectedIds.length === 0}
+                          aria-describedby={`${id}-wm-pages-hint`}
+                          onChange={() => {
+                            setWatermark({ pageIds: [...selectedIds] })
+                          }}
+                        />
+                        {chosen === null
+                          ? `Selected pages (${String(selectedIds.length)})`
+                          : `${pages(chosen.length)} chosen`}
+                      </label>
+                      {newSelection && (
+                        <Button
+                          size="sm"
+                          variant="quiet"
+                          onClick={() => {
+                            setWatermark({ pageIds: [...selectedIds] })
+                          }}
+                        >
+                          Use the {String(selectedIds.length)} selected
+                        </Button>
+                      )}
+                    </div>
+                    <p id={`${id}-wm-pages-hint`} className="mt-1 text-xs text-ink-muted">
+                      {chosen === null
+                        ? 'Select pages first to put it on just those.'
+                        : 'The pages selected when you chose this; the others stay clean.'}
+                    </p>
+                  </fieldset>
+                  <div>
+                    <label className="flex items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 accent-[var(--c-ink)]"
+                        checked={watermark.flatten}
+                        aria-describedby={`${id}-wm-flatten-hint`}
+                        onChange={(event) => {
+                          setWatermark({ flatten: event.target.checked })
+                        }}
+                      />
+                      Burn into image pages
+                    </label>
+                    <p id={`${id}-wm-flatten-hint`} className="mt-1 ml-6 text-xs text-ink-muted">
+                      Each photo or scan page becomes one picture with the watermark in it, so it
+                      can’t be lifted off. Larger files; PDF pages keep it as text.
+                    </p>
+                  </div>
                 </div>
               )}
             </div>

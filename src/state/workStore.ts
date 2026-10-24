@@ -1,5 +1,6 @@
 import type { History } from '../core/history'
-import { picturesOf, type Asset, type DocState } from '../core/model'
+import { picturesOf, type Asset, type DocState, type Settings } from '../core/model'
+import { NO_WATERMARK } from '../core/watermark'
 import { assetStore } from '../import/assetStore'
 
 /**
@@ -88,6 +89,11 @@ const mapAssets = (
 ): History<DocState> => {
   const mapState = (state: DocState): DocState => ({
     ...state,
+    // Saved before watermarks (#78): none.
+    settings: {
+      ...state.settings,
+      watermark: (state.settings as Partial<Settings>).watermark ?? NO_WATERMARK,
+    },
     assets: Object.fromEntries(
       Object.entries(state.assets).map(([id, a]) => [id, { ...a, thumbUrl: thumbUrl(a) }]),
     ),

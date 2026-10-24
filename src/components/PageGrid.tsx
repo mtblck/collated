@@ -9,6 +9,7 @@ import { isSortable, useSortable } from '@dnd-kit/react/sortable'
 import { memo, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
 import { layoutSheet } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
+import { watermarkMark } from '../core/watermark'
 import { picturesOf, type Asset, type Page, type Settings } from '../core/model'
 import { IconButton } from './controls'
 import { cx } from './cx'
@@ -56,6 +57,13 @@ const PageCard = memo(function PageCard({
   const { ref, handleRef, isDragging } = useSortable({ id: page.id, index })
   const sheet = useMemo(() => layoutSheet(settings, assets, page), [settings, assets, page])
   const mark = numberMark(settings.pageNumbers, index, sheet.page, sheet.content.x)
+  const watermark = watermarkMark(
+    settings.watermark,
+    page.id,
+    sheet.page,
+    sheet.content.x,
+    settings.pageNumbers,
+  )
   const thumbUrls = usePageThumbs(
     picturesOf(page).flatMap((slot) => {
       const asset = assets[slot.assetId]
@@ -108,7 +116,13 @@ const PageCard = memo(function PageCard({
             onSelect(page.id, mode)
           }}
         >
-          <PagePreview sheet={sheet} thumbUrls={thumbUrls} selected={selected} mark={mark} />
+          <PagePreview
+            sheet={sheet}
+            thumbUrls={thumbUrls}
+            selected={selected}
+            mark={mark}
+            watermark={watermark}
+          />
         </button>
         {blank && (
           <span

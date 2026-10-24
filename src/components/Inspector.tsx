@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { layoutPage, singleSheet, visiblePart } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
+import { watermarkMark } from '../core/watermark'
 import type { Asset, Filter, FitMode, Page, PageTransform, Settings } from '../core/model'
 import type { Quad } from '../core/perspective'
 import { ANGLE_LIMIT, SCALE_MAX, SCALE_MIN, isVector } from '../core/model'
@@ -86,6 +87,13 @@ export const Inspector = ({
   const id = useId()
   const layout = useMemo(() => layoutPage(settings, asset, page), [settings, asset, page])
   const mark = numberMark(settings.pageNumbers, index, layout.page, layout.content.x)
+  const watermark = watermarkMark(
+    settings.watermark,
+    page.id,
+    layout.page,
+    layout.content.x,
+    settings.pageNumbers,
+  )
   const vector = isVector(asset)
   const thumbUrl = usePageThumb(asset, page)
   const [cropping, setCropping] = useState(false)
@@ -172,7 +180,13 @@ export const Inspector = ({
         className="relative w-full rounded-xl bg-paper-sunk p-5"
         style={{ aspectRatio: boxRatio }}
       >
-        <PagePreview sheet={singleSheet(layout)} thumbUrls={[thumbUrl]} showMargins mark={mark} />
+        <PagePreview
+          sheet={singleSheet(layout)}
+          thumbUrls={[thumbUrl]}
+          showMargins
+          mark={mark}
+          watermark={watermark}
+        />
         {/* Over the preview rather than around it: a button can't hold the
             preview's blocks, and this keeps one clear name. */}
         <button
@@ -197,6 +211,7 @@ export const Inspector = ({
           layout={layout}
           thumbUrl={thumbUrl}
           mark={mark}
+          watermark={watermark}
           loadDetail={loadDetail}
           onClose={() => {
             setViewing(false)

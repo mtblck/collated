@@ -18,7 +18,7 @@ The title is stored in the PDF (readers show it in their title bar) and names th
 - **Split by page ranges:** one PDF per range. Type them like `1-3, 4-10, 11-`: `11-` runs to the last page and `-3` starts at the first. Ranges can overlap and come in any order; each file follows the order you wrote. A single range, such as `3-5`, gives just those pages as one PDF.
 - **Split every few pages:** a new file every N pages, the last one holding what's left.
 
-Under the choices, a line says what you'll get, or what's wrong with the ranges. Several files download together as one ZIP, named from the title (`Bills.zip`, holding `Bills-part-1.pdf`, `Bills-part-2.pdf` and so on). Every file gets the same options: quality, size limit (each file on its own), searchable text, page numbers and password. With page numbers on, **In each file** chooses whether each file starts again from the first number or carries on from the file before.
+Under the choices, a line says what you'll get, or what's wrong with the ranges. Several files download together as one ZIP, named from the title (`Bills.zip`, holding `Bills-part-1.pdf`, `Bills-part-2.pdf` and so on). Every file gets the same options: quality, size limit (each file on its own), searchable text, page numbers, watermark and password. With page numbers on, **In each file** chooses whether each file starts again from the first number or carries on from the file before.
 
 ## Image quality
 
@@ -34,6 +34,19 @@ Under the choices, a line says what you'll get, or what's wrong with the ranges.
 ## Page numbers
 
 Adds a number to every page: bottom centre, bottom right or top right, starting from any number.
+
+## Watermark
+
+Stamps text across your pages, such as "Copy for Acme Bank only", so a copy of an ID or a bill can't be reused for something else. **Add date** puts today's date after the text, so the copy also says when you sent it.
+
+- **Position:** **Across the page** runs it corner to corner through the middle; **Along the foot** puts it in the bottom margin (above the page numbers, if they're there too). Text too long for the page is made smaller to fit.
+- **Size, Colour, Opacity:** how large, in what colour and how solid it is. The pages show it as it will print.
+- **On:** every page, or only the pages you had selected when you chose **Selected pages**. If you select other pages later, **Use the N selected** moves it to those.
+- **Burn into image pages:** normally the watermark is text laid over the page, which a PDF editor could delete. With this on, each page made from photos or scans is saved as one picture with the watermark drawn into it, so there's no clean copy underneath. Those pages are re-encoded (at your image quality, at least 150 dpi), so the file can be larger. Pages from a PDF keep the watermark as text, so their own text stays sharp and searchable.
+
+The PDF's built-in font covers Latin letters, including accents (é, ß, å). Other letters, such as Ł or Cyrillic, can only be burned into image pages; Collated says so under the text.
+
+Like the title, the watermark's text and the pages it's on aren't remembered for next time; how it looks is.
 
 ## Password
 

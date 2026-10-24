@@ -89,6 +89,7 @@ export const describeChange = (before: DocState, after: DocState): string | null
       maxBytes: 'size limit',
       imageDpi: 'image dpi',
       pageNumbers: 'page numbers',
+      watermark: 'watermark',
       ocr: 'searchable text',
     }
     const names = changed.flatMap((key) => NAMES[key] ?? [])

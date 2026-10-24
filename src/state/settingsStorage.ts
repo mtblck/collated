@@ -1,6 +1,7 @@
 import type { Settings } from '../core/model'
 import { PAGE_NUMBER_START_MAX } from '../core/limits'
 import { PAGE_SIZES, localeDefaults } from '../core/pageSizes'
+import { NO_WATERMARK, WATERMARK_OPACITY_MIN } from '../core/watermark'
 
 const KEY = 'collated:settings'
 
@@ -19,6 +20,7 @@ export const defaultSettings = (locale: string): Settings => {
     maxBytes: null,
     imageDpi: 300,
     pageNumbers: { show: false, position: 'bottom-center', start: 1 },
+    watermark: NO_WATERMARK,
     ocr: false,
   }
 }
@@ -32,7 +34,8 @@ const finite = (value: unknown, fallback: number) =>
 /**
  * Remembers page setup between visits — a convenience, so anything missing,
  * malformed or unreadable (private mode) falls back to the defaults. The
- * title is per-document and never stored.
+ * title is per-document and never stored, nor is the watermark's text (it
+ * names who a copy was for) or its pages: only how it looks, starting off.
  */
 export const loadSettings = (
   storage: Pick<Storage, 'getItem'> | undefined,
@@ -47,6 +50,7 @@ export const loadSettings = (
         ? raw.size
         : fallback.size
     const custom = isRecord(raw.custom) ? raw.custom : {}
+    const mark = isRecord(raw.watermark) ? raw.watermark : {}
     return {
       size: size as Settings['size'],
       unit: raw.unit === 'in' || raw.unit === 'mm' ? raw.unit : fallback.unit,
@@ -84,6 +88,20 @@ export const loadSettings = (
           Math.max(0, Math.round(finite(isRecord(raw.pageNumbers) ? raw.pageNumbers.start : 1, 1))),
         ),
       },
+      watermark: {
+        ...NO_WATERMARK,
+        position: mark.position === 'footer' ? 'footer' : 'diagonal',
+        size: mark.size === 'small' || mark.size === 'large' ? mark.size : 'medium',
+        opacity: Math.min(
+          1,
+          Math.max(WATERMARK_OPACITY_MIN, finite(mark.opacity, NO_WATERMARK.opacity)),
+        ),
+        colour:
+          typeof mark.colour === 'string' && /^#[0-9a-f]{6}$/i.test(mark.colour)
+            ? mark.colour.toLowerCase()
+            : NO_WATERMARK.colour,
+        flatten: mark.flatten === true,
+      },
     }
   } catch {
     return fallback
@@ -92,8 +110,9 @@ export const loadSettings = (
 
 export const saveSettings = (storage: Pick<Storage, 'setItem'> | undefined, settings: Settings) => {
   try {
-    const { title, ...rest } = settings
-    storage?.setItem(KEY, JSON.stringify(rest))
+    const { title, watermark, ...rest } = settings
+    const { show, text, pageIds, ...look } = watermark
+    storage?.setItem(KEY, JSON.stringify({ ...rest, watermark: look }))
   } catch {
     /* storage full or blocked: the setting just won't persist */
   }

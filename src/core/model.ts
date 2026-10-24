@@ -42,6 +42,33 @@ export interface PageNumbers {
   start: number
 }
 
+/** `diagonal` runs corner to corner through the middle; `footer` sits along the foot. */
+export type WatermarkPosition = 'diagonal' | 'footer'
+
+export type WatermarkSize = 'small' | 'medium' | 'large'
+
+/**
+ * Text stamped across pages (#78), such as "Copy for Acme Bank only", so a
+ * copy of an ID can't be passed off for another use.
+ */
+export interface Watermark {
+  show: boolean
+  text: string
+  position: WatermarkPosition
+  size: WatermarkSize
+  /** 0.1–1. */
+  opacity: number
+  /** `#rrggbb`. */
+  colour: string
+  /**
+   * Also draw it into image pages' pixels, so deleting the text from the PDF
+   * doesn't leave a clean copy. Pages with a vector PDF page keep it as text.
+   */
+  flatten: boolean
+  /** Only these pages (by id), or every page when null. */
+  pageIds: string[] | null
+}
+
 export interface Settings {
   size: PageSizeId
   /** Used when size is `custom`; width and height in points. */
@@ -59,6 +86,7 @@ export interface Settings {
   /** Pixels per inch for `image`-sized pages. */
   imageDpi: number
   pageNumbers: PageNumbers
+  watermark: Watermark
   /** Recognise text (on this device) and add an invisible, searchable layer. */
   ocr: boolean
 }

@@ -16,6 +16,12 @@ export interface NumberMark {
 }
 
 /**
+ * How far in from the edge a line in the margin sits: the middle of the
+ * margin band when it is at least 24 pt, else 18 pt over whatever is there.
+ */
+export const bandInset = (margin: number) => (margin >= 24 ? margin / 2 : 18)
+
+/**
  * Where a page's number goes. In the middle of the margin band when there is
  * a margin of at least 24 pt, so it never touches the content; otherwise
  * 18 pt from the edge, printed over whatever is there.
@@ -27,7 +33,7 @@ export const numberMark = (
   margin: number,
 ): NumberMark | null => {
   if (!options.show) return null
-  const inset = margin >= 24 ? margin / 2 : 18
+  const inset = bandInset(margin)
   const text = String(options.start + index)
   const top = options.position === 'top-right'
   // Baseline sits a third of the type size below the band's centre line.
