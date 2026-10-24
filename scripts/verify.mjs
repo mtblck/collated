@@ -221,11 +221,17 @@ const sheetShot = {
   style: '[data-margin-guide] { outline: none !important; }',
 }
 
-const compareImages = async (a, b) => {
+/**
+ * `W` is the width compared at. A page of fine text shifts its lines by a
+ * pixel between a screenshot and poppler, and a 120-wide sample lands on ink
+ * in one and paper in the other; such pages compare at 30 wide, each pixel
+ * the average of a 4×4 block drawn at 120.
+ */
+const compareImages = async (a, b, W = 120) => {
   const compare = await browser.newPage()
   try {
     return await compare.evaluate(
-      async ([srcA, srcB]) => {
+      async ([srcA, srcB, W]) => {
         const load = (src) =>
           new Promise((resolve) => {
             const img = new Image()
@@ -233,15 +239,24 @@ const compareImages = async (a, b) => {
             img.src = `data:image/png;base64,${src}`
           })
         const [ia, ib] = await Promise.all([load(srcA), load(srcB)])
-        const W = 120
         const H = Math.round((W * ia.height) / ia.width)
         const pixels = (img) => {
+          const n = W < 120 ? 4 : 1
           const c = document.createElement('canvas')
-          c.width = W
-          c.height = H
+          c.width = W * n
+          c.height = H * n
           const ctx = c.getContext('2d')
-          ctx.drawImage(img, 0, 0, W, H)
-          return ctx.getImageData(0, 0, W, H).data
+          ctx.drawImage(img, 0, 0, W * n, H * n)
+          const big = ctx.getImageData(0, 0, W * n, H * n).data
+          const out = new Float64Array(W * H * 4)
+          for (let y = 0; y < H * n; y++) {
+            for (let x = 0; x < W * n; x++) {
+              const o = (Math.floor(y / n) * W + Math.floor(x / n)) * 4
+              const i = (y * W * n + x) * 4
+              for (let k = 0; k < 4; k++) out[o + k] += big[i + k] / (n * n)
+            }
+          }
+          return out
         }
         const pa = pixels(ia)
         const pb = pixels(ib)
@@ -258,7 +273,7 @@ const compareImages = async (a, b) => {
         }
         return { mean: total / (pa.length / 4), farShare: far / (pa.length / 4) }
       },
-      [a, b],
+      [a, b, W],
     )
   } finally {
     await compare.close()
@@ -591,15 +606,17 @@ await context.close()
   await ctx.close()
 }
 
-// 4. Filters: greyscale and B&W, preview matching export. ---------------------
+// 4. Filters: greyscale, Enhance and B&W, preview matching export. -----------
 {
   const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
   await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
   await p.setInputFiles(
     '[data-testid="file-input"]',
-    ['quad-landscape.jpg', 'quad-exif6.jpg', 'doc-photo.jpg'].map((f) => join(fixtures, f)),
+    ['quad-landscape.jpg', 'quad-exif6.jpg', 'doc-photo.jpg', 'doc-colour.jpg'].map((f) =>
+      join(fixtures, f),
+    ),
   )
-  await p.waitForSelector('ol[aria-label="3 pages"]')
+  await p.waitForSelector('ol[aria-label="4 pages"]')
   const panel = p.locator('aside[aria-label="Selected page"]')
 
   await p.getByRole('button', { name: 'Page 1: quad-landscape.jpg' }).click()
@@ -628,6 +645,16 @@ await context.close()
     .first()
     .screenshot({ ...sheetShot, path: join(shots, 'doc-original.png') })
   await panel.getByRole('radio', { name: 'B&W' }).check({ force: true })
+  // The case Enhance is for: a colour document photographed in uneven light.
+  await p.getByRole('button', { name: 'Page 4: doc-colour.jpg' }).click()
+  await panel.getByRole('radio', { name: 'Enhance' }).check({ force: true })
+  await p.waitForTimeout(500)
+  const enhancePreview = (
+    await panel
+      .locator('.sheet')
+      .first()
+      .screenshot({ ...sheetShot, path: join(shots, 'doc-enhance.png') })
+  ).toString('base64')
   await p.screenshot({ path: join(shots, 'filters.png'), fullPage: true })
 
   const [dl] = await Promise.all([p.waitForEvent('download'), exportNow(p)])
@@ -641,8 +668,15 @@ await context.close()
   if (hasPoppler) {
     const prefix = outPath.replace(/\.pdf$/, '')
     execFileSync('pdftoppm', ['-png', '-r', '72', outPath, prefix])
-    const [bwRender, greyRender] = ['1', '2'].map((n) =>
+    const [bwRender, greyRender, enhanceRender] = ['1', '2', '4'].map((n) =>
       readFileSync(`${prefix}-${n}.png`).toString('base64'),
+    )
+    const enhance = await compareImages(enhanceRender, enhancePreview, 30)
+    // The mean too: the unfiltered photo's warm paper is only ~25 levels off
+    // white, under the 64 that counts a pixel as different.
+    check(
+      enhance.farShare < 0.03 && enhance.mean < 10,
+      `Enhance page: preview matches the export (mean Δ ${enhance.mean.toFixed(1)}/255, ${(enhance.farShare * 100).toFixed(2)}% differ)`,
     )
     const bw = await compareImages(bwRender, bwPreview)
     const grey = await compareImages(greyRender, greyPreview)
@@ -655,7 +689,7 @@ await context.close()
       `greyscale EXIF-rotated page: preview matches the export (${(grey.farShare * 100).toFixed(2)}% differ)`,
     )
     const tones = await p.evaluate(
-      async ([bwSrc, greySrc]) => {
+      async ([bwSrc, greySrc, enhanceSrc]) => {
         const read = async (src) => {
           const img = new Image()
           img.src = `data:image/png;base64,${src}`
@@ -667,7 +701,7 @@ await context.close()
           g.drawImage(img, 0, 0)
           return g.getImageData(0, 0, c.width, c.height).data
         }
-        const [b, gr] = await Promise.all([read(bwSrc), read(greySrc)])
+        const [b, gr, en] = await Promise.all([read(bwSrc), read(greySrc), read(enhanceSrc)])
         let notBinary = 0
         for (let i = 0; i < b.length; i += 4) {
           const v = b[i]
@@ -678,9 +712,25 @@ await context.close()
           if (Math.max(gr[i], gr[i + 1], gr[i + 2]) - Math.min(gr[i], gr[i + 1], gr[i + 2]) > 12)
             coloured += 1
         }
-        return { notBinary: notBinary / (b.length / 4), coloured: coloured / (gr.length / 4) }
+        // Enhance: the warm, shadowed paper comes out white; the logo,
+        // highlight and stamp keep strong colour.
+        let white = 0
+        let vivid = 0
+        for (let i = 0; i < en.length; i += 4) {
+          const lo = Math.min(en[i], en[i + 1], en[i + 2])
+          const hi = Math.max(en[i], en[i + 1], en[i + 2])
+          if (lo > 235) white += 1
+          if (hi - lo > 100) vivid += 1
+        }
+        const n = en.length / 4
+        return {
+          notBinary: notBinary / (b.length / 4),
+          coloured: coloured / (gr.length / 4),
+          white: white / n,
+          vivid: vivid / n,
+        }
       },
-      [bwRender, greyRender],
+      [bwRender, greyRender, enhanceRender],
     )
     check(
       tones.notBinary < 0.01,
@@ -689,6 +739,10 @@ await context.close()
     check(
       tones.coloured < 0.01,
       `greyscale page has no colour (${(tones.coloured * 100).toFixed(2)}% coloured)`,
+    )
+    check(
+      tones.white > 0.6 && tones.vivid > 0.01,
+      `Enhance page has white paper and kept its colours (${(tones.white * 100).toFixed(1)}% white, ${(tones.vivid * 100).toFixed(2)}% vivid)`,
     )
   }
   await ctx.close()
