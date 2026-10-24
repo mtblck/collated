@@ -40,6 +40,7 @@ import { DEFAULT_TRANSFORM } from './core/model'
 import { DEFAULT_SPLIT, pagesUsed, planExport, type SplitOptions } from './core/split'
 import { download as saveFile, exportPdf, prepareExport, type Exported } from './export/exportPdf'
 import { STALE_BUILD_MESSAGE, isStaleBuild } from './lib/staleBuild'
+import { listenForIncoming, type Incoming } from './lib/incoming'
 import { assetStore } from './import/assetStore'
 import { ImportError, importFile, type Imported } from './import/importFile'
 import { loadKeepWork, loadSettings, saveKeepWork, saveSettings } from './state/settingsStorage'
@@ -84,6 +85,8 @@ export interface AppDeps {
   prepareExport: () => void
   /** The document kept on this device across a reload (#74). */
   work: WorkStore
+  /** Files shared to Collated or opened with it (#73); returns the unsubscribe. */
+  incoming: (fn: (incoming: Incoming) => void) => () => void
 }
 
 const safeStorage = (): AppDeps['storage'] => {
@@ -108,6 +111,7 @@ const defaultDeps = (): AppDeps => ({
   locale: navigator.language,
   prepareExport,
   work: deviceWorkStore(),
+  incoming: listenForIncoming,
 })
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
@@ -1122,6 +1126,25 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     requestFocus(select, true)
     announce(`Restored ${plural(restored.length, 'page')}.`)
   }, [announce, deps.work, notify, requestFocus, restore, restoring, selectOnly])
+
+  // Files shared to Collated or opened with it (#73) join the work in
+  // progress: a document kept from last time is restored first, never
+  // replaced by files the person may not have known would replace it. Until
+  // we know whether there is one, they wait in lib/incoming.
+  const settled = offer !== 'pending' && !restoring
+  useEffect(() => {
+    if (!settled) return
+    return deps.incoming((incoming) => {
+      if (!('files' in incoming)) {
+        notify('Nothing was shared that Collated could add.')
+        return
+      }
+      void (async () => {
+        if (offer) await onRestore()
+        await addFiles(incoming.files)
+      })()
+    })
+  }, [addFiles, deps, notify, offer, onRestore, settled])
 
   const onDiscard = useCallback(() => {
     setOffer(null)

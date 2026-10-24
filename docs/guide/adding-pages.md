@@ -7,6 +7,15 @@ order: 2
 
 Drop files anywhere on the page, use **Choose files** (or **Add pages** once you've started), or paste images from the clipboard. New pages go after the ones you have.
 
+## From other apps
+
+Install Collated as an app (the install button in Chrome or Edge's address bar, or **Add to Home screen** on a phone) and it opens like any other app, with or without a connection. On Android, ChromeOS and in desktop Chrome and Edge it also appears:
+
+- **In the share sheet:** share photos from your gallery or a PDF from an email to **Collated**, and they open as pages.
+- **In "Open with":** right-click a PDF or image on your computer and open it with Collated.
+
+Shared or opened files are added to the document you're working on. If you have one saved from last time, it's restored first and the new files go after its pages, so nothing you kept is replaced.
+
 ## What Collated reads
 
 - **PDFs:** each page becomes a page you can move, rotate or remove. PDFs that need a password to open can't be read; PDFs that only restrict editing or printing are fine. Pages stay as sharp as the original at any size, except a page with a hidden layer, which goes into the PDF as an image of what you see (turn on **Make text searchable** to keep its text searchable).

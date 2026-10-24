@@ -10,6 +10,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Install Collated as an app (#73). It opens and works with no connection after your first visit, and in Chrome and Edge (and on Android) it shows up in the share sheet, so photos from the gallery or a PDF from an email go straight into your document, and in "Open with" for PDFs and images on your computer.
 - Select several pages at once (#65): Shift-click for a range, ⌘/Ctrl-click for one more, ⌘A / Ctrl+A for all, or **Select** on a phone. Rotate, straighten, scale, filter, move, duplicate or remove them together, each as one undo step, and drag any of them to move them all.
 - Blank pages (#68): pages that look blank (allowing for show-through, punch holes and dust) are marked **Looks blank**, and **Remove N blank pages** above the pages takes them all out in one undoable step. Nothing is removed without asking.
 - Crop to the page now finds the paper in a photo and opens with the corners already on it, ready to check and apply. **Auto-crop all pages** crops every photo to its paper in one undoable step, leaving pages you've already cropped alone.

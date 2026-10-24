@@ -5,6 +5,7 @@ import { asset } from '../tests/helpers'
 import { App, type AppDeps } from './App'
 import { ImportError } from './import/importFile'
 import { createWorkStore, memoryBackend } from './state/workStore'
+import type { Incoming } from './lib/incoming'
 
 const file = (name: string) => new File([new Uint8Array([1, 2, 3])], name, { type: 'image/jpeg' })
 
@@ -152,7 +153,12 @@ describe('App', () => {
         },
       }
       // A fresh store per visit, as after a reload: it knows only what's stored.
-      return { backend, local, visit: () => setup({ work: createWorkStore(backend), storage }) }
+      return {
+        backend,
+        local,
+        visit: (more: Partial<AppDeps> = {}) =>
+          setup({ work: createWorkStore(backend), storage, ...more }),
+      }
     }
     const reload = () => {
       cleanup()
@@ -193,6 +199,69 @@ describe('App', () => {
       expect(screen.queryByRole('region', { name: /Restore/ })).toBeNull()
       expect(await backend.getDoc()).toBeUndefined()
       expect(backend.bytes.size).toBe(0)
+    })
+
+    describe('files shared to Collated or opened with it (#73)', () => {
+      /** Stands in for lib/incoming: holds what arrives until the app listens. */
+      const source = () => {
+        let listener: ((incoming: Incoming) => void) | undefined
+        const waiting: Incoming[] = []
+        return {
+          incoming: (fn: (incoming: Incoming) => void) => {
+            listener = fn
+            for (const incoming of waiting.splice(0)) fn(incoming)
+            return () => {
+              if (listener === fn) listener = undefined
+            }
+          },
+          send: (incoming: Incoming) => {
+            act(() => {
+              if (listener) listener(incoming)
+              else waiting.push(incoming)
+            })
+          },
+        }
+      }
+
+      it('become pages of a new document when nothing was kept', async () => {
+        const { incoming, send } = source()
+        send({ files: [file('shared.jpg'), file('scan.pdf')] })
+        setup({ incoming })
+        expect(await screen.findByRole('list', { name: '4 pages' })).toBeInTheDocument()
+        expect(pageLabels()[0]).toBe('Page 1: shared.jpg')
+      })
+
+      it('join the kept document instead of replacing it', async () => {
+        const { backend, visit } = device()
+        await visit().upload('a.jpg', 'b.jpg')
+        await saved(backend)
+        reload()
+
+        const { incoming, send } = source()
+        // Shared while the app is still looking for the kept document.
+        send({ files: [file('shared.jpg')] })
+        // Ids unlike the first visit's, as random ones would be.
+        let n = 0
+        visit({ incoming, newId: () => `later${++n}` })
+        await waitFor(() => {
+          expect(pageLabels()).toEqual(['Page 1: a.jpg', 'Page 2: b.jpg', 'Page 3: shared.jpg'])
+        })
+        expect(screen.queryByRole('region', { name: /Restore/ })).toBeNull()
+        // And once open, later ones are added to it.
+        send({ files: [file('later.jpg')] })
+        await waitFor(() => {
+          expect(pageLabels()).toHaveLength(4)
+        })
+      })
+
+      it('says so when a share carried nothing it could add', async () => {
+        const { incoming, send } = source()
+        setup({ incoming })
+        send({ empty: 'share' })
+        expect(await screen.findByRole('alert')).toHaveTextContent(
+          'Nothing was shared that Collated could add.',
+        )
+      })
     })
 
     it('Start over deletes the saved copy', async () => {

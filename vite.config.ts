@@ -6,6 +6,7 @@ import tailwindcss from '@tailwindcss/vite'
 import { docsSite } from './docs-site'
 import { licenseFiles } from './licenses'
 import { ocrAssets } from './ocr-assets'
+import { serviceWorker } from './service-worker'
 
 /** Collated has its own origin (collatedpdf.com, #25): served from the root. */
 const BASE = '/'
@@ -31,7 +32,14 @@ const productionHeaders = Object.fromEntries(
 
 export default defineConfig({
   base: BASE,
-  plugins: [react(), tailwindcss(), ocrAssets(BASE), licenseFiles(), docsSite(BASE)],
+  plugins: [
+    react(),
+    tailwindcss(),
+    ocrAssets(BASE),
+    licenseFiles(),
+    docsSite(BASE),
+    serviceWorker(),
+  ],
   build: {
     outDir: 'dist',
     emptyOutDir: true,
