@@ -20,6 +20,7 @@ export const settings = (patch: Partial<Settings> = {}): Settings => ({
   pageNumbers: { show: false, position: 'bottom-center', start: 1 },
   watermark: NO_WATERMARK,
   ocr: false,
+  bookmarkFiles: false,
   ...patch,
 })
 

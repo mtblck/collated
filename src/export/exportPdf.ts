@@ -1,5 +1,6 @@
 import type { Compression } from '../core/compression'
 import { picturesOf, type DocState } from '../core/model'
+import type { OutlineItem } from '../core/outline'
 import type { SplitPart } from '../core/splitBuild'
 import type { OcrWord } from '../core/textLayer'
 import { assetStore } from '../import/assetStore'
@@ -38,6 +39,7 @@ const request = (
   text?: Record<string, OcrWord[]>,
   drawn: Record<string, Uint8Array> = {},
   parts?: SplitPart[],
+  outline?: OutlineItem[],
 ): ExportRequest => {
   const used = usedAssets(state)
   const assets = Object.fromEntries(Object.entries(state.assets).filter(([id]) => used.has(id)))
@@ -61,6 +63,7 @@ const request = (
       ...(password ? { password } : {}),
       ...(text ? { text } : {}),
       ...(Object.keys(rendered).length ? { rendered } : {}),
+      ...(outline?.length ? { outline } : {}),
     },
     bytes,
     ...(parts ? { parts } : {}),
@@ -124,9 +127,11 @@ export const exportPdf = (
      */
     readDrawn?: (assetId: string, jpeg: Uint8Array) => Promise<Record<string, OcrWord[]>>
     parts?: SplitPart[]
+    /** Bookmarks for the single file; parts carry their own. */
+    outline?: OutlineItem[]
   } = {},
 ): Promise<Exported> => {
-  const { parts } = options
+  const { parts, outline } = options
   const type = parts ? 'application/zip' : 'application/pdf'
   const hasPdf = [...usedAssets(state)].some((id) => state.assets[id]?.format === 'pdf')
   const finish = (result: Exported | { draw: string[] }) => {
@@ -135,14 +140,16 @@ export const exportPdf = (
   }
   // Without PDF pages there's nothing to draw first: post straight away.
   if (!hasPdf) {
-    return send(request(state, options.password, options.text, {}, parts), type, onProgress).then(
-      finish,
-    )
+    return send(
+      request(state, options.password, options.text, {}, parts, outline),
+      type,
+      onProgress,
+    ).then(finish)
   }
   return (async () => {
     const drawn = await drawLayered(state)
     const first = await send(
-      request(state, options.password, options.text, drawn, parts),
+      request(state, options.password, options.text, drawn, parts, outline),
       type,
       onProgress,
     )
@@ -164,7 +171,7 @@ export const exportPdf = (
       }
     }
     return finish(
-      await send(request(state, options.password, text, drawn, parts), type, onProgress),
+      await send(request(state, options.password, text, drawn, parts, outline), type, onProgress),
     )
   })()
 }
