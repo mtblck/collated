@@ -6,14 +6,15 @@ import {
 } from '@dnd-kit/dom'
 import { DragDropProvider } from '@dnd-kit/react'
 import { isSortable, useSortable } from '@dnd-kit/react/sortable'
-import { memo, useEffect, useMemo, useRef, type ComponentProps } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
 import { layoutPage } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
 import type { Asset, Page, Settings } from '../core/model'
 import { IconButton } from './controls'
 import { cx } from './cx'
 import { pageNumber } from './format'
-import { GripIcon, RotateLeftIcon, RotateRightIcon, TrashIcon } from './Icons'
+import { CheckIcon, GripIcon, RotateLeftIcon, RotateRightIcon, TrashIcon } from './Icons'
+import { pickModeOf, type PickMode } from '../core/selection'
 import { usePageThumb } from '../hooks/usePageThumb'
 import { PagePreview } from './PagePreview'
 
@@ -26,7 +27,13 @@ interface CardProps {
   index: number
   settings: Settings
   selected: boolean
-  onSelect: (id: string) => void
+  /** Select mode (#65): a tap toggles the page, shown with a checkbox. */
+  selecting: boolean
+  /** Lifted with a group being dragged by another page: dimmed. */
+  carried: boolean
+  /** Where a dragged group would land. */
+  dropTarget: boolean
+  onSelect: (id: string, mode: PickMode) => void
   onRotate: (id: string, by: -1 | 1) => void
   onRemove: (id: string) => void
 }
@@ -37,6 +44,9 @@ const PageCard = memo(function PageCard({
   index,
   settings,
   selected,
+  selecting,
+  carried,
+  dropTarget,
   onSelect,
   onRotate,
   onRemove,
@@ -53,20 +63,40 @@ const PageCard = memo(function PageCard({
   return (
     <li
       ref={ref}
-      className={cx('group relative flex min-w-0 flex-col', isDragging && 'z-10 opacity-90')}
+      className={cx(
+        'group relative flex min-w-0 flex-col transition-opacity',
+        isDragging && 'z-10 opacity-90',
+        carried && 'opacity-40',
+      )}
       data-page-id={page.id}
     >
-      <div className="relative rounded-2xl p-3 transition-colors hover:bg-ink/[0.04]">
+      <div
+        className={cx(
+          'relative rounded-2xl p-3 transition-colors hover:bg-ink/[0.04]',
+          dropTarget && 'bg-accent-dim outline-2 outline-accent outline-dashed hover:bg-accent-dim',
+        )}
+      >
         <button
           type="button"
           className="block aspect-[4/5] w-full focus-visible:outline-offset-4"
-          // The selected page, not a toggle: choosing another page is the
-          // only way to change it.
-          aria-current={selected ? 'true' : undefined}
+          // A plain click selects just this page, so it isn't a toggle; in
+          // select mode it is one. Shift and ⌘/Ctrl extend the selection,
+          // with the mouse or with Enter and Space.
+          {...(selecting
+            ? { 'aria-pressed': selected }
+            : { 'aria-current': selected ? 'true' : undefined })}
           data-page-select
           aria-label={`Page ${index + 1}: ${asset.name}`}
-          onClick={() => {
-            onSelect(page.id)
+          onClick={(event) => {
+            const mode = pickModeOf(event)
+            onSelect(page.id, selecting && mode === 'only' ? 'toggle' : mode)
+          }}
+          // A keyboard click carries no modifiers, so read them here.
+          onKeyDown={(event) => {
+            const mode = pickModeOf(event)
+            if (mode === 'only' || (event.key !== 'Enter' && event.key !== ' ')) return
+            event.preventDefault()
+            onSelect(page.id, mode)
           }}
         >
           <PagePreview
@@ -77,6 +107,17 @@ const PageCard = memo(function PageCard({
             mark={mark}
           />
         </button>
+        {selecting && (
+          <span
+            className={cx(
+              'pointer-events-none absolute top-1.5 right-1.5 flex size-7 items-center justify-center rounded-full border-2 shadow-panel',
+              selected ? 'border-accent bg-accent text-on-accent' : 'border-ink-faint bg-paper',
+            )}
+            aria-hidden="true"
+          >
+            {selected && <CheckIcon width={16} height={16} />}
+          </span>
+        )}
         <button
           type="button"
           ref={handleRef}
@@ -143,22 +184,44 @@ export const PageGrid = ({
   pages,
   assets,
   settings,
-  selectedId,
+  selectedIds,
+  selecting,
   onSelect,
   onRotate,
   onRemove,
   onMove,
+  onMoveSelected,
+  onDragging,
 }: {
   pages: Page[]
   assets: Record<string, Asset>
   settings: Settings
-  selectedId: string | null
-  onSelect: (id: string) => void
+  selectedIds: readonly string[]
+  selecting: boolean
+  onSelect: (id: string, mode: PickMode) => void
   onRotate: (id: string, by: -1 | 1) => void
   onRemove: (id: string) => void
   onMove: (from: number, to: number) => void
+  /** A selected page was dragged from `from` to `to`: the whole selection goes. */
+  onMoveSelected: (from: number, to: number) => void
+  /** A drag started or ended (Escape belongs to it meanwhile). */
+  onDragging?: (dragging: boolean) => void
 }) => {
   const count = pages.length
+  const selected = useMemo(() => new Set(selectedIds), [selectedIds])
+  // Dragging a page of a multi-page selection carries the selection (#65).
+  // The list isn't sorted under the pointer then (only the dragged page
+  // could move); the card it would land on is marked instead.
+  const group = (id: unknown) => selected.size > 1 && typeof id === 'string' && selected.has(id)
+  const groupRef = useRef(group)
+  useEffect(() => {
+    groupRef.current = group
+  })
+  const sizeRef = useRef(selected.size)
+  useEffect(() => {
+    sizeRef.current = selected.size
+  }, [selected.size])
+  const [carrying, setCarrying] = useState<{ from: string; over: string | null } | null>(null)
   // The provider applies its plugins once; announcements read the count
   // from here so they never speak a stale one ("position 1 of 0").
   const countRef = useRef(count)
@@ -173,15 +236,26 @@ export const PageGrid = ({
       Accessibility.configure({
         announcements: {
           dragstart: ({ operation: { source } }: DragStartEvent) =>
-            isSortable(source) ? `Picked up page ${source.index + 1}.` : undefined,
+            isSortable(source)
+              ? groupRef.current(source.id)
+                ? `Picked up ${sizeRef.current} selected pages.`
+                : `Picked up page ${source.index + 1}.`
+              : undefined,
           // Dragover fires before the list is reordered, so the source's own
           // index is still the old one; the target is where it's going.
           dragover: ({ operation: { source, target } }: DragOverEvent) =>
             isSortable(source) && isSortable(target)
-              ? `Page moved to ${position(target.index)}.`
+              ? groupRef.current(source.id)
+                ? `Pages will go at page ${target.index + 1}.`
+                : `Page moved to ${position(target.index)}.`
               : undefined,
-          dragend: ({ operation: { source }, canceled }: DragEndEvent) => {
+          dragend: ({ operation: { source, target }, canceled }: DragEndEvent) => {
             if (!isSortable(source)) return undefined
+            if (groupRef.current(source.id)) {
+              return canceled || !isSortable(target)
+                ? 'Move cancelled. The pages stay where they were.'
+                : `${sizeRef.current} pages dropped at page ${target.index + 1}.`
+            }
             return canceled
               ? `Move cancelled. Page returned to ${position(source.initialIndex)}.`
               : `Page dropped at ${position(source.index)}.`
@@ -199,13 +273,32 @@ export const PageGrid = ({
   return (
     <DragDropProvider
       plugins={plugins}
-      onDragEnd={({ operation: { source }, canceled }) => {
+      onDragStart={({ operation: { source } }) => {
+        onDragging?.(true)
+        if (source && group(source.id)) setCarrying({ from: String(source.id), over: null })
+      }}
+      onDragOver={(event) => {
+        const { source, target } = event.operation
+        if (!source || !group(source.id)) return
+        // Keep dnd-kit from sorting the list under the pointer.
+        event.preventDefault()
+        setCarrying({ from: String(source.id), over: target ? String(target.id) : null })
+      }}
+      onDragEnd={({ operation: { source, target }, canceled }) => {
+        // After this event's listeners: Escape that cancelled it is spent.
+        setTimeout(() => onDragging?.(false), 0)
+        setCarrying(null)
         if (canceled || !isSortable(source)) return
+        if (group(source.id)) {
+          if (isSortable(target)) onMoveSelected(source.initialIndex, target.index)
+          return
+        }
         if (source.initialIndex !== source.index) onMove(source.initialIndex, source.index)
       }}
     >
       <p id="reorder-instructions" className="sr-only">
-        Drag to reorder, or press Space to pick up and use the arrow keys to move.
+        Drag to reorder, or press Space to pick up and use the arrow keys to move. With several
+        pages selected, moving one of them moves them all.
       </p>
       <ol
         className="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-x-3 gap-y-5 sm:grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] sm:gap-x-6 sm:gap-y-8"
@@ -221,7 +314,10 @@ export const PageGrid = ({
               asset={asset}
               index={index}
               settings={settings}
-              selected={page.id === selectedId}
+              selected={selected.has(page.id)}
+              selecting={selecting}
+              carried={carrying !== null && carrying.from !== page.id && selected.has(page.id)}
+              dropTarget={carrying?.over === page.id && carrying.from !== page.id}
               onSelect={onSelect}
               onRotate={onRotate}
               onRemove={onRemove}

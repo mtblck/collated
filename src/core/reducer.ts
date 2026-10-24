@@ -12,6 +12,17 @@ export type Action =
   | { type: 'duplicatePage'; id: string; newId: string }
   | { type: 'movePage'; from: number; to: number }
   | { type: 'rotatePage'; id: string; by: -1 | 1 }
+  /*
+   * Several selected pages at once (#65), each one undo step. `movePages`
+   * lifts them out as a block, in document order, and puts the block at
+   * `at` among the pages left; `shiftPages` moves each one place past its
+   * unselected neighbour, as a list's Move up / Move down does.
+   */
+  | { type: 'removePages'; ids: string[] }
+  | { type: 'duplicatePages'; ids: string[]; newIds: string[] }
+  | { type: 'movePages'; ids: string[]; at: number }
+  | { type: 'shiftPages'; ids: string[]; by: -1 | 1 }
+  | { type: 'rotatePages'; ids: string[]; by: -1 | 1 }
   | { type: 'rotateAll'; by: -1 | 1 }
   | { type: 'transformPage'; id: string; patch: Partial<PageTransform> }
   /** Several pages at once, as one undo step (e.g. auto-straighten all). */
@@ -97,6 +108,62 @@ export const docReducer = (state: DocState, action: Action): DocState => {
       const page = state.pages[from]
       if (!page || from === to || to < 0 || to >= state.pages.length) return state
       return { ...state, pages: state.pages.toSpliced(from, 1).toSpliced(to, 0, page) }
+    }
+
+    case 'removePages': {
+      const ids = new Set(action.ids)
+      const pages = state.pages.filter((p) => !ids.has(p.id))
+      return pages.length === state.pages.length ? state : { ...state, pages }
+    }
+
+    case 'duplicatePages': {
+      const copies = new Map(action.ids.map((id, i) => [id, action.newIds[i] ?? `${id}-copy`]))
+      if (!state.pages.some((p) => copies.has(p.id))) return state
+      return {
+        ...state,
+        pages: state.pages.flatMap((p) => {
+          const newId = copies.get(p.id)
+          return newId ? [p, { ...p, id: newId }] : [p]
+        }),
+      }
+    }
+
+    case 'movePages': {
+      const ids = new Set(action.ids)
+      const block = state.pages.filter((p) => ids.has(p.id))
+      if (block.length === 0) return state
+      const rest = state.pages.filter((p) => !ids.has(p.id))
+      const pages = rest.toSpliced(clamp(action.at, 0, rest.length), 0, ...block)
+      return pages.every((p, i) => p === state.pages[i]) ? state : { ...state, pages }
+    }
+
+    case 'shiftPages': {
+      const ids = new Set(action.ids)
+      const pages = [...state.pages]
+      const last = pages.length - 1
+      // Walk towards the move, so a run of selected pages moves together.
+      for (let step = 0; step < last; step++) {
+        const i = action.by < 0 ? step + 1 : last - step - 1
+        const j = i + action.by
+        const page = pages[i]
+        const other = pages[j]
+        if (page && other && ids.has(page.id) && !ids.has(other.id)) {
+          pages[i] = other
+          pages[j] = page
+        }
+      }
+      return pages.every((p, i) => p === state.pages[i]) ? state : { ...state, pages }
+    }
+
+    case 'rotatePages': {
+      const ids = new Set(action.ids)
+      if (!state.pages.some((p) => ids.has(p.id))) return state
+      return {
+        ...state,
+        pages: state.pages.map((p) =>
+          ids.has(p.id) ? { ...p, turns: turn(p.turns, action.by) } : p,
+        ),
+      }
     }
 
     case 'rotatePage':

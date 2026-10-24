@@ -33,11 +33,12 @@ describe('describeChange', () => {
     )
   })
 
-  it('calls a change of many positions a reorder', () => {
-    const before = doc(['p1', 'p2', 'p3', 'p4'])
-    expect(describeChange(before, { ...before, pages: before.pages.toReversed() })).toBe(
-      'reordered the pages',
-    )
+  it('counts the pages that moved together (#65)', () => {
+    const before = doc(['p1', 'p2', 'p3', 'p4', 'p5'])
+    const [p1, p2, p3, p4, p5] = before.pages
+    if (!p1 || !p2 || !p3 || !p4 || !p5) throw new Error('pages')
+    expect(describeChange(before, { ...before, pages: [p3, p4, p1, p2, p5] })).toBe('moved 2 pages')
+    expect(describeChange(before, { ...before, pages: [p2, p1, p4, p3, p5] })).toBe('moved 2 pages')
   })
 
   it('names edited pages and changed settings', () => {

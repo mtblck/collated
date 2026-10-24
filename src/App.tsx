@@ -17,6 +17,18 @@ import type { Arrange } from './components/MoreMenu'
 import { DropOverlay, EmptyState, Footer, Header, Notices, type Notice } from './components/Chrome'
 import { Inspector, type InspectorActions } from './components/Inspector'
 import { PageGrid } from './components/PageGrid'
+import { GroupInspector, type GroupActions } from './components/GroupInspector'
+import { SelectionBar } from './components/SelectionBar'
+import {
+  EMPTY_SELECTION,
+  blockDropIndex,
+  keepExisting,
+  pick,
+  selectAll,
+  type PickMode,
+  type Selection,
+} from './core/selection'
+import { DEFAULT_TRANSFORM } from './core/model'
 import { download as saveFile, exportPdf, prepareExport, type Exported } from './export/exportPdf'
 import { STALE_BUILD_MESSAGE, isStaleBuild } from './lib/staleBuild'
 import { assetStore } from './import/assetStore'
@@ -112,7 +124,13 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const { doc, previous, next, act, undo, redo, canUndo, canRedo, endGesture, reset } = useDocument(
     () => loadSettings(deps.storage, deps.locale),
   )
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Not part of the document: selecting isn't an edit, and undo leaves it be.
+  const [rawSelection, setSelection] = useState<Selection>(EMPTY_SELECTION)
+  /** Select mode (#65): taps toggle pages, for touch. */
+  const [selecting, setSelecting] = useState(false)
+  const selectOnly = useCallback((id: string | null) => {
+    setSelection(id ? { ids: [id], anchor: id } : EMPTY_SELECTION)
+  }, [])
   const [importing, setImporting] = useState<{
     file: number
     files: number
@@ -138,12 +156,18 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const fileInput = useRef<HTMLInputElement>(null)
   // The inspector scrolls on its own; a newly selected page starts at its top.
   const rail = useRef<HTMLElement>(null)
+  const { pages, assets, settings } = doc
+  // Undo can remove selected pages; those simply drop out of the selection.
+  const selection = useMemo(() => keepExisting(pages, rawSelection), [pages, rawSelection])
+  const group = selection.ids.length > 1
+  const selectedId = group ? null : (selection.ids[0] ?? null)
+  const railKey = group ? 'group' : selectedId
   useLayoutEffect(() => {
     // Not while focus is in the inspector (Duplicate selects the copy, and its
     // button must stay in view; WCAG 2.4.11).
     const el = rail.current
     if (el && !el.contains(document.activeElement)) el.scrollTop = 0
-  }, [selectedId])
+  }, [railKey])
   const noticeId = useRef(0)
   /** Bumped by Start over, so work started before it doesn't land after it. */
   const generation = useRef(0)
@@ -163,9 +187,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     setFocusRequest((last) => ({ pageId, always, n: (last?.n ?? 0) + 1 }))
   }, [])
 
-  const { pages, assets, settings } = doc
   const selectedIndex = pages.findIndex((p) => p.id === selectedId)
-  // Undo can remove the selected page; a stale id simply selects nothing.
   const selected = pages[selectedIndex]
 
   useEffect(() => {
@@ -243,7 +265,10 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           a.format === 'pdf' || !batch ? a : { ...a, source: batch },
         )
         act({ type: 'addPages', assets: tagged, pageIds })
-        setSelectedId((current) => current ?? pageIds[0] ?? null)
+        setSelection((current) => {
+          const first = pageIds[0]
+          return current.ids.length > 0 || !first ? current : { ids: [first], anchor: first }
+        })
       }
       for (const message of failed) notify(message)
       setStatus(
@@ -309,15 +334,15 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     (to: DocState | undefined) => {
       if (!to) return
       const from = document.activeElement?.closest('[data-page-id]')?.getAttribute('data-page-id')
-      const index = pages.findIndex((p) => p.id === (from ?? selectedId))
+      const index = pages.findIndex((p) => p.id === (from ?? selection.anchor))
       const target = to.pages[Math.min(Math.max(index, 0), to.pages.length - 1)]
       requestFocus(target?.id ?? null, false)
-      // If the selected page is going away, select the one taking its place.
-      if (selectedId !== null && !to.pages.some((p) => p.id === selectedId)) {
-        setSelectedId(target?.id ?? null)
+      // If every selected page is going away, select the one taking its place.
+      if (selection.ids.length > 0 && keepExisting(to.pages, selection).ids.length === 0) {
+        selectOnly(target?.id ?? null)
       }
     },
-    [pages, requestFocus, selectedId],
+    [pages, requestFocus, selectOnly, selection],
   )
 
   const onUndo = useCallback(() => {
@@ -339,7 +364,40 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     setNotices((list) => list.slice(0, -1))
   }, [])
 
-  // Keyboard undo/redo, Alt+T to the toolbar, and Escape for the latest notice.
+  const announceSelection = useCallback(
+    (next: Selection) => {
+      const n = next.ids.length
+      announce(
+        n === 0
+          ? 'No pages selected.'
+          : n === pages.length && n > 1
+            ? `All ${n} pages selected.`
+            : `${plural(n, 'page')} selected.`,
+      )
+    },
+    [announce, pages.length],
+  )
+  const onSelect = useCallback(
+    (id: string, mode: PickMode) => {
+      const next = pick(pages, selection, id, mode)
+      setSelection(next)
+      // A plain click shows the page in the inspector, which says enough.
+      if (mode !== 'only') announceSelection(next)
+    },
+    [announceSelection, pages, selection],
+  )
+  const clearGroup = useCallback(() => {
+    // Back to the page last picked, so the inspector (and focus in it) stays.
+    const keep = selection.anchor ?? selection.ids[0] ?? null
+    selectOnly(keep)
+    setSelecting(false)
+    announce('Selection cleared.')
+  }, [announce, selectOnly, selection])
+  /** A page is being dragged; Escape is the drag's (it cancels it). */
+  const draggingPage = useRef(false)
+
+  // Keyboard undo/redo, Alt+T to the toolbar, select all, and Escape for the
+  // selection or the latest notice.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       // The crop editor is modal: nothing behind it may change.
@@ -354,14 +412,27 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         return
       }
       if (event.key === 'Escape') {
-        if (!event.defaultPrevented && !popoverOpen() && !isEditable(event.target)) {
-          dismissLatest()
+        if (
+          event.defaultPrevented ||
+          popoverOpen() ||
+          isEditable(event.target) ||
+          draggingPage.current
+        ) {
+          return
         }
+        if (group || selecting) clearGroup()
+        else dismissLatest()
         return
       }
       if (!(event.metaKey || event.ctrlKey) || event.altKey || isEditable(event.target)) return
       const key = event.key.toLowerCase()
-      if (key === 'z' && !event.shiftKey) onUndo()
+      if (key === 'a' && !event.shiftKey) {
+        // Everywhere but text: the page has nothing else worth selecting.
+        if (pages.length === 0) return
+        const next = selectAll(pages, selection)
+        setSelection(next)
+        announceSelection(next)
+      } else if (key === 'z' && !event.shiftKey) onUndo()
       else if ((key === 'z' && event.shiftKey) || key === 'y') onRedo()
       else return
       event.preventDefault()
@@ -371,7 +442,17 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     return () => {
       window.removeEventListener('keydown', onKey, true)
     }
-  }, [dismissLatest, onUndo, onRedo])
+  }, [
+    announceSelection,
+    clearGroup,
+    dismissLatest,
+    group,
+    onUndo,
+    onRedo,
+    pages,
+    selecting,
+    selection,
+  ])
 
   const chooseFiles = useCallback(() => {
     fileInput.current?.click()
@@ -492,17 +573,24 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       // and so does the selection if the removed page had it.
       const neighbour = rest[Math.min(index, rest.length - 1)]
       act({ type: 'removePage', id })
-      if (selectedId === id) setSelectedId(neighbour?.id ?? null)
+      if (selection.ids.length === 1 && selection.ids[0] === id) selectOnly(neighbour?.id ?? null)
       requestFocus(neighbour?.id ?? null, true)
       announce(`Removed page ${index + 1}. Undo to bring it back.`)
     },
-    [act, announce, pages, requestFocus, selectedId],
+    [act, announce, pages, requestFocus, selectOnly, selection],
   )
   const onMove = useCallback(
     (from: number, to: number) => {
       act({ type: 'movePage', from, to })
     },
     [act],
+  )
+  const onMoveSelected = useCallback(
+    (from: number, to: number) => {
+      const at = blockDropIndex(pages, selection.ids, from, to)
+      act({ type: 'movePages', ids: selection.ids, at })
+    },
+    [act, pages, selection.ids],
   )
   const onSettings = useCallback(
     (patch: Partial<Settings>) => {
@@ -581,7 +669,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       onDuplicate: () => {
         const newId = deps.newId()
         act({ type: 'duplicatePage', id, newId })
-        setSelectedId(newId)
+        selectOnly(newId)
       },
       onReset: () => {
         act({ type: 'resetPage', id })
@@ -597,7 +685,88 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         void autoStraighten(scope === 'all' ? pages.map((p) => p.id) : [id])
       },
     }
-  }, [act, announce, autoStraighten, deps, endGesture, onRemove, pages, selected, selectedIndex])
+  }, [
+    act,
+    announce,
+    autoStraighten,
+    deps,
+    endGesture,
+    onRemove,
+    pages,
+    selectOnly,
+    selected,
+    selectedIndex,
+  ])
+
+  const groupActions = useMemo<GroupActions | null>(() => {
+    if (!group) return null
+    const ids = selection.ids
+    const vector = (id: string) => {
+      const page = pages.find((p) => p.id === id)
+      const asset = page ? assets[page.assetId] : undefined
+      return asset?.format === 'pdf'
+    }
+    const n = ids.length
+    return {
+      onTransform: (patch, gesture) => {
+        // Filters are for images; PDF pages keep their vector content.
+        const targets = 'filter' in patch ? ids.filter((id) => !vector(id)) : ids
+        act({ type: 'transformPages', patches: targets.map((id) => ({ id, patch })) }, gesture)
+      },
+      onGestureEnd: endGesture,
+      onRotate: (by) => {
+        act({ type: 'rotatePages', ids, by })
+      },
+      onShift: (by) => {
+        act({ type: 'shiftPages', ids, by })
+        announce(`Moved ${plural(n, 'page')} ${by < 0 ? 'earlier' : 'later'}.`)
+      },
+      onAutoStraighten: () => {
+        void autoStraighten(ids)
+      },
+      onDuplicate: () => {
+        const newIds = ids.map(() => deps.newId())
+        act({ type: 'duplicatePages', ids, newIds })
+        // The copies are selected, as with one page.
+        setSelection({ ids: newIds, anchor: newIds[0] ?? null })
+        announce(`Duplicated ${plural(n, 'page')}.`)
+      },
+      onReset: () => {
+        act({
+          type: 'transformPages',
+          patches: ids.map((id) => ({ id, patch: DEFAULT_TRANSFORM })),
+        })
+      },
+      onRemove: () => {
+        const gone = new Set(ids)
+        const first = pages.findIndex((p) => gone.has(p.id))
+        const rest = pages.filter((p) => !gone.has(p.id))
+        const neighbour = rest[Math.min(first, rest.length - 1)]
+        act({ type: 'removePages', ids })
+        selectOnly(neighbour?.id ?? null)
+        setSelecting(false)
+        requestFocus(neighbour?.id ?? null, true)
+        announce(`Removed ${plural(n, 'page')}. Undo to bring them back.`)
+      },
+      onClear: () => {
+        clearGroup()
+        requestFocus(selection.anchor, true)
+      },
+    }
+  }, [
+    act,
+    announce,
+    assets,
+    autoStraighten,
+    clearGroup,
+    deps,
+    endGesture,
+    group,
+    pages,
+    requestFocus,
+    selectOnly,
+    selection,
+  ])
 
   const selectedAsset = selected ? assets[selected.assetId] : undefined
 
@@ -629,7 +798,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     forgetPageThumbs()
     forgetPageWords()
     forgetLayered()
-    setSelectedId(null)
+    selectOnly(null)
+    setSelecting(false)
     setPassword('')
     setLastExport(null)
     setNotices([])
@@ -637,7 +807,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     announce(
       `Started over: removed ${plural(count, 'page')} and the undo history. Add files to begin again.`,
     )
-  }, [announce, deps.locale, deps.storage, pages.length, requestFocus, reset])
+  }, [announce, deps.locale, deps.storage, pages.length, requestFocus, reset, selectOnly])
 
   const duplex = useMemo(() => duplexGroups(doc), [doc])
   const onArrange = useCallback(
@@ -730,15 +900,42 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
                     …
                   </p>
                 )}
+                {pages.length > 0 && (
+                  <SelectionBar
+                    count={pages.length}
+                    selected={selection.ids.length}
+                    selecting={selecting}
+                    onSelecting={(on) => {
+                      setSelecting(on)
+                      announce(
+                        on ? 'Select mode: tap pages to add or remove them.' : 'Select mode off.',
+                      )
+                    }}
+                    onSelectAll={() => {
+                      const next = selectAll(pages, selection)
+                      setSelection(next)
+                      announceSelection(next)
+                    }}
+                    onClear={() => {
+                      setSelection(EMPTY_SELECTION)
+                      announceSelection(EMPTY_SELECTION)
+                    }}
+                  />
+                )}
                 <PageGrid
                   pages={pages}
                   assets={assets}
                   settings={settings}
-                  selectedId={selectedId}
-                  onSelect={setSelectedId}
+                  selectedIds={selection.ids}
+                  selecting={selecting}
+                  onSelect={onSelect}
                   onRotate={onRotate}
                   onRemove={onRemove}
                   onMove={onMove}
+                  onMoveSelected={onMoveSelected}
+                  onDragging={(on) => {
+                    draggingPage.current = on
+                  }}
                 />
               </section>
               <aside
@@ -746,7 +943,16 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
                 aria-label="Selected page"
                 className="scroll-pane border-t border-rule px-4 py-6 sm:px-6 lg:mr-4 lg:mb-4 lg:w-[23rem] lg:shrink-0 lg:overflow-y-auto lg:overscroll-contain lg:rounded-[1.125rem] lg:border-t-0 lg:bg-paper lg:px-6 lg:shadow-panel"
               >
-                {selected && selectedAsset && inspectorActions ? (
+                {groupActions ? (
+                  <GroupInspector
+                    pages={pages.filter((p) => selection.ids.includes(p.id))}
+                    assets={assets}
+                    indices={pages.flatMap((p, i) => (selection.ids.includes(p.id) ? [i] : []))}
+                    count={pages.length}
+                    actions={groupActions}
+                    straightening={straightening}
+                  />
+                ) : selected && selectedAsset && inspectorActions ? (
                   <Inspector
                     page={selected}
                     asset={selectedAsset}
@@ -758,7 +964,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
                   />
                 ) : (
                   <p className="text-sm text-ink-muted">
-                    Select a page to rotate, straighten or scale it.
+                    Select a page to rotate, straighten or scale it. Shift-click or ⌘/Ctrl-click to
+                    select several.
                   </p>
                 )}
               </aside>
