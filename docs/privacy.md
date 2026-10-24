@@ -5,17 +5,18 @@ order: 90
 
 # Privacy notice
 
-_Last updated 21 October 2026._
+_Last updated 24 October 2026._
 
 Collated is a free, open-source tool. It is built so that your documents never leave your device, and this notice explains exactly what that means.
 
 ## Your documents
 
-The files you add, the pages you arrange and the PDFs you export are processed only in your web browser. They are never uploaded, and nobody, including the author, can see them. While the page is open they're kept in its memory, including pages you removed, so Undo can bring them back. **Start over** (in the toolbar's **More** menu) clears all of it straight away; otherwise it's gone when you close the tab. Either way, a PDF you saved stays where you saved it.
+The files you add, the pages you arrange and the PDFs you export are processed only in your web browser. They are never uploaded, and nobody, including the author, can see them. While the page is open they're kept in its memory, including pages you removed, so Undo can bring them back. So that a reload or a closed tab doesn't lose your work, a copy is also kept on your device (see below) until you start over, discard it or turn that off. **Start over** (in the toolbar's **More** menu) clears all of it, the copy on your device included, straight away. A PDF you saved stays where you saved it.
 
 ## What is stored on your device
 
 - **Your settings** (page setup, image dpi for Match image, export quality and size limit, the searchable-text and page-number choices) are saved in your browser's local storage under `collated:settings`, so they're there next time. Your title and password are never saved.
+- **Your current document,** so you can pick up where you left off after a reload or a closed tab: the files you added (each stored once), their small previews, the page order and settings, the title, and the undo history. It's kept in your browser's IndexedDB (a database called `collated-work`) on this device only, and next time you open Collated it asks **Restore your last document?** The password is never stored. **Discard** on that question, **Start over**, or turning off **Keep work after a reload** (in the **More** menu) deletes it straight away; with that setting off (remembered as `collated:keep-work`) nothing about your document is stored. If a document is too large for the space your browser allows, Collated tells you and keeps nothing of it.
 - **Your light or dark theme choice** (`mb-theme`).
 - **Text-recognition data:** if you use searchable text, the English recognition data (about 5 MB once unpacked) is cached in your browser's IndexedDB so it doesn't download again. It contains nothing about your documents.
 

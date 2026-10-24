@@ -1,9 +1,10 @@
 import { useId } from 'react'
 import type { Settings } from '../core/model'
+import type { DuplexGroups } from '../core/order'
 import { Button, IconButton } from './controls'
 import { ExportOptions } from './ExportOptions'
 import { PlusIcon, RedoIcon, UndoIcon } from './Icons'
-import { MoreMenu } from './MoreMenu'
+import { MoreMenu, type Arrange } from './MoreMenu'
 import { PageSetup } from './PageSetup'
 import { Toolbar } from './Toolbar'
 import { TOOLBAR_ITEM } from './toolbarItem'
@@ -33,7 +34,12 @@ export const DocumentBar = ({
   onUndo,
   onRedo,
   onRotateAll,
+  duplex,
+  orderScope = null,
+  onArrange,
   onStartOver,
+  keepWork,
+  onKeepWork,
   busy = false,
   onAdd,
   onExport,
@@ -52,8 +58,15 @@ export const DocumentBar = ({
   onUndo: () => void
   onRedo: () => void
   onRotateAll: (by: -1 | 1) => void
+  duplex: DuplexGroups | null
+  /** How many selected pages page order works on; null for every page. */
+  orderScope?: number | null
+  onArrange: (arrange: Arrange) => void
   /** Clears the document, its undo history and everything kept for it. */
   onStartOver: () => void
+  /** Whether the document is kept on this device across a reload. */
+  keepWork: boolean
+  onKeepWork: (keep: boolean) => void
   /** Importing or straightening: Start over waits (export is `exporting`). */
   busy?: boolean
   onAdd: () => void
@@ -125,8 +138,13 @@ export const DocumentBar = ({
       <MoreMenu
         pageCount={pageCount}
         onRotateAll={onRotateAll}
+        duplex={duplex}
+        orderScope={orderScope}
+        onArrange={onArrange}
         busy={exporting.busy || busy}
         onStartOver={onStartOver}
+        keepWork={keepWork}
+        onKeepWork={onKeepWork}
       />
     </Toolbar>
   )

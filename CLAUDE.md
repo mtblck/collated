@@ -18,6 +18,7 @@ Images → one PDF, client-only, at https://collatedpdf.com/ (own Vercel project
 - **OCR** (tesseract.js) reads the page _as displayed_; `OcrWord` fractions are of the rotated image bounds, so text-layer placement has no rotation term. Runtime files are emitted to `ocr/` by `ocr-assets.ts` (no CDN, `workerBlobURL: false`).
 - **Docs** are `docs/*.md` (shared with Boards), built to static pages by `docs-site.ts`; only files in its `PAGES` list are published. Keep the guide and `docs/privacy.md` true to the code.
 - **Bytes outside React state** (`import/assetStore.ts`); undo history holds metadata only.
+- **Work kept on the device** (`state/workStore.ts`, #74, ADR 0002): IndexedDB `collated-work` holds the history, bytes once per `bytesId` and thumbnails per asset. Never the password. Start over, Discard and the Keep work switch clear it; nothing saves while the restore offer is pending.
 - **Paths:** base `/`, outDir `dist`, theme.js by absolute path; `/tools/collated/(.*)` redirects permanently to `https://collatedpdf.com/$1` (absolute: the portfolio proxies that path here). CSP `script-src 'self' 'wasm-unsafe-eval'` (HEIC only), `worker-src 'self'` — never `blob:`; `hosting:check` guards it.
 - **Button sizes are a prop**, not class overrides (two padding utilities resolve by stylesheet order; it once squashed icons to 6px).
 - `@dnd-kit/*` is 0.x and pinned exactly; check announcements and keyboard reorder in verify after upgrading.

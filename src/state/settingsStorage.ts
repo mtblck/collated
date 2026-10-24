@@ -98,3 +98,22 @@ export const saveSettings = (storage: Pick<Storage, 'setItem'> | undefined, sett
     /* storage full or blocked: the setting just won't persist */
   }
 }
+
+const KEEP_WORK_KEY = 'collated:keep-work'
+
+/** Whether the document is kept on this device between visits (#74). On unless turned off. */
+export const loadKeepWork = (storage: Pick<Storage, 'getItem'> | undefined): boolean => {
+  try {
+    return storage?.getItem(KEEP_WORK_KEY) !== 'off'
+  } catch {
+    return true
+  }
+}
+
+export const saveKeepWork = (storage: Pick<Storage, 'setItem'> | undefined, keep: boolean) => {
+  try {
+    storage?.setItem(KEEP_WORK_KEY, keep ? 'on' : 'off')
+  } catch {
+    /* storage blocked: the choice lasts until the tab closes */
+  }
+}
