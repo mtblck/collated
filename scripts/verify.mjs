@@ -58,8 +58,16 @@ const types = {
   '.map': 'application/json',
   '.wasm': 'application/wasm',
   '.gz': 'application/gzip',
+  '.png': 'image/png',
+  '.webmanifest': 'application/manifest+json',
 }
+/** Set by step 28 to take the site off the network: every connection drops. */
+let serverDown = false
 const server = createServer((req, res) => {
+  if (serverDown) {
+    req.socket.destroy()
+    return
+  }
   const path = decodeURIComponent((req.url ?? '/').split('?')[0])
   // As vercel.json: the old address under mattblack.space keeps working.
   if (path === '/tools/collated' || path.startsWith('/tools/collated/')) {
@@ -170,8 +178,11 @@ const checkSameOrigin = () => {
 let expectRevoked = false
 const open = async (options = {}) => {
   const context = await browser.newContext({ acceptDownloads: true, ...options })
+  return { context, page: await watch(context, await context.newPage()) }
+}
+/** Fails the run on any console error, uncaught exception or CSP violation in `page`. */
+const watch = async (context, page) => {
   guard(context)
-  const page = await context.newPage()
   page.on('console', (m) => {
     // A check that loads a revoked blob: URL on purpose expects this one.
     if (m.type() === 'error' && !(expectRevoked && m.text().includes('ERR_FILE_NOT_FOUND')))
@@ -183,7 +194,7 @@ const open = async (options = {}) => {
       console.error(`CSP blocked ${e.blockedURI} (${e.violatedDirective})`)
     })
   })
-  return { context, page }
+  return page
 }
 
 const axe = async (page, label) => {
@@ -2682,6 +2693,126 @@ await context.close()
     'no Take photo with a mouse',
   )
   await desk.close()
+}
+
+// 28. The installed app (#73): installable, offline after the first visit
+//     (HEIC once it has been used), and files shared to it become pages.
+{
+  // A profile on disk: Chromium never offers to install from an incognito
+  // window, and every context Playwright makes otherwise is one.
+  const ctx = await chromium.launchPersistentContext(
+    mkdtempSync(join(tmpdir(), 'collated-verify-profile-')),
+    {
+      ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}),
+      acceptDownloads: true,
+      viewport: { width: 1280, height: 800 },
+    },
+  )
+  const p = await watch(ctx, ctx.pages()[0] ?? (await ctx.newPage()))
+  const input = '[data-testid="file-input"]'
+  await p.goto(URL_ROOT, { waitUntil: 'load' })
+  const cdp = await ctx.newCDPSession(p)
+  const { installabilityErrors } = await cdp.send('Page.getInstallabilityErrors')
+  check(
+    installabilityErrors.length === 0,
+    'Chromium finds Collated installable (manifest, icons, service worker)',
+    JSON.stringify(installabilityErrors),
+  )
+  const { url: manifestUrl, errors: manifestErrors } = await cdp.send('Page.getAppManifest')
+  check(
+    manifestUrl.endsWith('/manifest.webmanifest') && manifestErrors.length === 0,
+    'the manifest parses without errors',
+    JSON.stringify(manifestErrors),
+  )
+  await p.waitForFunction(() => navigator.serviceWorker.controller !== null, null, {
+    timeout: 30_000,
+  })
+  ok('the service worker takes over the page once installed')
+  // HEIC decoding is fetched on first use, and kept from then on.
+  await p.setInputFiles(input, [join(fixtures, 'quad-landscape.heic')])
+  await p.waitForSelector('ol[aria-label="1 page"]', { timeout: 20_000 })
+  // Offline: no network at all, and the server gone too.
+  serverDown = true
+  await ctx.setOffline(true)
+  try {
+    await p.reload({ waitUntil: 'load' })
+    await p.waitForSelector(input, { state: 'attached', timeout: 15_000 })
+    ok('the app loads with no connection')
+    // Files added instead of restoring start a new document (#74).
+    await p.setInputFiles(input, [
+      join(fixtures, 'quad-3pages.pdf'),
+      join(fixtures, 'quad-landscape.heic'),
+      join(fixtures, 'quad-landscape.jpg'),
+    ])
+    await p.waitForSelector('ol[aria-label="5 pages"]', { timeout: 20_000 })
+    ok('offline, it reads a PDF (pdf.js), a HEIC photo (used once before) and a JPEG')
+    const [saved] = await Promise.all([
+      p.waitForEvent('download', { timeout: 20_000 }),
+      exportNow(p),
+    ])
+    const pdf = await PDFDocument.load(readFileSync(await saved.path()))
+    check(pdf.getPageCount() === 5, 'offline, it exports the PDF', String(pdf.getPageCount()))
+    const help = await ctx.newPage()
+    await help.goto(`${URL_ROOT}docs/keyboard/`)
+    check(/keyboard/i.test(await help.title()), 'offline, the docs pages open', await help.title())
+    await help.close()
+  } finally {
+    await ctx.setOffline(false)
+    serverDown = false
+  }
+
+  // A share from another app: the system opens a window that posts the files
+  // to /share, which only the service worker answers. Played here by a form
+  // on a blank page (Collated's own CSP rightly forbids its pages to post).
+  const sheet = await watch(ctx, await ctx.newPage())
+  await sheet.setContent(
+    `<form method="post" action="${URL_ROOT}share" enctype="multipart/form-data">` +
+      '<input type="file" name="files" multiple></form>',
+  )
+  const gallery = join(
+    mkdtempSync(join(tmpdir(), 'collated-verify-share-')),
+    'From the gallery.jpg',
+  )
+  const email = join(dirname(gallery), 'Lease from email.pdf')
+  writeFileSync(gallery, readFileSync(join(fixtures, 'quad-portrait.jpg')))
+  writeFileSync(email, readFileSync(join(fixtures, 'quad-3pages.pdf')))
+  await sheet.setInputFiles('input', [gallery, email])
+  await Promise.all([
+    sheet.waitForURL(`${URL_ROOT}**`),
+    sheet.evaluate(() => document.forms[0].submit()),
+  ])
+  // Nothing goes in until the person says they shared it: any site can post
+  // to /share. Then the document there (kept since the offline export) is
+  // restored and the shared files are added to it.
+  const ask = sheet.getByRole('dialog', { name: 'Add 2 files shared with Collated?' })
+  await ask.waitFor({ timeout: 20_000 })
+  ok('the service worker takes the shared files and the app asks before adding them')
+  check(
+    (await ask.textContent()).includes('From the gallery.jpgLease from email.pdf'),
+    'the question names the shared files',
+  )
+  check(
+    await ask
+      .getByRole('button', { name: 'Don’t add' })
+      .evaluate((el) => el === document.activeElement),
+    'it opens on Don’t add',
+  )
+  await axe(sheet, 'shared files question')
+  await ask.getByRole('button', { name: 'Add 2 files' }).click()
+  await sheet.waitForSelector('ol[aria-label="9 pages"]', { timeout: 20_000 })
+  const names = await pageNames(sheet)
+  check(
+    names[5] === 'From the gallery.jpg' && names.at(-1) === 'Lease from email · p3',
+    'shared files join the kept document, in the order shared, names intact',
+    names.join(', '),
+  )
+  check(!sheet.url().includes('share='), 'the share is dropped from the address', sheet.url())
+  const left = await sheet.evaluate(
+    async () => (await (await caches.open('collated-share-inbox')).keys()).length,
+  )
+  check(left === 0, 'the inbox is empty once the app has the files', String(left))
+  await sheet.screenshot({ path: join(shots, 'shared-files.png') })
+  await ctx.close()
 }
 
 // 29. Bookmarks (#75): a section follows its page; files under it; poppler reads them.
