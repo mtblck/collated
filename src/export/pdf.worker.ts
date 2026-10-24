@@ -3,7 +3,7 @@ import { buildWithin, compressionFor } from '../core/compression'
 import { buildPdf, type BuildInput } from '../core/pdf'
 import { NeedsDrawing } from '../core/pdfSanitize'
 import { buildSplit } from '../core/splitBuild'
-import { processToBlob } from '../lib/filterCanvas'
+import { flattenToBlob, processToBlob } from '../lib/filterCanvas'
 import type { ExportRequest, ExportResponse } from './protocol'
 
 /*
@@ -37,6 +37,8 @@ self.onmessage = async ({ data }: MessageEvent<ExportRequest>) => {
                 const blob = await processToBlob(new Blob([bytes as Uint8Array<ArrayBuffer>]), job)
                 return new Uint8Array(await blob.arrayBuffer())
               },
+              flattenPage: async (job) =>
+                new Uint8Array(await (await flattenToBlob(job)).arrayBuffer()),
               onProgress,
             },
           ),

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Asset, DocState, Page, Settings } from '../src/core/model'
 import { DEFAULT_TRANSFORM } from '../src/core/model'
+import { NO_WATERMARK } from '../src/core/watermark'
 
 export const fixture = (name: string): Uint8Array =>
   new Uint8Array(readFileSync(join(import.meta.dirname, 'fixtures', name)))
@@ -17,6 +18,7 @@ export const settings = (patch: Partial<Settings> = {}): Settings => ({
   maxBytes: null,
   imageDpi: 300,
   pageNumbers: { show: false, position: 'bottom-center', start: 1 },
+  watermark: NO_WATERMARK,
   ocr: false,
   ocrLanguage: 'eng',
   bookmarkFiles: false,

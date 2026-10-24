@@ -3021,6 +3021,150 @@ await context.close()
   await ctx.close()
 }
 
+// 31. Watermark (#78): on the pages as previewed, as text or burned in. ------
+{
+  const { context: ctx, page: p } = await open({
+    viewport: { width: 1440, height: 1000 },
+    locale: 'en-US',
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [
+    join(fixtures, 'quad-landscape.jpg'),
+    join(fixtures, 'quad-3pages.pdf'),
+  ])
+  await p.waitForSelector('ol[aria-label="4 pages"]', { timeout: 20_000 })
+  const dialog = p.getByRole('dialog', { name: 'Export options' })
+  const options = dialog.getByRole('group', { name: 'Watermark options' })
+  /** Opens the export options, changes the watermark, closes them. */
+  const watermark = async (act) => {
+    await exportMenu(p).click()
+    await act()
+    await p.keyboard.press('Escape')
+    await dialog.waitFor({ state: 'hidden' })
+  }
+  await watermark(async () => {
+    await dialog.getByRole('checkbox', { name: 'Watermark' }).check()
+    await options.getByLabel('Text').fill('Copy for Verify only')
+    await options.getByLabel('Size').selectOption('large')
+    await options.getByLabel('Colour').fill('#c00000')
+    await options.getByLabel('Opacity').fill('80')
+    await axe(p, 'export options with a watermark')
+    await p.screenshot({ path: join(shots, 'watermark-options.png') })
+  })
+  check(
+    (await p.locator('ol[aria-label] [data-watermark]').count()) === 4,
+    'every page previews the watermark',
+  )
+  await p.getByRole('button', { name: 'Page 1: quad-landscape.jpg' }).click()
+  const panel = p.locator('aside[aria-label="Selected page"]')
+  await p.screenshot({ path: join(shots, 'watermark.png') })
+
+  /** Exports, then compares page 1's render with the inspector's sheet. */
+  const exported = async (label) => {
+    const [dl] = await Promise.all([p.waitForEvent('download'), exportNow(p)])
+    const out = join(mkdtempSync(join(tmpdir(), 'collated-verify-watermark-')), 'out.pdf')
+    await dl.saveAs(out)
+    if (!hasPoppler) return out
+    const prefix = out.replace(/\.pdf$/, '')
+    execFileSync('pdftoppm', ['-png', '-r', '72', '-f', '1', '-l', '1', '-singlefile', out, prefix])
+    const rendered = readFileSync(`${prefix}.png`).toString('base64')
+    const preview = (await panel.locator('.sheet').first().screenshot(sheetShot)).toString('base64')
+    writeFileSync(join(shots, `watermark-${label}-pdf.png`), Buffer.from(rendered, 'base64'))
+    writeFileSync(join(shots, `watermark-${label}-preview.png`), Buffer.from(preview, 'base64'))
+    const diff = await compareImages(rendered, preview)
+    check(
+      diff.farShare < 0.03,
+      `watermark ${label}: preview matches the export (${(diff.farShare * 100).toFixed(2)}% of pixels differ)`,
+    )
+    return out
+  }
+  const textOf = (path, n) =>
+    execFileSync('pdftotext', ['-f', String(n), '-l', String(n), path, '-']).toString()
+  const imagesOn = (path, n) =>
+    execFileSync('pdfimages', ['-f', String(n), '-l', String(n), '-list', path])
+      .toString()
+      .split('\n')
+      .slice(2)
+      .filter(Boolean).length
+
+  await exported('across')
+
+  await watermark(async () => {
+    await options.getByLabel('Position').selectOption('footer')
+  })
+  const footer = await exported('foot')
+  if (hasPoppler) {
+    // Where the preview draws it vs where the PDF has it.
+    const previewBox = await panel
+      .locator('.sheet')
+      .first()
+      .evaluate((sheet) => {
+        const s = sheet.getBoundingClientRect()
+        const r = sheet.querySelector('[data-watermark]')?.getBoundingClientRect()
+        return r
+          ? {
+              x: ((r.left + r.right) / 2 - s.left) / s.width,
+              y: (r.bottom - s.top) / s.height,
+            }
+          : null
+      })
+    const xml = execFileSync('pdftotext', ['-f', '1', '-l', '1', '-bbox', footer, '-']).toString()
+    const size = /<page width="([\d.]+)" height="([\d.]+)"/.exec(xml)
+    const words = [
+      ...xml.matchAll(/<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">/g),
+    ]
+    if (size && words.length && previewBox) {
+      const x0 = Math.min(...words.map((w) => Number(w[1])))
+      const x1 = Math.max(...words.map((w) => Number(w[3])))
+      const y1 = Math.max(...words.map((w) => Number(w[4])))
+      const off = Math.max(
+        Math.abs((x0 + x1) / 2 / Number(size[1]) - previewBox.x),
+        Math.abs(y1 / Number(size[2]) - previewBox.y),
+      )
+      check(
+        off < 0.01,
+        `the watermark sits where the PDF puts it (within ${(off * 100).toFixed(2)}% of the page)`,
+      )
+    } else fails.push('watermark not found in the PDF text')
+    check(
+      textOf(footer, 1).includes('Copy for Verify only') &&
+        textOf(footer, 2).includes('Copy for Verify only'),
+      'the watermark is text on image and PDF pages',
+    )
+  }
+
+  await watermark(async () => {
+    await options.getByRole('checkbox', { name: 'Burn into image pages' }).check()
+  })
+  const burned = await exported('foot-burned')
+  if (hasPoppler) {
+    check(
+      !textOf(burned, 1).includes('Verify') && imagesOn(burned, 1) === 1,
+      'burned in, the image page is one picture with no watermark text',
+      textOf(burned, 1),
+    )
+    check(
+      textOf(burned, 2).includes('Copy for Verify only'),
+      'burned in, a PDF page keeps the watermark as text',
+    )
+  }
+  await watermark(async () => {
+    await options.getByLabel('Position').selectOption('diagonal')
+  })
+  await exported('across-burned')
+
+  // On the selected page only.
+  await watermark(async () => {
+    await options.getByRole('radio', { name: 'Selected pages (1)' }).check()
+  })
+  check(
+    (await p.locator('ol[aria-label] [data-watermark]').count()) === 1,
+    'on the selected page only, one page previews it',
+  )
+  await axe(p, 'a watermark on one page')
+  await ctx.close()
+}
+
 // 32. OCR in French (#79): the picker starts at the browser's language, its
 // data is fetched from our origin, and accented words come back out.
 {

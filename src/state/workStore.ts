@@ -1,5 +1,6 @@
 import type { History } from '../core/history'
 import { picturesOf, type Asset, type DocState, type Settings } from '../core/model'
+import { NO_WATERMARK } from '../core/watermark'
 import { assetStore } from '../import/assetStore'
 
 /**
@@ -96,6 +97,7 @@ const mapAssets = (
         ...state.settings,
         bookmarkFiles: saved.bookmarkFiles ?? false,
         ocrLanguage: saved.ocrLanguage ?? 'eng',
+        watermark: saved.watermark ?? NO_WATERMARK,
       },
       assets: Object.fromEntries(
         Object.entries(state.assets).map(([id, a]) => [id, { ...a, thumbUrl: thumbUrl(a) }]),

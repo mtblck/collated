@@ -49,6 +49,43 @@ describe('settings storage', () => {
     expect(loaded).toMatchObject({ size: 'legal', unit: 'in', margin: 18, title: '' })
   })
 
+  it('remembers how the watermark looks, never what it says or where', () => {
+    const store = memory()
+    saveSettings(store, {
+      ...defaultSettings('en-US'),
+      watermark: {
+        show: true,
+        text: 'Copy for Acme Bank only',
+        position: 'footer',
+        size: 'large',
+        opacity: 0.6,
+        colour: '#C0392B',
+        flatten: true,
+        pageIds: ['p1'],
+      },
+    })
+    expect(store.getItem('collated:settings')).not.toContain('Acme')
+    expect(loadSettings(store, 'en-US').watermark).toEqual({
+      show: false,
+      text: '',
+      position: 'footer',
+      size: 'large',
+      opacity: 0.6,
+      colour: '#c0392b',
+      flatten: true,
+      pageIds: null,
+    })
+    store.setItem(
+      'collated:settings',
+      JSON.stringify({ watermark: { opacity: -1, colour: 'red', size: 'huge' } }),
+    )
+    expect(loadSettings(store, 'en-US').watermark).toMatchObject({
+      opacity: 0.1,
+      colour: '#808080',
+      size: 'medium',
+    })
+  })
+
   it('falls back field by field on bad data', () => {
     const store = memory()
     store.setItem(

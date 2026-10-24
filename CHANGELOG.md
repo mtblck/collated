@@ -25,6 +25,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Take photo** on phones and tablets (#72): opens the camera and adds each shot after the last page, without leaving Collated. The system camera takes the picture, so no camera permission is asked for.
 - **Black out part of the page** (#77): draw boxes over account or ID numbers, and the export removes what's under them rather than covering it. Pixels are painted over, a PDF page with a box goes in as a picture, and searchable text leaves out words under a box.
+- **Watermark** in Export (#78): stamp text such as "Copy for Acme Bank only" across every page or just the selected ones, corner to corner or along the foot, in any size, colour and opacity, shown on the pages as it will print. **Add date** adds today's date. **Burn into image pages** draws it into photo and scan pages so it can't be deleted from the PDF.
 
 ### Changed
 
