@@ -118,6 +118,30 @@ for i, line in enumerate(
     td.text((110, 160 + i * 70), line, font=font, fill=(25, 25, 30))
 text_page.transpose(Image.Transpose.ROTATE_90).save(HERE / "text-page-sideways.jpg", quality=90)
 
+# A full page of body text, for orientation detection (#70), saved turned
+# 0/90/180/270 degrees clockwise from upright. 1-bit, so four copies stay small.
+serif = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf", 26)
+letter = Image.new("L", (1275, 1650), 255)
+ld = ImageDraw.Draw(letter)
+body = (
+    "Thank you for your order. The items below were shipped on the date shown and "
+    "should arrive within five working days. Please keep this letter for your records, "
+    "and check each item against the list when the parcel arrives. If anything is "
+    "missing or damaged, write to us within thirty days and we will replace it or "
+    "refund the full amount, including postage. Returns are free of charge. "
+).split()
+line, lines = [], []
+for word in body * 5:
+    if ld.textlength(" ".join(line + [word]), font=serif) > 1055:
+        lines.append(" ".join(line))
+        line = []
+    line.append(word)
+for i, text in enumerate(lines[:38]):
+    ld.text((110, 120 + i * 38), text, font=serif, fill=0)
+letter = letter.point(lambda v: 255 if v > 128 else 0, "1")
+for degrees, turn in [(0, None), (90, Image.Transpose.ROTATE_270), (180, Image.Transpose.ROTATE_180), (270, Image.Transpose.ROTATE_90)]:
+    (letter if turn is None else letter.transpose(turn)).save(HERE / f"text-letter-cw{degrees}.png", optimize=True)
+
 from PIL import ImageFilter
 
 # The back of a single-sided sheet, scanned (#68): nothing printed, but faint

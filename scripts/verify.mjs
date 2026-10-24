@@ -2585,6 +2585,56 @@ await context.close()
   await ctx.close()
 }
 
+// 26. Auto-rotate (#70): reads the text, turns the sideways page, leaves a picture.
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [
+    join(fixtures, 'quad-portrait.jpg'),
+    join(fixtures, 'text-page-sideways.jpg'),
+  ])
+  await p.waitForSelector('ol[aria-label="2 pages"]')
+  await p.getByRole('button', { name: 'More' }).click()
+  const started = Date.now()
+  await p
+    .getByRole('dialog', { name: 'More' })
+    .getByRole('button', { name: 'Auto-rotate pages' })
+    .click()
+  const expected =
+    'Turned page 2 the right way up. 1 page had too little text to tell and was left as it is.'
+  const said = await p
+    .waitForFunction(
+      (text) => document.getElementById('status')?.textContent?.includes(text),
+      expected,
+      { timeout: 120_000 },
+    )
+    .then(
+      () => true,
+      () => false,
+    )
+  const seconds = ((Date.now() - started) / 1000).toFixed(1)
+  check(
+    said,
+    `Auto-rotate turns the sideways text page and leaves the picture (first run with downloads: ${seconds} s)`,
+    `status: "${await p.locator('#status').textContent()}"`,
+  )
+  await p.screenshot({ path: join(shots, 'auto-rotated.png'), fullPage: true })
+  // The page now carries a turn, which Reset (and one undo) takes off.
+  await p.getByRole('button', { name: 'Page 2: text-page-sideways.jpg' }).click()
+  const panel = p.getByRole('complementary', { name: 'Selected page' })
+  check(
+    (await panel.getByRole('button', { name: 'Reset' }).getAttribute('aria-disabled')) === null,
+    'the auto-rotated page shows a change to reset',
+  )
+  await p.keyboard.press('Control+z')
+  await p.waitForTimeout(200)
+  check(
+    (await panel.getByRole('button', { name: 'Reset' }).getAttribute('aria-disabled')) === 'true',
+    'one undo takes the auto-rotate back',
+  )
+  await ctx.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()

@@ -94,6 +94,20 @@ describe('docReducer', () => {
     ).toBe(same)
   })
 
+  it('transforms one picture of a combined page, leaving the others', () => {
+    const sheet = docReducer(doc(2), {
+      type: 'combinePages',
+      ids: ['p0', 'p1'],
+      kind: 'two',
+      newIds: ['s0'],
+    })
+    const next = docReducer(sheet, {
+      type: 'transformPages',
+      patches: [{ id: 's0', slot: 1, patch: { turns: 2 } }],
+    })
+    expect(next.pages[0]?.sheet?.slots.map((s) => s.turns)).toEqual([0, 2])
+  })
+
   it('resets a page and copies one page’s transform to every page', () => {
     let state = docReducer(doc(3), {
       type: 'transformPage',
