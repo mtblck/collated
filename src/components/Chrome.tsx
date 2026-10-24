@@ -1,8 +1,8 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { Button, IconButton } from './controls'
 import { cx } from './cx'
 import { CameraIcon, CloseIcon, MoonIcon, SunIcon } from './Icons'
-import { DOCS_URL, FOOTER, SOURCE_URL, SUPPORT_URL } from './links'
+import { DOCS_URL, FOOTER, SOURCE_URL, SPONSORS_URL, SUPPORT_URL } from './links'
 import { savedWhen } from './format'
 import { useTheme } from './theme'
 
@@ -242,32 +242,13 @@ export const DropOverlay = ({ active }: { active: boolean }) =>
     </div>
   ) : null
 
-export interface Notice {
-  id: number
-  text: string
-}
-
 /**
- * Messages that need reading (failed imports, export problems). They stay
- * until dismissed — by button, or Escape (handled by the app) — and only the
- * latest is shown, with a count of the rest, so a burst of failures doesn't
- * stack up over the page on a phone. While one is up, the page reserves room
- * below its content and scrolls focused controls clear of it (WCAG 2.4.11).
+ * Keeps room below the page for a card fixed in the bottom corner, so the
+ * last row can scroll clear of it, and notes where focus came from before
+ * it entered the card. Runs again whenever `key` changes.
  */
-export const Notices = ({
-  items,
-  onDismiss,
-  onDismissAll,
-}: {
-  items: Notice[]
-  onDismiss: (id: number) => void
-  onDismissAll: () => void
-}) => {
-  const box = useRef<HTMLDivElement>(null)
+const useBottomCard = (box: RefObject<HTMLElement | null>, key: unknown) => {
   const returnTo = useRef<HTMLElement | null>(null)
-  const latest = items.at(-1)
-  const more = items.length - 1
-
   useEffect(() => {
     const el = box.current
     const root = document.documentElement
@@ -295,7 +276,35 @@ export const Notices = ({
       document.body.style.paddingBottom = ''
       root.style.removeProperty('--notice-room')
     }
-  }, [latest])
+  }, [box, key])
+  return returnTo
+}
+
+export interface Notice {
+  id: number
+  text: string
+}
+
+/**
+ * Messages that need reading (failed imports, export problems). They stay
+ * until dismissed — by button, or Escape (handled by the app) — and only the
+ * latest is shown, with a count of the rest, so a burst of failures doesn't
+ * stack up over the page on a phone. While one is up, the page reserves room
+ * below its content and scrolls focused controls clear of it (WCAG 2.4.11).
+ */
+export const Notices = ({
+  items,
+  onDismiss,
+  onDismissAll,
+}: {
+  items: Notice[]
+  onDismiss: (id: number) => void
+  onDismissAll: () => void
+}) => {
+  const box = useRef<HTMLDivElement>(null)
+  const latest = items.at(-1)
+  const more = items.length - 1
+  const returnTo = useBottomCard(box, latest)
 
   if (!latest) return null
   // Dismissing the last message removes the box; give focus back to where it
@@ -345,5 +354,98 @@ export const Notices = ({
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * A quiet word after a good export: what Collated is, and where to support
+ * it. Not an alert and it takes no focus; the status line has already said
+ * the file was saved. App decides when it shows (see supportPromptDue).
+ */
+export const SupportPrompt = ({
+  onDismiss,
+  onNever,
+  onSupport,
+}: {
+  /** Closed: it may come back in a month. */
+  onDismiss: () => void
+  /** Don't ask again. */
+  onNever: () => void
+  /** A support link was followed: no need to ask again either. */
+  onSupport: () => void
+}) => {
+  const box = useRef<HTMLElement>(null)
+  const returnTo = useBottomCard(box, true)
+  // Closing it removes the card; give focus back rather than dropping it.
+  const leave = (then: () => void) => {
+    if (box.current?.contains(document.activeElement)) {
+      const back = returnTo.current
+      if (back?.isConnected) back.focus()
+      else document.querySelector<HTMLElement>('[data-focus-fallback]')?.focus()
+    }
+    then()
+  }
+  const link =
+    'font-medium text-ink underline decoration-rule underline-offset-2 hover:decoration-ink'
+  return (
+    <section
+      ref={box}
+      aria-labelledby="support-title"
+      className="fixed right-4 bottom-4 z-40 w-[min(26rem,calc(100vw-2rem))] rounded-2xl bg-paper text-sm text-ink shadow-panel"
+    >
+      <div className="flex items-start gap-3 py-2 pr-2 pl-4">
+        <div className="flex flex-1 flex-col gap-1 pt-2">
+          <h2 id="support-title" className="font-medium">
+            Thanks for using Collated
+          </h2>
+          <p className="text-ink-muted">
+            Collated is free, with no ads or tracking. If it saved you some time, you can support it
+            on{' '}
+            <a
+              className={link}
+              href={SUPPORT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => {
+                leave(onSupport)
+              }}
+            >
+              Ko-fi<span className="sr-only"> (opens in a new tab)</span>
+            </a>{' '}
+            or{' '}
+            <a
+              className={link}
+              href={SPONSORS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => {
+                leave(onSupport)
+              }}
+            >
+              GitHub Sponsors<span className="sr-only"> (opens in a new tab)</span>
+            </a>
+            .
+          </p>
+        </div>
+        <IconButton
+          label="Close"
+          onClick={() => {
+            leave(onDismiss)
+          }}
+        >
+          <CloseIcon width={16} height={16} />
+        </IconButton>
+      </div>
+      <div className="flex justify-end border-t border-rule-soft py-1 pr-2 pl-4">
+        <Button
+          variant="quiet"
+          onClick={() => {
+            leave(onNever)
+          }}
+        >
+          Don’t ask again
+        </Button>
+      </div>
+    </section>
   )
 }

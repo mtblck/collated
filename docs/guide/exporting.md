@@ -57,3 +57,7 @@ Like the title, the watermark's text and the pages it's on aren't remembered for
 ## Password
 
 **Password to open** encrypts the PDF (AES-256); it opens only with the password. Once open, nothing is restricted. Not hidden: the file's name, which comes from the title, and how many pages it has. The password isn't saved anywhere: if you lose it, the file can't be opened. **Show** reveals what you've typed. Passwords can be up to 127 bytes (roughly 60–120 characters, depending on the alphabet).
+
+## After you export
+
+The file is saved wherever your browser saves downloads. Now and then, after an export that went as asked, a small note in the corner says Collated is free and links to Ko-fi and GitHub Sponsors, in case you'd like to support it. It shows at most once a month, never over an error, and never again once you choose **Don’t ask again** or follow one of its links. Every feature stays free either way.

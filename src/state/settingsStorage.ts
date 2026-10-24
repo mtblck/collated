@@ -144,3 +144,39 @@ export const saveKeepWork = (storage: Pick<Storage, 'setItem'> | undefined, keep
     /* storage blocked: the choice lasts until the tab closes */
   }
 }
+
+const SUPPORT_PROMPT_KEY = 'collated:support-prompt'
+
+/** The support note after an export comes back at most this often. */
+export const SUPPORT_PROMPT_EVERY = 30 * 24 * 60 * 60 * 1000
+
+/**
+ * Whether to show the support note after a good export: not if it was turned
+ * off, nor within a month of the last time. Only a date or `off` is kept,
+ * never anything about the export.
+ */
+export const supportPromptDue = (
+  storage: Pick<Storage, 'getItem'> | undefined,
+  now: number,
+): boolean => {
+  try {
+    const kept = storage?.getItem(SUPPORT_PROMPT_KEY)
+    if (kept === 'off') return false
+    const shown = Number(kept)
+    return !kept || !Number.isFinite(shown) || now - shown >= SUPPORT_PROMPT_EVERY
+  } catch {
+    return true
+  }
+}
+
+/** Notes when the support note was shown, or that it never should be again. */
+export const saveSupportPrompt = (
+  storage: Pick<Storage, 'setItem'> | undefined,
+  shown: number | 'off',
+) => {
+  try {
+    storage?.setItem(SUPPORT_PROMPT_KEY, String(shown))
+  } catch {
+    /* storage blocked: once a visit is the most it can come back */
+  }
+}

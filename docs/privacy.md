@@ -18,6 +18,7 @@ The files you add, the pages you arrange and the PDFs you export are processed o
 - **Your settings** (page setup, image dpi for Match image, export quality and size limit, the searchable-text choice and its language, the page-number and file-bookmark choices, and how a watermark looks) are saved in your browser's local storage under `collated:settings`, so they're there next time. Your title, your watermark's text and your password are never saved there.
 - **Your current document,** so you can pick up where you left off after a reload or a closed tab: the files you added (each stored once), their small previews, the page order and settings, the section names, the title, and the undo history. It's kept in your browser's IndexedDB (a database called `collated-work`) on this device only, and next time you open Collated it asks **Restore your last document?** The password is never stored. **Discard** on that question, **Start over**, or turning off **Keep work after a reload** (in the **More** menu) deletes it straight away; with that setting off (remembered as `collated:keep-work`) nothing about your document is stored. If a document is too large for the space your browser allows, Collated tells you and keeps nothing of it.
 - **Your light or dark theme choice** (`mb-theme`).
+- **When Collated last asked for support** (`collated:support-prompt`): the date it last showed the note after an export, or `off` once you choose **Don’t ask again** or follow one of its links. Nothing about the export itself.
 - **Collated itself,** so it opens and works without a connection: its code, fonts and help pages, and once you've used them the HEIC decoder and the text-recognition engine, are kept in your browser's Cache Storage. They contain nothing about your documents. Files you share to Collated from another app wait there too, for the moment it takes the app to open, and are then deleted.
 - **Text-recognition data:** if you use searchable text, the recognition data for each language you've used (1–8 MB once unpacked) is cached in your browser's IndexedDB so it doesn't download again; so is the orientation data (about 11 MB unpacked) if you use **Auto-rotate pages**. Neither contains anything about your documents.
 
@@ -29,7 +30,7 @@ Collated is a set of static files served by Vercel, at collatedpdf.com. Like any
 
 ## Links out
 
-**Support Collated** goes to Ko-fi and **Source code** to GitHub. Those sites have their own privacy policies and only see you if you follow the link.
+**Support Collated** goes to Ko-fi, **GitHub Sponsors** to GitHub Sponsors and **Source code** to GitHub. Those sites have their own privacy policies and only see you if you follow the link.
 
 ## Contact
 

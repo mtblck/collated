@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { defaultSettings, loadSettings, saveSettings } from './settingsStorage'
+import {
+  SUPPORT_PROMPT_EVERY,
+  defaultSettings,
+  loadSettings,
+  saveSettings,
+  saveSupportPrompt,
+  supportPromptDue,
+} from './settingsStorage'
 
 const memory = () => {
   const data = new Map<string, string>()
@@ -136,6 +143,39 @@ describe('settings storage', () => {
     expect(loadSettings(throwing, 'en-US').size).toBe('letter')
     expect(() => {
       saveSettings(throwing, defaultSettings('en-US'))
+    }).not.toThrow()
+  })
+})
+
+describe('support note', () => {
+  it('is due the first time, then not for a month, and never once turned off', () => {
+    const storage = memory()
+    const day = 24 * 60 * 60 * 1000
+    expect(supportPromptDue(storage, 0)).toBe(true)
+    saveSupportPrompt(storage, 1_000)
+    expect(storage.getItem('collated:support-prompt')).toBe('1000')
+    expect(supportPromptDue(storage, 1_000 + 29 * day)).toBe(false)
+    expect(supportPromptDue(storage, 1_000 + SUPPORT_PROMPT_EVERY)).toBe(true)
+    saveSupportPrompt(storage, 'off')
+    expect(supportPromptDue(storage, 1_000 + 365 * day)).toBe(false)
+  })
+
+  it('is due when the kept value is unreadable, and copes without storage', () => {
+    const storage = memory()
+    storage.setItem('collated:support-prompt', 'soon')
+    expect(supportPromptDue(storage, 0)).toBe(true)
+    expect(supportPromptDue(undefined, 0)).toBe(true)
+    const blocked = {
+      getItem: () => {
+        throw new Error('blocked')
+      },
+      setItem: () => {
+        throw new Error('blocked')
+      },
+    }
+    expect(supportPromptDue(blocked, 0)).toBe(true)
+    expect(() => {
+      saveSupportPrompt(blocked, 0)
     }).not.toThrow()
   })
 })

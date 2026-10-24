@@ -32,7 +32,15 @@ import { describeChange } from './core/describeChange'
 import { duplexGroups } from './core/order'
 import { DocumentBar, type ExportState } from './components/DocumentBar'
 import type { Arrange } from './components/MoreMenu'
-import { DropOverlay, EmptyState, Footer, Header, Notices, type Notice } from './components/Chrome'
+import {
+  DropOverlay,
+  EmptyState,
+  Footer,
+  Header,
+  Notices,
+  SupportPrompt,
+  type Notice,
+} from './components/Chrome'
 import { Inspector, type InspectorActions } from './components/Inspector'
 import { PageGrid } from './components/PageGrid'
 import { GroupInspector, type GroupActions } from './components/GroupInspector'
@@ -57,7 +65,14 @@ import { STALE_BUILD_MESSAGE, isStaleBuild } from './lib/staleBuild'
 import { listenForIncoming, type Incoming } from './lib/incoming'
 import { assetStore } from './import/assetStore'
 import { ImportError, importFile, type Imported } from './import/importFile'
-import { loadKeepWork, loadSettings, saveKeepWork, saveSettings } from './state/settingsStorage'
+import {
+  loadKeepWork,
+  loadSettings,
+  saveKeepWork,
+  saveSettings,
+  saveSupportPrompt,
+  supportPromptDue,
+} from './state/settingsStorage'
 import { deviceWorkStore, type SavedSummary, type WorkStore } from './state/workStore'
 import { useDocument } from './state/useDocument'
 import type { DocState } from './core/model'
@@ -113,6 +128,8 @@ export interface AppDeps {
   work: WorkStore
   /** Files shared to Collated or opened with it (#73); returns the unsubscribe. */
   incoming: (fn: (incoming: Incoming) => void) => () => void
+  /** The time, for when the support note last showed. */
+  now: () => number
 }
 
 const safeStorage = (): AppDeps['storage'] => {
@@ -138,6 +155,7 @@ const defaultDeps = (): AppDeps => ({
   locale: navigator.language,
   prepareExport,
   work: deviceWorkStore(),
+  now: () => Date.now(),
   incoming: listenForIncoming,
 })
 
@@ -234,6 +252,14 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     setStatus((current) => (current === text ? `${text}\u00a0` : text))
   }, [])
   const [notices, setNotices] = useState<Notice[]>([])
+  /** The support note after an export; once a visit at most, and see supportPromptDue. */
+  const [supportNote, setSupportNote] = useState(false)
+  const supportAsked = useRef(false)
+  // Read when an export ends: a notice still up there means no support note.
+  const noticesUp = useRef(0)
+  useEffect(() => {
+    noticesUp.current = notices.length
+  }, [notices])
   const [keepWork, setKeepWork] = useState(() => loadKeepWork(deps.storage))
   /**
    * Last visit's document, offered until it's restored or discarded; `pending`
@@ -325,6 +351,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     noticeId.current += 1
     const id = noticeId.current
     setNotices((list) => [...list.slice(-3), { id, text }])
+    // A problem outranks asking for support.
+    setSupportNote(false)
   }, [])
 
   // Is there a document from last time to offer?
@@ -518,6 +546,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
 
   const dismissLatest = useCallback(() => {
     setNotices((list) => list.slice(0, -1))
+    setSupportNote(false)
   }, [])
 
   const announceSelection = useCallback(
@@ -668,6 +697,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       : { ...doc, pages: exportPages }
     setExporting({ busy: true, done: 0, total })
     setStatus('Building PDF…')
+    setSupportNote(false)
     try {
       // OCR first, page by page, so progress is visible. Vector PDF pages
       // are skipped (their text is real); one that hides a layer is
@@ -746,6 +776,15 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             ? `Couldn’t get every file under ${formatBytes(settings.maxBytes)}, even at ${used}. They were saved anyway.`
             : `Couldn’t get under ${formatBytes(settings.maxBytes)}: the smallest version is ${size} at ${used}. It was saved anyway.`,
         )
+      } else if (
+        !supportAsked.current &&
+        noticesUp.current === 0 &&
+        supportPromptDue(deps.storage, deps.now())
+      ) {
+        // Only after an export that went as asked, and never with a problem showing.
+        supportAsked.current = true
+        saveSupportPrompt(deps.storage, deps.now())
+        setSupportNote(true)
       }
     } catch (error) {
       notify(
@@ -1293,6 +1332,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     setSplit(DEFAULT_SPLIT)
     setLastExport(null)
     setNotices([])
+    setSupportNote(false)
     requestFocus(null, true)
     announce(
       `Started over: removed ${plural(count, 'page')} and the undo history. Add files to begin again.`,
@@ -1653,6 +1693,21 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         />
       )}
       <DropOverlay active={dragging} />
+      {supportNote && notices.length === 0 && (
+        <SupportPrompt
+          onDismiss={() => {
+            setSupportNote(false)
+          }}
+          onNever={() => {
+            saveSupportPrompt(deps.storage, 'off')
+            setSupportNote(false)
+          }}
+          onSupport={() => {
+            saveSupportPrompt(deps.storage, 'off')
+            setSupportNote(false)
+          }}
+        />
+      )}
       <Notices
         items={notices}
         onDismiss={(id) => {

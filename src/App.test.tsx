@@ -1933,6 +1933,113 @@ describe('App', () => {
     })
   })
 
+  describe('support note after an export', () => {
+    const note = () => screen.queryByRole('region', { name: 'Thanks for using Collated' })
+
+    it('asks once, quietly, with links to Ko-fi and GitHub Sponsors', async () => {
+      const { user, store, upload } = setup({ now: () => 5_000 })
+      await upload('a.jpg')
+      await user.click(await findExportMenu())
+      await user.click(exportButton())
+      const region = await screen.findByRole('region', { name: 'Thanks for using Collated' })
+      // Not an alert, and it leaves focus where it was.
+      expect(within(region).queryByRole('alert')).not.toBeInTheDocument()
+      expect(region).not.toContainElement(document.activeElement as HTMLElement)
+      expect(within(region).getByRole('link', { name: /Ko-fi/ })).toHaveAttribute(
+        'href',
+        'https://ko-fi.com/mtblck',
+      )
+      const sponsors = within(region).getByRole('link', { name: /GitHub Sponsors/ })
+      expect(sponsors).toHaveAttribute('href', 'https://github.com/sponsors/mtblck')
+      expect(sponsors).toHaveAttribute('rel', 'noopener noreferrer')
+      expect(store.get('collated:support-prompt')).toBe('5000')
+      await user.click(within(region).getByRole('button', { name: 'Close' }))
+      expect(note()).not.toBeInTheDocument()
+      // Not again this visit.
+      await user.click(exportButton())
+      await waitFor(() => {
+        expect(status()).toHaveTextContent('Saved')
+      })
+      expect(note()).not.toBeInTheDocument()
+    })
+
+    it('waits a month after it was last shown, and never after Don’t ask again', async () => {
+      const { user, store, upload } = setup({ now: () => 10_000 })
+      store.set('collated:support-prompt', '9000')
+      await upload('a.jpg')
+      await user.click(await findExportMenu())
+      await user.click(exportButton())
+      await waitFor(() => {
+        expect(status()).toHaveTextContent('Saved')
+      })
+      expect(note()).not.toBeInTheDocument()
+      cleanup()
+
+      const later = setup({ now: () => 9_000 + 31 * 24 * 60 * 60 * 1000 })
+      later.store.set('collated:support-prompt', '9000')
+      await later.upload('a.jpg')
+      await later.user.click(await findExportMenu())
+      await later.user.click(exportButton())
+      const region = await screen.findByRole('region', { name: 'Thanks for using Collated' })
+      await later.user.click(within(region).getByRole('button', { name: 'Don’t ask again' }))
+      expect(note()).not.toBeInTheDocument()
+      expect(later.store.get('collated:support-prompt')).toBe('off')
+    })
+
+    it('stays away when the export comes with a problem', async () => {
+      const { user, upload } = setup({
+        exportPdf: () =>
+          Promise.resolve({
+            blob: new Blob([new Uint8Array(3 * 1024 * 1024)]),
+            compression: { dpi: 96, quality: 0.6 },
+            fits: false,
+          }),
+      })
+      await upload('a.jpg')
+      await user.click(await findExportMenu())
+      await user.type(screen.getByLabelText(/^Keep the file under/), '1{Enter}')
+      await user.click(exportButton())
+      await screen.findByRole('alert')
+      expect(note()).not.toBeInTheDocument()
+    })
+
+    it('isn’t used up while an earlier notice is still showing', async () => {
+      const { user, store, upload } = setup()
+      await upload('a.jpg', 'notes.txt')
+      await screen.findByRole('alert')
+      await user.click(await findExportMenu())
+      await user.click(exportButton())
+      await waitFor(() => {
+        expect(status()).toHaveTextContent('Saved')
+      })
+      expect(note()).not.toBeInTheDocument()
+      expect(store.get('collated:support-prompt')).toBeUndefined()
+      await user.click(screen.getByRole('button', { name: 'Dismiss' }))
+      expect(note()).not.toBeInTheDocument()
+    })
+
+    it('goes for good once a support link is followed, and Escape closes it', async () => {
+      const { user, store, upload } = setup()
+      await upload('a.jpg')
+      await user.click(await findExportMenu())
+      await user.click(exportButton())
+      let region = await screen.findByRole('region', { name: 'Thanks for using Collated' })
+      fireEvent.click(within(region).getByRole('link', { name: /Ko-fi/ }))
+      expect(note()).not.toBeInTheDocument()
+      expect(store.get('collated:support-prompt')).toBe('off')
+      cleanup()
+
+      const again = setup()
+      await again.upload('a.jpg')
+      await again.user.click(await findExportMenu())
+      await again.user.click(exportButton())
+      region = await screen.findByRole('region', { name: 'Thanks for using Collated' })
+      screen.getByRole('button', { name: /^Export · / }).focus()
+      await again.user.keyboard('{Escape}')
+      expect(note()).not.toBeInTheDocument()
+    })
+  })
+
   describe('notices', () => {
     it('shows the latest with a count of the rest, and Escape dismisses it', async () => {
       const { user, upload } = setup()

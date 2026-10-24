@@ -6,6 +6,8 @@ export const SOURCE_URL = 'https://github.com/mtblck/collated'
 export const ISSUES_URL = 'https://github.com/mtblck/collated/issues'
 /** Ko-fi page for donations (#36). */
 export const SUPPORT_URL = 'https://ko-fi.com/mtblck'
+/** GitHub Sponsors, for monthly support; also in .github/FUNDING.yml. */
+export const SPONSORS_URL = 'https://github.com/sponsors/mtblck'
 
 export const APP_URL = BASE
 export const DOCS_URL = `${BASE}docs/`

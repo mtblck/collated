@@ -3303,6 +3303,49 @@ await context.close()
   await ctx.close()
 }
 
+// 34. Support note (#99): one quiet note after a good export, with plain
+// links out (nothing loads from Ko-fi or GitHub), and gone for good on
+// Don't ask again.
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-portrait.jpg')])
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  await Promise.all([p.waitForEvent('download'), exportNow(p)])
+  const note = p.getByRole('region', { name: 'Thanks for using Collated' })
+  await note.waitFor()
+  check(
+    (await note.getByRole('link', { name: /Ko-fi/ }).getAttribute('href')) ===
+      'https://ko-fi.com/mtblck' &&
+      (await note.getByRole('link', { name: /GitHub Sponsors/ }).getAttribute('href')) ===
+        'https://github.com/sponsors/mtblck',
+    'the support note links to Ko-fi and GitHub Sponsors',
+  )
+  check(
+    !(await note.evaluate((el) => el.contains(document.activeElement))),
+    'the support note takes no focus',
+  )
+  await axe(p, 'support note')
+  await p.screenshot({ path: join(shots, 'support-note.png') })
+  await note.getByRole('button', { name: 'Don’t ask again' }).click()
+  await note.waitFor({ state: 'hidden' })
+  check(
+    (await p.evaluate(() => localStorage.getItem('collated:support-prompt'))) === 'off',
+    'Don’t ask again is remembered',
+  )
+  // A new visit, which would be due again but for Don't ask again.
+  await p.reload({ waitUntil: 'networkidle' })
+  const offer = p.getByRole('region', { name: 'Restore your last document?' })
+  await offer.waitFor()
+  await offer.getByRole('button', { name: 'Discard' }).click()
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-portrait.jpg')])
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  await Promise.all([p.waitForEvent('download'), exportNow(p)])
+  await p.waitForTimeout(500)
+  check((await note.count()) === 0, 'no support note after Don’t ask again')
+  await ctx.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()
