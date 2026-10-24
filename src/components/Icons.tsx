@@ -164,3 +164,9 @@ export const PageIcon = (p: P) => (
     <path d="M12 2.5V6h3.5" />
   </Icon>
 )
+
+export const CheckIcon = (p: P) => (
+  <Icon {...p} strokeWidth="2">
+    <path d="M5 10.5l3.2 3L15 6.5" />
+  </Icon>
+)

@@ -1993,6 +1993,136 @@ await context.close()
   await ctx.close()
 }
 
+// 22. Several pages at once (#65): range, toggle, all; bulk rotate and remove
+//     as one undo step each; dragging or keyboard-moving one moves them all.
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1440, height: 1000 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  const files = ['quad-landscape.jpg', 'quad-portrait.jpg', 'quad-exif6.jpg', 'doc-photo.jpg']
+  await p.setInputFiles(
+    '[data-testid="file-input"]',
+    files.map((f) => join(fixtures, f)),
+  )
+  await p.waitForSelector('ol[aria-label="4 pages"]')
+  const card = (n) => p.locator(`ol[aria-label] > li:nth-child(${n}) [data-page-select]`)
+  const selectedCards = () =>
+    p.$$eval('ol[aria-label] > li [data-page-select]', (els) =>
+      els.flatMap((el, i) => (el.getAttribute('aria-current') === 'true' ? [i + 1] : [])),
+    )
+  const says = () => p.locator('#status').textContent()
+  const rail = p.locator('aside[aria-label="Selected page"]')
+
+  await card(2).click()
+  await card(4).click({ modifiers: ['Shift'] })
+  check(
+    JSON.stringify(await selectedCards()) === '[2,3,4]',
+    'Shift-click selects a range',
+    JSON.stringify(await selectedCards()),
+  )
+  check((await says()) === '3 pages selected.', 'the range is announced', (await says()) ?? '')
+  await card(3).click({ modifiers: ['ControlOrMeta'] })
+  check(
+    JSON.stringify(await selectedCards()) === '[2,4]',
+    'Ctrl/⌘-click takes one page out',
+    JSON.stringify(await selectedCards()),
+  )
+  // From the keyboard: Ctrl+Enter on a page adds it, like Ctrl-click.
+  await card(1).focus()
+  await p.keyboard.press('ControlOrMeta+Enter')
+  check(
+    JSON.stringify(await selectedCards()) === '[1,2,4]',
+    'Ctrl+Enter on a page adds it to the selection',
+    JSON.stringify(await selectedCards()),
+  )
+  await p.keyboard.press('Escape')
+  check((await selectedCards()).length === 1, 'Escape clears the selection to one page')
+  await p.keyboard.press('ControlOrMeta+a')
+  check((await selectedCards()).length === 4, '⌘A / Ctrl+A selects every page')
+  check((await says()) === 'All 4 pages selected.', 'select all is announced')
+  await rail.screenshot({ path: join(shots, 'group-inspector.png') })
+  await axe(p, 'several pages selected')
+
+  // Bulk rotate pages 1 and 3, then remove them; one undo step each.
+  await card(1).click()
+  await card(3).click({ modifiers: ['ControlOrMeta'] })
+  const turned = async () =>
+    p.$$eval('ol[aria-label] > li [data-page-select] img', (imgs) =>
+      imgs.map((img) => getComputedStyle(img).transform),
+    )
+  const before = await turned()
+  await rail.getByRole('button', { name: 'Right', exact: true }).click()
+  const after = await turned()
+  check(
+    after[0] !== before[0] && after[2] !== before[2] && after[1] === before[1],
+    'bulk rotate turns the selected pages only',
+    JSON.stringify(after),
+  )
+  await rail.getByRole('button', { name: 'Remove', exact: true }).click()
+  await p.waitForSelector('ol[aria-label="2 pages"]')
+  check(
+    JSON.stringify(await pageNames(p)) === JSON.stringify([files[1], files[3]]),
+    'bulk remove takes out the selected pages',
+    (await pageNames(p)).join(', '),
+  )
+  await p.keyboard.press('ControlOrMeta+z')
+  await p.waitForSelector('ol[aria-label="4 pages"]')
+  check(
+    JSON.stringify(await turned()) === JSON.stringify(after),
+    'one undo brings both pages back, still turned',
+  )
+  await p.keyboard.press('ControlOrMeta+z')
+  check(
+    JSON.stringify(await turned()) === JSON.stringify(before),
+    'a second undo unturns both pages',
+  )
+
+  // Drag page 1 of a selection {1, 2} past page 4: both go to the end.
+  await card(1).click()
+  await card(2).click({ modifiers: ['Shift'] })
+  const handle = (n) => p.getByRole('button', { name: `Reorder page ${n}` })
+  await card(1).hover()
+  const from = await handle(1).boundingBox()
+  const to = await card(4).boundingBox()
+  if (from && to) {
+    await p.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+    await p.mouse.down()
+    await p.mouse.move(from.x + 30, from.y + 10, { steps: 5 })
+    await p.mouse.move(to.x + to.width * 0.75, to.y + to.height / 2, { steps: 20 })
+    await p.waitForTimeout(300)
+    await p.mouse.up()
+    await p.waitForTimeout(500)
+  }
+  check(
+    JSON.stringify(await pageNames(p)) === JSON.stringify([files[2], files[3], files[0], files[1]]),
+    'dragging one selected page moves the whole selection',
+    (await pageNames(p)).join(', '),
+  )
+  check(
+    JSON.stringify(await selectedCards()) === '[3,4]',
+    'the selection moves with them',
+    JSON.stringify(await selectedCards()),
+  )
+  // Keyboard reorder of the group: pick up page 3, one place left, drop.
+  await handle(3).focus()
+  await p.keyboard.press('Space')
+  await p.waitForTimeout(150)
+  await p.keyboard.press('ArrowLeft')
+  await p.waitForTimeout(400)
+  await p.keyboard.press('Space')
+  await p.waitForTimeout(500)
+  check(
+    JSON.stringify(await pageNames(p)) === JSON.stringify([files[2], files[0], files[1], files[3]]),
+    'keyboard reorder moves the whole selection',
+    (await pageNames(p)).join(', '),
+  )
+  check(
+    (await selectedCards()).length === 2,
+    'Escape-free drop leaves the selection in place',
+    JSON.stringify(await selectedCards()),
+  )
+  await ctx.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()

@@ -10,6 +10,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Select several pages at once (#65): Shift-click for a range, ⌘/Ctrl-click for one more, ⌘A / Ctrl+A for all, or **Select** on a phone. Rotate, straighten, scale, filter, move, duplicate or remove them together, each as one undo step, and drag any of them to move them all.
+
 ### Changed
 
 - A new look, the light table: pages lie on a softly lit dark ground (or a pale one in the light theme), the toolbar and the selected page's settings float above them, and the landing page matches. New type (Geist) and an amber accent.

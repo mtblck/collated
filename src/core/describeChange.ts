@@ -2,6 +2,22 @@ import type { DocState } from './model'
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
+/** Length of the longest increasing subsequence (patience sorting). */
+const longestKeptOrder = (positions: number[]): number => {
+  const tails: number[] = []
+  for (const x of positions) {
+    let lo = 0
+    let hi = tails.length
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if ((tails[mid] ?? 0) < x) lo = mid + 1
+      else hi = mid
+    }
+    tails[lo] = x
+  }
+  return tails.length
+}
+
 /**
  * A short, lower-case description of what changed from `before` to `after`,
  * for announcing undo and redo ("Undone: removed page 2."). Worked out from
@@ -29,6 +45,10 @@ export const describeChange = (before: DocState, after: DocState): string | null
   if (added.length > 0) return 'changed the pages'
 
   if (was.some((p, i) => now[i]?.id !== p.id)) {
+    // Several pages moved together (#65): the fewest that could have moved
+    // are the ones outside the longest run still in their old order.
+    const moves = was.length - longestKeptOrder(was.map((p) => now.findIndex((q) => q.id === p.id)))
+    if (moves > 1) return `moved ${plural(moves, 'page')}`
     // One page moved: the page whose position changed the most.
     let moved = { id: '', from: 0, to: 0, distance: -1 }
     for (const [from, p] of was.entries()) {
