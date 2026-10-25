@@ -3346,6 +3346,66 @@ await context.close()
   await ctx.close()
 }
 
+// 35. The wordmark goes home: the landing view, offering the document back
+// even straight after a change; asks first when the document isn't kept.
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1280, height: 900 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [
+    join(fixtures, 'quad-landscape.jpg'),
+    join(fixtures, 'quad-portrait.jpg'),
+  ])
+  await p.waitForSelector('ol[aria-label="2 pages"]')
+  await p.waitForTimeout(1000)
+  const home = p.getByRole('link', { name: 'Collated home' })
+  check((await home.getAttribute('href')) === '/', 'the wordmark links to the home page')
+  // No wait after this change: the click saves it before leaving.
+  await p.getByRole('button', { name: 'Remove page 1' }).click()
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  await Promise.all([p.waitForNavigation({ waitUntil: 'networkidle' }), home.click()])
+  const offer = p.getByRole('region', { name: 'Restore your last document?' })
+  await offer.waitFor()
+  check(
+    /^Restore your last document\?1 page,/.test((await offer.textContent()) ?? ''),
+    'the wordmark leads to the landing view, which offers the document back with the last change',
+    (await offer.textContent()) ?? '',
+  )
+  await offer.getByRole('button', { name: 'Restore' }).click()
+  await p.waitForSelector('ol[aria-label="1 page"]')
+
+  // Keep work off: it asks, and Stay stays.
+  await p.getByRole('button', { name: 'More' }).click()
+  await p
+    .getByRole('dialog', { name: 'More' })
+    .getByRole('switch', { name: 'Keep work after a reload' })
+    .click()
+  await p.keyboard.press('Escape')
+  await home.click()
+  const leave = p.getByRole('dialog', { name: 'Leave this document?' })
+  await leave.waitFor()
+  check(
+    await leave.getByRole('button', { name: 'Stay' }).evaluate((b) => b === document.activeElement),
+    'the leave confirmation opens on Stay',
+  )
+  await axe(p, 'leave confirmation')
+  await p.screenshot({ path: join(shots, 'leave-confirm.png') })
+  await leave.getByRole('button', { name: 'Stay' }).click()
+  check((await p.locator('ol[aria-label="1 page"]').count()) === 1, 'Stay keeps the document')
+  await Promise.all([
+    p.waitForNavigation({ waitUntil: 'networkidle' }),
+    (async () => {
+      await home.click()
+      await leave.getByRole('button', { name: 'Leave' }).click()
+    })(),
+  ])
+  check(
+    (await p.getByRole('region', { name: 'Restore your last document?' }).count()) === 0 &&
+      (await p.getByRole('navigation', { name: 'About Collated' }).count()) === 1,
+    'Leave goes to the landing view, with nothing kept to offer',
+  )
+  await ctx.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()

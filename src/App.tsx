@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import type { Asset, QuarterTurns, Settings, SheetKind, Slot } from './core/model'
 import {
   SHEET_CAPACITY,
@@ -37,6 +38,7 @@ import {
   EmptyState,
   Footer,
   Header,
+  LeaveConfirm,
   Notices,
   SupportPrompt,
   type Notice,
@@ -47,6 +49,7 @@ import { GroupInspector, type GroupActions } from './components/GroupInspector'
 import { SelectionBar } from './components/SelectionBar'
 import { BlankPagesBar } from './components/BlankPagesBar'
 import { ShareConfirm } from './components/ShareConfirm'
+import { APP_URL } from './components/links'
 import { SheetInspector, type SheetActions } from './components/SheetInspector'
 import { BlankInspector, type BlankActions } from './components/BlankInspector'
 import {
@@ -130,6 +133,8 @@ export interface AppDeps {
   incoming: (fn: (incoming: Incoming) => void) => () => void
   /** The time, for when the support note last showed. */
   now: () => number
+  /** Goes to another page of the site, as following a link would. */
+  leave: (href: string) => void
 }
 
 const safeStorage = (): AppDeps['storage'] => {
@@ -157,6 +162,9 @@ const defaultDeps = (): AppDeps => ({
   work: deviceWorkStore(),
   now: () => Date.now(),
   incoming: listenForIncoming,
+  leave: (href) => {
+    window.location.assign(href)
+  },
 })
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
@@ -1416,6 +1424,57 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     [announce, deps.storage, deps.work],
   )
 
+  // The wordmark goes back to the landing view by loading it afresh, which
+  // then offers this document back (#74). It's saved first, not 400 ms from
+  // now; when it can't all come back, the person is asked.
+  const leaveDialog = useRef<HTMLDialogElement>(null)
+  const [leaveWhy, setLeaveWhy] = useState('')
+  const leaving = useRef(false)
+  const leave = useCallback(async () => {
+    if (leaving.current) return
+    leaving.current = true
+    if (saving && !tooBig.current) await deps.work.save(history, keptSelection)
+    deps.leave(APP_URL)
+  }, [deps, history, keptSelection, saving])
+  const onHome = useCallback(async () => {
+    if (leaving.current) return
+    const busy = importing !== null || exporting.busy
+    if (saving && !tooBig.current && !busy) {
+      const result = await deps.work.save(history, keptSelection)
+      if (result === 'saved') {
+        void leave()
+        return
+      }
+      if (result === 'too-big') tooBig.current = true
+    }
+    const kept = saving && !tooBig.current
+    const why = [
+      exporting.busy && 'The export under way will stop.',
+      importing && 'Files still being read won’t be added.',
+      pages.length > 0 &&
+        (!keepWork
+          ? `Keep work after a reload is off, so ${plural(pages.length, 'page')} won’t be here when you come back.`
+          : kept && busy
+            ? 'The pages so far are kept on this device.'
+            : 'This document couldn’t be kept on this device, so it won’t be here when you come back.'),
+    ]
+    // Described before it opens, so the reason is read out with it.
+    flushSync(() => {
+      setLeaveWhy(why.filter(Boolean).join(' '))
+    })
+    leaveDialog.current?.showModal()
+  }, [
+    deps,
+    exporting.busy,
+    history,
+    importing,
+    keepWork,
+    keptSelection,
+    leave,
+    pages.length,
+    saving,
+  ])
+
   // With several pages selected, page order works on those alone.
   const orderScope = useMemo(() => (group ? selection.ids : undefined), [group, selection.ids])
   const duplex = useMemo(() => duplexGroups(doc, orderScope), [doc, orderScope])
@@ -1460,7 +1519,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       >
         Skip to content
       </a>
-      <Header>
+      <Header {...(workspace && { onHome: () => void onHome() })}>
         {workspace ? (
           <DocumentBar
             settings={settings}
@@ -1505,6 +1564,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           />
         ) : undefined}
       </Header>
+      <LeaveConfirm dialog={leaveDialog} why={leaveWhy} onLeave={() => void leave()} />
       <main id="main" className="flex min-h-0 flex-1 flex-col">
         {!workspace ? (
           <div className="scroll-pane lg:overflow-y-auto">
