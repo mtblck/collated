@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react'
 import { Button, IconButton } from './controls'
 import { cx } from './cx'
 import { CameraIcon, CloseIcon, MoonIcon, SunIcon } from './Icons'
@@ -43,7 +43,9 @@ export const Header = ({ children, onHome }: { children?: ReactNode; onHome?: ()
   <header className="relative z-20 shrink-0">
     {children !== undefined ? (
       <div className="mx-auto flex min-h-16 max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:grid sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:px-6">
-        {/* While working on a phone the toolbar needs the room. */}
+        {/* While working on a phone the toolbar needs the room: there the
+            name is only for screen readers, and isn't a link. */}
+        <span className="sr-only sm:hidden">Collated</span>
         <a
           href={APP_URL}
           aria-label="Collated home"
@@ -95,41 +97,44 @@ export const LeaveConfirm = ({
   dialog: RefObject<HTMLDialogElement | null>
   why: string
   onLeave: () => void
-}) => (
-  <dialog
-    ref={dialog}
-    aria-labelledby="leave-title"
-    aria-describedby="leave-help"
-    className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-2xl bg-paper p-0 text-ink shadow-panel backdrop:bg-black/50"
-  >
-    <div className="flex flex-col gap-4 p-5 sm:p-6">
-      <h2 id="leave-title" className="text-lg font-semibold tracking-tight">
-        Leave this document?
-      </h2>
-      <p id="leave-help" className="text-sm text-ink-muted">
-        {why}
-      </p>
-      <div className="flex justify-end gap-2">
-        <Button
-          onClick={() => {
-            dialog.current?.close()
-          }}
-        >
-          Stay
-        </Button>
-        <Button
-          variant="primary"
-          onClick={() => {
-            dialog.current?.close()
-            onLeave()
-          }}
-        >
-          Leave
-        </Button>
+}) => {
+  const id = useId()
+  return (
+    <dialog
+      ref={dialog}
+      aria-labelledby={`${id}-title`}
+      aria-describedby={`${id}-help`}
+      className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-2xl bg-paper p-0 text-ink shadow-panel backdrop:bg-black/50"
+    >
+      <div className="flex flex-col gap-4 p-5 sm:p-6">
+        <h2 id={`${id}-title`} className="text-lg font-semibold tracking-tight">
+          Leave this document?
+        </h2>
+        <p id={`${id}-help`} className="text-sm text-ink-muted">
+          {why}
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button
+            onClick={() => {
+              dialog.current?.close()
+            }}
+          >
+            Stay
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => {
+              dialog.current?.close()
+              onLeave()
+            }}
+          >
+            Leave
+          </Button>
+        </div>
       </div>
-    </div>
-  </dialog>
-)
+    </dialog>
+  )
+}
 
 /** A page lying on the table, drawn in CSS: lines of text and a margin. */
 const Sheet = ({ className, lines = 11 }: { className: string; lines?: number }) => (

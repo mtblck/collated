@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import type { Asset, QuarterTurns, Settings, SheetKind, Slot } from './core/model'
 import {
   SHEET_CAPACITY,
@@ -1428,29 +1429,51 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   // now; when it can't all come back, the person is asked.
   const leaveDialog = useRef<HTMLDialogElement>(null)
   const [leaveWhy, setLeaveWhy] = useState('')
+  const leaving = useRef(false)
   const leave = useCallback(async () => {
+    if (leaving.current) return
+    leaving.current = true
     if (saving && !tooBig.current) await deps.work.save(history, keptSelection)
     deps.leave(APP_URL)
   }, [deps, history, keptSelection, saving])
   const onHome = useCallback(async () => {
+    if (leaving.current) return
     const busy = importing !== null || exporting.busy
-    const kept = saving && !tooBig.current
-    if (kept && !busy && (await deps.work.save(history, keptSelection)) === 'saved') {
-      deps.leave(APP_URL)
-      return
+    if (saving && !tooBig.current && !busy) {
+      const result = await deps.work.save(history, keptSelection)
+      if (result === 'saved') {
+        void leave()
+        return
+      }
+      if (result === 'too-big') tooBig.current = true
     }
+    const kept = saving && !tooBig.current
     const why = [
       exporting.busy && 'The export under way will stop.',
       importing && 'Files still being read won’t be added.',
-      !keepWork
-        ? `Keep work after a reload is off, so ${plural(pages.length, 'page')} won’t be here when you come back.`
-        : !busy || tooBig.current
-          ? 'This document couldn’t be kept on this device, so it won’t be here when you come back.'
-          : 'The pages so far are kept on this device.',
+      pages.length > 0 &&
+        (!keepWork
+          ? `Keep work after a reload is off, so ${plural(pages.length, 'page')} won’t be here when you come back.`
+          : kept && busy
+            ? 'The pages so far are kept on this device.'
+            : 'This document couldn’t be kept on this device, so it won’t be here when you come back.'),
     ]
-    setLeaveWhy(why.filter(Boolean).join(' '))
+    // Described before it opens, so the reason is read out with it.
+    flushSync(() => {
+      setLeaveWhy(why.filter(Boolean).join(' '))
+    })
     leaveDialog.current?.showModal()
-  }, [deps, exporting.busy, history, importing, keepWork, keptSelection, pages.length, saving])
+  }, [
+    deps,
+    exporting.busy,
+    history,
+    importing,
+    keepWork,
+    keptSelection,
+    leave,
+    pages.length,
+    saving,
+  ])
 
   // With several pages selected, page order works on those alone.
   const orderScope = useMemo(() => (group ? selection.ids : undefined), [group, selection.ids])
