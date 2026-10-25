@@ -2,7 +2,7 @@ import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { Button, IconButton } from './controls'
 import { cx } from './cx'
 import { CameraIcon, CloseIcon, MoonIcon, SunIcon } from './Icons'
-import { DOCS_URL, FOOTER, SOURCE_URL, SPONSORS_URL, SUPPORT_URL } from './links'
+import { APP_URL, DOCS_URL, FOOTER, SOURCE_URL, SPONSORS_URL, SUPPORT_URL } from './links'
 import { savedWhen } from './format'
 import { useTheme } from './theme'
 
@@ -34,16 +34,30 @@ const TrustNote = ({ className }: { className?: string }) => (
 
 /**
  * One row over the table, no bar of its own. In the workspace: the
- * wordmark, the toolbar (`children`) as a floating pill in the middle, and
+ * wordmark, a link back to the landing view (`onHome` decides how to
+ * leave), the toolbar (`children`) as a floating pill in the middle, and
  * the privacy note; on the landing view, the note and links. It never
  * scrolls away: on a wide screen the panes below scroll instead (see App).
  */
-export const Header = ({ children }: { children?: ReactNode }) => (
+export const Header = ({ children, onHome }: { children?: ReactNode; onHome?: () => void }) => (
   <header className="relative z-20 shrink-0">
     {children !== undefined ? (
       <div className="mx-auto flex min-h-16 max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:grid sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:px-6">
         {/* While working on a phone the toolbar needs the room. */}
-        <span className={cx(WORDMARK, 'max-sm:sr-only')}>Collated</span>
+        <a
+          href={APP_URL}
+          aria-label="Collated home"
+          className={cx(WORDMARK, 'justify-self-start rounded-sm max-sm:hidden')}
+          onClick={(event) => {
+            // A new tab or window goes there as any link would.
+            if (!onHome || event.button !== 0) return
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+            event.preventDefault()
+            onHome()
+          }}
+        >
+          Collated
+        </a>
         {children}
         <TrustNote className="hidden justify-self-end xl:flex" />
       </div>
@@ -66,6 +80,55 @@ export const Header = ({ children }: { children?: ReactNode }) => (
       </div>
     )}
   </header>
+)
+
+/**
+ * Asked before the wordmark leaves a document that won't all be there on
+ * the landing view: not kept on this device, or something still under way.
+ * Stay comes first, so Enter or a stray tap keeps the work.
+ */
+export const LeaveConfirm = ({
+  dialog,
+  why,
+  onLeave,
+}: {
+  dialog: RefObject<HTMLDialogElement | null>
+  why: string
+  onLeave: () => void
+}) => (
+  <dialog
+    ref={dialog}
+    aria-labelledby="leave-title"
+    aria-describedby="leave-help"
+    className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-2xl bg-paper p-0 text-ink shadow-panel backdrop:bg-black/50"
+  >
+    <div className="flex flex-col gap-4 p-5 sm:p-6">
+      <h2 id="leave-title" className="text-lg font-semibold tracking-tight">
+        Leave this document?
+      </h2>
+      <p id="leave-help" className="text-sm text-ink-muted">
+        {why}
+      </p>
+      <div className="flex justify-end gap-2">
+        <Button
+          onClick={() => {
+            dialog.current?.close()
+          }}
+        >
+          Stay
+        </Button>
+        <Button
+          variant="primary"
+          onClick={() => {
+            dialog.current?.close()
+            onLeave()
+          }}
+        >
+          Leave
+        </Button>
+      </div>
+    </div>
+  </dialog>
 )
 
 /** A page lying on the table, drawn in CSS: lines of text and a margin. */

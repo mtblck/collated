@@ -72,6 +72,7 @@ const setup = (overrides: Partial<AppDeps> = {}) => {
     recognizeText: vi.fn(() =>
       Promise.resolve([{ text: 'Hello', x0: 0.1, y0: 0.1, x1: 0.3, y1: 0.15, baseline: 0.15 }]),
     ),
+    leave: vi.fn(),
     ...overrides,
   }
   const user = userEvent.setup()
@@ -339,6 +340,62 @@ describe('App', () => {
         expect(await backend.getDoc()).toBeUndefined()
       })
       expect(backend.bytes.size).toBe(0)
+    })
+
+    describe('the wordmark goes back to the landing view', () => {
+      it('saves the document first, so the landing view offers it back', async () => {
+        const { backend, visit } = device()
+        const { user, upload, deps } = visit()
+        await upload('a.jpg', 'b.jpg')
+        await user.click(await screen.findByRole('button', { name: 'Remove page 1' }))
+        // Straight away: not waiting for the save that follows each change.
+        await user.click(screen.getByRole('link', { name: 'Collated home', hidden: true }))
+        await waitFor(() => {
+          expect(deps.leave).toHaveBeenCalledWith('/')
+        })
+        expect((await backend.getDoc())?.history.present.pages).toHaveLength(1)
+        expect(screen.queryByRole('dialog')).toBeNull()
+      })
+
+      it('asks first when the document isn’t kept, and Stay keeps it', async () => {
+        const { visit } = device()
+        const { user, upload, deps } = visit()
+        await upload('a.jpg', 'b.jpg')
+        await user.click(await screen.findByRole('button', { name: 'More' }))
+        await user.click(
+          screen.getByRole('switch', { name: 'Keep work after a reload', hidden: true }),
+        )
+        await user.click(screen.getByRole('link', { name: 'Collated home', hidden: true }))
+        const dialog = await screen.findByRole('dialog', { name: 'Leave this document?' })
+        expect(dialog).toHaveAccessibleDescription(
+          'Keep work after a reload is off, so 2 pages won’t be here when you come back.',
+        )
+        await user.click(within(dialog).getByRole('button', { name: 'Stay' }))
+        expect(deps.leave).not.toHaveBeenCalled()
+        expect(pageLabels()).toHaveLength(2)
+
+        await user.click(screen.getByRole('link', { name: 'Collated home', hidden: true }))
+        await user.click(
+          within(await screen.findByRole('dialog', { name: 'Leave this document?' })).getByRole(
+            'button',
+            { name: 'Leave' },
+          ),
+        )
+        await waitFor(() => {
+          expect(deps.leave).toHaveBeenCalledWith('/')
+        })
+      })
+
+      it('leaves a new tab to the browser', async () => {
+        const { user, upload, deps } = setup()
+        await upload('a.jpg')
+        const link = await screen.findByRole('link', { name: 'Collated home', hidden: true })
+        expect(link).toHaveAttribute('href', '/')
+        await user.keyboard('{Control>}')
+        await user.click(link)
+        await user.keyboard('{/Control}')
+        expect(deps.leave).not.toHaveBeenCalled()
+      })
     })
 
     it('can be turned off, which deletes the copy and is remembered', async () => {
