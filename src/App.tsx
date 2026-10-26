@@ -64,6 +64,7 @@ import {
 import { DEFAULT_TRANSFORM } from './core/model'
 import { DEFAULT_SPLIT, pagesUsed, planExport, type SplitOptions } from './core/split'
 import { download as saveFile, exportPdf, prepareExport, type Exported } from './export/exportPdf'
+import { track } from './lib/track'
 import { STALE_BUILD_MESSAGE, isStaleBuild } from './lib/staleBuild'
 import { listenForIncoming, type Incoming } from './lib/incoming'
 import { assetStore } from './import/assetStore'
@@ -772,6 +773,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       )
       const filename = parts ? zipFilename(settings.title) : pdfFilename(settings.title)
       deps.download(result.blob, filename)
+      track('exported')
       const size = formatBytes(result.blob.size)
       const used = result.compression ? `${result.compression.dpi} dpi` : 'original images'
       setLastExport({ size, used, fits: result.fits })

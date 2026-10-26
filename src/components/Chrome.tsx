@@ -263,8 +263,8 @@ export const EmptyState = ({
       ))}
     </ol>
     <p className="text-sm text-ink-muted">
-      Nothing is uploaded: there is no server, no account and no cookies, only an anonymous page-view count. Open source under the MIT
-      licence.
+      Nothing is uploaded: there is no server, no account and no cookies, only anonymous counts of
+      page views and exports. Open source under the MIT licence.
     </p>
   </div>
 )
@@ -467,8 +467,8 @@ export const SupportPrompt = ({
             Thanks for using Collated
           </h2>
           <p className="text-ink-muted">
-            Collated is free, with no ads and no cookies. If it saved you some time, you can support it
-            on{' '}
+            Collated is free, with no ads and no cookies. If it saved you some time, you can support
+            it on{' '}
             <a
               className={link}
               href={SUPPORT_URL}
