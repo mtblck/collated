@@ -4,7 +4,7 @@ Turn a stack of scanned pages or phone photos into one PDF. Drop the images in, 
 
 **Live:** [collatedpdf.com](https://collatedpdf.com/)
 
-Everything happens in the browser. There is no server, no upload, no account and no tracking: the images never leave the device, and the PDF is assembled locally in a Web Worker.
+Everything happens in the browser. There is no server, no upload, no account and no cookies (only an anonymous page-view count): the images never leave the device, and the PDF is assembled locally in a Web Worker.
 
 ## What it does
 

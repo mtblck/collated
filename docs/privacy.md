@@ -5,7 +5,7 @@ order: 90
 
 # Privacy notice
 
-_Last updated 24 October 2026._
+_Last updated 26 October 2026._
 
 Collated is a free, open-source tool. It is built so that your documents never leave your device, and this notice explains exactly what that means.
 
@@ -26,7 +26,9 @@ You can clear all of this in your browser's site settings. There are no cookies.
 
 ## What the hosting sees
 
-Collated is a set of static files served by Vercel, at collatedpdf.com. Like any website, the host receives standard request information when your browser fetches those files: your IP address, your browser's user agent, the time, and which file was requested (for example, the text-recognition data when you first use searchable text). This is used for running and securing the service, not for tracking you, and Collated adds no analytics or tracking of its own. See [Vercel's privacy policy](https://vercel.com/legal/privacy-policy).
+Collated is a set of static files served by Vercel, at collatedpdf.com. Like any website, the host receives standard request information when your browser fetches those files: your IP address, your browser's user agent, the time, and which file was requested (for example, the text-recognition data when you first use searchable text). This is used for running and securing the service, not for tracking you.
+
+Collated counts page views with [Vercel Web Analytics](https://vercel.com/docs/analytics/privacy-policy), so we know how many people use it. It sets no cookies and stores nothing in your browser; Vercel records the time, the page (with any query string stripped of anything identifying), the referring site, your country, region and city, your browser, operating system and their versions, and your device type, and recognises a repeat visit within a day only through a hash it discards. It never sees your pictures, documents or anything you type. See [Vercel's privacy policy](https://vercel.com/legal/privacy-policy).
 
 ## Links out
 

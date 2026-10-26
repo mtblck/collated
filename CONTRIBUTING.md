@@ -1,11 +1,11 @@
 # Contributing
 
-Thanks for helping. Collated is small on purpose: it does one job in the browser, with no server and no tracking. Changes that keep it that way are the easiest to accept.
+Thanks for helping. Collated is small on purpose: it does one job in the browser, with no server, no cookies and nothing beyond an anonymous page-view count. Changes that keep it that way are the easiest to accept.
 
 ## Before you start
 
 - For anything bigger than a bug fix, open an issue first so we can agree on the approach.
-- Files must never leave the device. Features that need a server, a CDN or a third-party script won't be merged.
+- Files must never leave the device. Features that need a server, a CDN or a third-party script won't be merged. (Vercel's page-view script, served from Collated's own site, is the one exception: see ADR 0015.)
 
 ## Working on it
 
