@@ -5,7 +5,7 @@ order: 90
 
 # Privacy notice
 
-_Last updated 24 October 2026._
+_Last updated 26 October 2026._
 
 Collated is a free, open-source tool. It is built so that your documents never leave your device, and this notice explains exactly what that means.
 
