@@ -7,7 +7,7 @@ order: 7
 
 ## Your files stay on your device
 
-Collated is a web page that does all its work in your browser. There is no server that receives your files, no account and no analytics. The page's security policy forbids it to send anything anywhere; it may only load its own files from its own site. (Our automated tests fail if it ever tries.)
+Collated is a web page that does all its work in your browser. There is no server that receives your files and no account. The page's security policy lets it talk only to its own site, never to anyone else's. (Our automated tests fail if it ever tries.) The one thing it sends is an anonymous page-view count, with no cookies and never anything about your files; the [privacy notice](../privacy.md) lists exactly what that records.
 
 What the site does download, the first time you need it: the code that reads PDFs and HEIC photos, the 4 MB of text-recognition data for searchable text, and the 6 MB that Auto-rotate pages uses to tell which way up a page is. These come from Collated's own site, and the host can see they were fetched, but not what you used them on.
 
