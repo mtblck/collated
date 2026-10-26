@@ -8,6 +8,10 @@ Images → one PDF, client-only, at https://collatedpdf.com/ (own Vercel project
 `npm run verify` after a build (Chromium E2E + axe + preview≡PDF pixel check). In Claude's sandbox:
 `CHROME_PATH=$(ls -d /opt/pw-browsers/chromium-*/chrome-linux/chrome | head -1)`.
 
+PRs: open as drafts and mark them ready only when the work is done. Before marking one ready, run
+`/pr-review:review <n>` and fix what it finds; the `pr-review` plugin holds the PR at draft until then.
+Marking it ready also triggers the Claude review workflow.
+
 ## Load-bearing decisions
 
 - **`layoutPage` is the only placement logic.** Preview (CSS) and export (pdf-lib) both draw from it. pdf.test.ts rasterises with pdftoppm to prove it; don't bypass it.
