@@ -30,6 +30,8 @@ Collated is a set of static files served by Vercel, at collatedpdf.com. Like any
 
 Collated counts page views with [Vercel Web Analytics](https://vercel.com/docs/analytics/privacy-policy), so we know how many people use it. It sets no cookies and stores nothing in your browser; Vercel records the time, the page (with any query string stripped of anything identifying), the referring site, your country, region and city, your browser, operating system and their versions, and your device type, and recognises a repeat visit within a day only through a hash it discards. It never sees your pictures, documents or anything you type. See [Vercel's privacy policy](https://vercel.com/legal/privacy-policy).
 
+Collated also counts how many PDFs are exported. Each time you export, the page sends the single word "exported" to its own site, which passes it on to mattblack.space, the site of Collated's maker, where it is added to that day's total. The count holds the word and the day only: nothing about you, your files or your settings.
+
 ## Links out
 
 **Support Collated** goes to Ko-fi, **GitHub Sponsors** to GitHub Sponsors and **Source code** to GitHub. Those sites have their own privacy policies and only see you if you follow the link.

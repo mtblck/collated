@@ -22,6 +22,10 @@
   ],
   "rewrites": [
     {
+      "source": "/_mb/events",
+      "destination": "https://mattblack.space/boards/api/events"
+    },
+    {
       "source": "/((?:[^/]*/)*[^./]*)",
       "destination": "/index.html"
     }
