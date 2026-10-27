@@ -27,3 +27,7 @@ event name only (`src/lib/track.ts`).
 - The CSP and the "talks only to its own site" test are unchanged.
 - Nothing is sent off collatedpdf.com, so local runs, previews and tests never count.
 - The privacy notice, guide, README and CONTRIBUTING now say "page views and exports".
+- 2026-10-27: Page views go to the same counter too, from `public/analytics.js`
+  (mtblck/boards ADR 0005), because Vercel's query API isn't open on this plan. The
+  first page of an arrival from another site adds that site's hostname, which
+  Boards turns into a kind (search, LinkedIn, other) and drops.
