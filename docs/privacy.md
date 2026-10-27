@@ -5,7 +5,7 @@ order: 90
 
 # Privacy notice
 
-_Last updated 26 October 2026._
+_Last updated 27 October 2026._
 
 Collated is a free, open-source tool. It is built so that your documents never leave your device, and this notice explains exactly what that means.
 
@@ -31,6 +31,8 @@ Collated is a set of static files served by Vercel, at collatedpdf.com. Like any
 Collated counts page views with [Vercel Web Analytics](https://vercel.com/docs/analytics/privacy-policy), so we know how many people use it. It sets no cookies and stores nothing in your browser; Vercel records the time, the page (with any query string stripped of anything identifying), the referring site, your country, region and city, your browser, operating system and their versions, and your device type, and recognises a repeat visit within a day only through a hash it discards. It never sees your pictures, documents or anything you type. See [Vercel's privacy policy](https://vercel.com/legal/privacy-policy).
 
 Collated also counts how many PDFs are exported. Each time you export, the page sends the single word "exported" to its own site, which passes it on to mattblack.space, the site of Collated's maker, where it is added to that day's total. The count holds the word and the day only: nothing about you, your files or your settings.
+
+Each page you open is also added to a daily page-view total there. When you arrive from another site, the page also sends that site's name (for example google.com), which mattblack.space turns into a kind of place (a search engine, LinkedIn, another site) and then forgets; only the day's count for that kind is kept. No cookie, IP address or identifier is stored, and nothing about which page you were on.
 
 ## Links out
 
