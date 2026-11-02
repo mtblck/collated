@@ -11,6 +11,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+### Changed
+
+### Fixed
+
+### Security
+
+## 2026-11-02
+
+### Added
+
 - Install Collated as an app (#73). It opens and works with no connection after your first visit, and in Chrome and Edge (and on Android) it shows up in the share sheet, so photos from the gallery or a PDF from an email go into your document once you confirm them, and in "Open with" for PDFs and images on your computer.
 - **Enhance** filter (#71): whitens the paper and lifts shadows while keeping colour, for photos of forms with stamps, highlighted pages and receipts with logos. It sits between Greyscale and B&W.
 - Select several pages at once (#65): Shift-click for a range, ⌘/Ctrl-click for one more, ⌘A / Ctrl+A for all, or **Select** on a phone. Rotate, straighten, scale, filter, move, duplicate or remove them together, each as one undo step, and drag any of them to move them all.
@@ -22,7 +32,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Export only the selected pages, or split the document into several PDFs by page ranges ("1-3, 4-10") or every few pages (#66). Several files download as one ZIP, each with the same quality, OCR, password and page number options.
 - Bookmarks in the exported PDF (#75): name a section at any page (**Section starts here** in the page's settings) and it becomes a bookmark that moves with its page. **Bookmark each imported file** in the export options adds one per file, under its section. Split exports give each file the bookmarks for its own pages.
 - Your work survives a reload or a closed tab: the document, undo history included, is kept in this browser on this device (never uploaded, never the password), and Collated offers **Restore your last document?** next time. Start over deletes it, and **Keep work after a reload** in the More menu turns it off.
-
 - **Take photo** on phones and tablets (#72): opens the camera and adds each shot after the last page, without leaving Collated. The system camera takes the picture, so no camera permission is asked for.
 - **Black out part of the page** (#77): draw boxes over account or ID numbers, and the export removes what's under them rather than covering it. Pixels are painted over, a PDF page with a box goes in as a picture, and searchable text leaves out words under a box.
 - **Watermark** in Export (#78): stamp text such as "Copy for Acme Bank only" across every page or just the selected ones, corner to corner or along the foot, in any size, colour and opacity, shown on the pages as it will print. **Add date** adds today's date. **Burn into image pages** draws it into photo and scan pages so it can't be deleted from the PDF.
@@ -34,11 +43,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - A new look, the light table: pages lie on a softly lit dark ground (or a pale one in the light theme), the toolbar and the selected page's settings float above them, and the landing page matches. New type (Geist) and an amber accent.
-- CLAUDE.md: review a PR in the session before marking it ready (#101)
 - Collated now counts page views with Vercel Web Analytics: no cookies, and nothing about your pictures or documents. The privacy page says exactly what is recorded (#102).
 - Collated now counts how many PDFs are exported, as an anonymous daily total with nothing about you or your files. The privacy notice has the details.
 - Page views are now also counted as daily totals on mattblack.space, alongside exports, with no cookies or identifiers; the privacy page says what is kept.
-
-### Fixed
-
-### Security
