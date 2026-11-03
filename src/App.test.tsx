@@ -2273,17 +2273,13 @@ describe('App', () => {
   })
 
   describe('header and toolbar', () => {
-    it('links to support and the source, not to the portfolio', () => {
+    it('links to the docs and the source, not to the portfolio', () => {
       setup()
       const nav = screen.getByRole('navigation', { name: 'About Collated' })
       const hrefs = within(nav)
         .getAllByRole('link')
         .map((a) => a.getAttribute('href'))
-      expect(hrefs).toEqual([
-        '/docs/',
-        'https://github.com/mtblck/collated',
-        'https://ko-fi.com/mtblck',
-      ])
+      expect(hrefs).toEqual(['/docs/', 'https://github.com/mtblck/collated'])
       for (const link of within(nav)
         .getAllByRole('link')
         .filter((a) => a.getAttribute('href')?.startsWith('https:'))) {
@@ -2291,6 +2287,22 @@ describe('App', () => {
       }
       expect(document.querySelector('a[href*="mattblack.space"]')).toBeNull()
       expect(screen.queryByText(/one pdf$/i, { selector: 'header *' })).toBeNull()
+    })
+
+    it('asks for support with one floating tipjar button on the landing view only', async () => {
+      const { upload } = setup()
+      // jsdom drops the space before tipjar's screen-reader words; verify checks the real name.
+      const tip = screen.getByRole('link', { name: /Collated on Ko-fi \(opens in a new tab\)$/ })
+      expect(tip).toHaveTextContent('Support Collated on Ko-fi (opens in a new tab)')
+      expect(tip).toHaveClass('tipjar')
+      expect(tip).toHaveAttribute('href', 'https://ko-fi.com/mtblck')
+      expect(tip).toHaveAttribute('target', '_blank')
+      expect(tip).toHaveAttribute('rel', 'noopener')
+      // No inline style, so the CSP needs nothing new.
+      expect(tip).not.toHaveAttribute('style')
+      expect(document.querySelectorAll('.tipjar')).toHaveLength(1)
+      await upload('a.jpg')
+      expect(document.querySelector('.tipjar')).toBeNull()
     })
 
     it('is one toolbar with one Tab stop; arrow keys, Home and End move along it', async () => {

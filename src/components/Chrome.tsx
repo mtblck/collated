@@ -74,9 +74,6 @@ export const Header = ({ children, onHome }: { children?: ReactNode; onHome?: ()
           <a className={NAV_LINK} href={SOURCE_URL} rel="noopener noreferrer" target="_blank">
             Source<span className="sr-only"> code (opens in a new tab)</span>
           </a>
-          <a className={NAV_LINK} href={SUPPORT_URL} rel="noopener noreferrer" target="_blank">
-            Support<span className="sr-only"> Collated (opens in a new tab)</span>
-          </a>
           <ThemeToggle />
         </nav>
       </div>

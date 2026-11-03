@@ -3406,6 +3406,60 @@ await context.close()
   await ctx.close()
 }
 
+// 36. Support button (tipjar, ADR 0017): floats on the landing view in place
+// of the header's Support link, tucks away over the footer, isn't in the
+// workspace, and loads nothing from elsewhere.
+{
+  const { context: ctx, page: p } = await open({ viewport: { width: 1280, height: 900 } })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  const tip = p.getByRole('link', { name: 'Support Collated on Ko-fi (opens in a new tab)' })
+  check(
+    (await tip.count()) === 1 &&
+      (await tip.getAttribute('href')) === 'https://ko-fi.com/mtblck' &&
+      (await tip.isVisible()) &&
+      (await p
+        .getByRole('navigation', { name: 'About Collated' })
+        .getByRole('link', { name: /Support/ })
+        .count()) === 0,
+    'the landing view has one floating Support button and no Support link in the header',
+  )
+  const box = await tip.boundingBox()
+  check(
+    box !== null &&
+      box.height >= 44 &&
+      1280 - (box.x + box.width) <= 24 &&
+      900 - (box.y + box.height) <= 24,
+    'the Support button sits in the bottom-right corner with a 44px target',
+    JSON.stringify(box),
+  )
+  check(
+    (await tip.getAttribute('style')) === null,
+    'the Support button has no inline style for the CSP to block',
+  )
+  await axe(p, 'landing with Support button')
+  await p.screenshot({ path: join(shots, 'tipjar-landing.png') })
+  await p.locator('footer').scrollIntoViewIfNeeded()
+  await p.waitForFunction(() => document.querySelector('.tipjar')?.hasAttribute('data-tucked'))
+  // It fades out over 0.2s.
+  await tip.waitFor({ state: 'hidden', timeout: 2000 }).catch(() => {})
+  check(!(await tip.isVisible()), 'the Support button tucks away while the footer shows')
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-portrait.jpg')])
+  await p.waitForSelector('ol[aria-label="1 page"]')
+  check((await p.locator('.tipjar').count()) === 0, 'the workspace has no floating Support button')
+  await ctx.close()
+  // On a phone it folds to its heart, keeping its name.
+  const { context: phone, page: q } = await open({ viewport: { width: 390, height: 844 } })
+  await q.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  const small = await q.locator('.tipjar').boundingBox()
+  check(
+    small !== null && small.width <= 48,
+    'on a phone the Support button is just its icon',
+    JSON.stringify(small),
+  )
+  await q.screenshot({ path: join(shots, 'tipjar-phone.png') })
+  await phone.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()

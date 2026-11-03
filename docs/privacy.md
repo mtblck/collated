@@ -36,7 +36,7 @@ Each page you open is also added to a daily page-view total there. When you arri
 
 ## Links out
 
-**Support Collated** goes to Ko-fi, **GitHub Sponsors** to GitHub Sponsors and **Source code** to GitHub. Those sites have their own privacy policies and only see you if you follow the link.
+**Support Collated** goes to Ko-fi, **GitHub Sponsors** to GitHub Sponsors and **Source code** to GitHub. Those sites have their own privacy policies and only see you if you follow the link. The **Support** button in the corner of the home page is part of Collated itself and loads nothing from Ko-fi; if you follow it, Ko-fi is told you came from collatedpdf.com, but not which page.
 
 ## Contact
 
