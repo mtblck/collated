@@ -4,7 +4,7 @@ public: false
 
 # 0014: Support is asked for through plain links and one quiet note after export
 
-- **Status:** Accepted
+- **Status:** Accepted; the landing header's Support link is replaced by a floating button in [0017](0017-floating-tipjar-support-button.md)
 - **Date:** 2026-10-24
 - **PR:** [#99](https://github.com/mtblck/collated/pull/99)
 

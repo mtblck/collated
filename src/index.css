@@ -110,6 +110,16 @@
   --sheet-filter: brightness(0.94);
 }
 
+/* The landing view's Support button (tipjar, ADR 0017): ink on the table in
+   both themes, following Collated's theme switch rather than the system's. */
+:root {
+  --tipjar-bg: var(--c-ink);
+  --tipjar-label: var(--c-paper);
+  --tipjar-ring: var(--c-ground);
+  /* Under the notices (z-40) and the drop overlay (z-50), which share its corner. */
+  --tipjar-z: 30;
+}
+
 @theme inline {
   --color-paper: var(--c-paper);
   --color-paper-sunk: var(--c-paper-sunk);

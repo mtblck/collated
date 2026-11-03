@@ -43,6 +43,7 @@ import {
   SupportPrompt,
   type Notice,
 } from './components/Chrome'
+import { TipButton } from './components/TipButton'
 import { Inspector, type InspectorActions } from './components/Inspector'
 import { PageGrid } from './components/PageGrid'
 import { GroupInspector, type GroupActions } from './components/GroupInspector'
@@ -1585,6 +1586,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
               }
             />
             <Footer />
+            <TipButton />
           </div>
         ) : (
           <>
