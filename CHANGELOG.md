@@ -38,6 +38,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Collated now counts page views with Vercel Web Analytics: no cookies, and nothing about your pictures or documents. The privacy page says exactly what is recorded (#102).
 - Collated now counts how many PDFs are exported, as an anonymous daily total with nothing about you or your files. The privacy notice has the details.
 - Page views are now also counted as daily totals on mattblack.space, alongside exports, with no cookies or identifiers; the privacy page says what is kept.
+- The home page asks for support with a small Support button in the corner, which steps aside when the footer is in view, instead of a link in the header.
 
 ### Fixed
 
