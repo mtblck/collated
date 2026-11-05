@@ -8,7 +8,7 @@ name: Release draft
 # Releases page, which creates the tag on the default branch.
 #
 # Quiet weeks cost nothing: a scheduled run stops before Claude when Unreleased in
-# CHANGELOG.md is empty (PRs add their lines there, ADR 0019).
+# CHANGELOG.md is empty (PRs add their lines there, ADR 0020).
 # A manual run always drafts, from merged PRs if need be. Remove the schedule for
 # repos nobody else uses.
 on:
