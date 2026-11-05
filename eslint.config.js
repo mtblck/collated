@@ -39,6 +39,7 @@ export default tseslint.config(
     ignores: [
       'src/core/pdf.ts',
       'src/core/pdfSanitize.ts',
+      'src/core/pdfImages.ts',
       'src/core/pdfUnlock.ts',
       'src/core/splitBuild.ts',
       'src/**/*.test.ts',
@@ -52,7 +53,7 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                '/core/(pdf(Sanitize|Unlock)?|splitBuild)$|^\\./(pdf(Sanitize|Unlock)?|splitBuild)$',
+                '/core/(pdf(Sanitize|Unlock|Images)?|splitBuild)$|^\\./(pdf(Sanitize|Unlock|Images)?|splitBuild)$',
               allowTypeImports: true,
               message: 'core/pdf pulls pdf-lib into the main bundle; use it from the worker.',
             },

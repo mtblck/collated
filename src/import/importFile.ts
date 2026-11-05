@@ -1,5 +1,5 @@
 import { sniff } from '../core/imageInfo'
-import { unlockPdf } from '../export/exportPdf'
+import { inspectPdf, unlockPdf } from '../export/exportPdf'
 import { importImage, type Imported } from './importImage'
 import type { AskPassword } from './importPdf'
 
@@ -28,6 +28,7 @@ export const importFile = async (
     const { importPdf } = await import('./importPdf')
     return importPdf(file, bytes, newId, {
       ...(onPage ? { onPage } : {}),
+      inspect: inspectPdf,
       ...(askPassword ? { askPassword, unlock: unlockPdf } : {}),
     })
   }

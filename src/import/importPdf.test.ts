@@ -7,6 +7,7 @@ import { PDFDocument, PDFName, PDFString, type PDFRef } from '@cantoo/pdf-lib'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MAX_PDF_PAGES } from '../core/limits'
 import { unlockedCopy } from '../core/pdfUnlock'
+import { listPdfImages } from '../core/pdfImages'
 import { ImportError } from './importImage'
 import { SKIPPED_LOCKED, importPdf, layeredPage } from './importPdf'
 
@@ -136,6 +137,44 @@ describe('importPdf: password-protected PDFs (#114)', () => {
     expect([first[0], first[1]]).toEqual([0xff, 0xd8])
     // 5 pixels a point (360 dpi) for this 300-point page; 4096 at most.
     expect(Math.max(imported.assets[0]?.width ?? 0, imported.assets[0]?.height ?? 0)).toBe(1500)
+  }, 60_000)
+})
+
+describe('importPdf: pictures the export can shrink (#115)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('notes each page’s pictures from the kept bytes', async () => {
+    await withCanvas()
+    const bytes = fixture('scan-heavy.pdf')
+    const inspect = vi.fn(listPdfImages)
+    let n = 0
+    const imported = await importPdf(
+      new File([bytes], 'scan.pdf'),
+      bytes,
+      () => `id-${String(++n)}`,
+      {
+        inspect,
+      },
+    )
+    expect(inspect).toHaveBeenCalledOnce()
+    expect(imported.assets.map((a) => a.images?.map((i) => [i.width, i.height]))).toEqual([
+      [[2550, 3300]],
+      [[600, 800]],
+      [],
+    ])
+  }, 60_000)
+
+  it('imports anyway when they can’t be read', async () => {
+    await withCanvas()
+    const bytes = fixture('quad-3pages.pdf')
+    let n = 0
+    const imported = await importPdf(new File([bytes], 'q.pdf'), bytes, () => `id-${String(++n)}`, {
+      inspect: () => Promise.reject(new Error('worker gone')),
+    })
+    expect(imported.assets).toHaveLength(3)
+    expect(imported.assets.every((a) => a.images === undefined)).toBe(true)
   }, 60_000)
 })
 

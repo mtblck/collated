@@ -1,5 +1,7 @@
 import type { Asset, Quality } from './model'
+import type { PdfImageInfo } from './pdfImages'
 import { PT_PER_IN } from './units'
+import { MAX_CANVAS_PIXELS } from './limits'
 
 /** A compression step: the printed resolution images are capped at, and the JPEG quality. */
 export interface Compression {
@@ -56,6 +58,27 @@ export const targetPixels = (
   }
 }
 
+/**
+ * The size a picture inside a PDF page is shrunk to (#115). Where it sits
+ * on its page isn't known without reading the page's drawing, so it's
+ * taken to span the page's long side (`drawnLongPt`, as exported): the
+ * most it could be, so the cap never takes more than the preset would.
+ */
+export const pdfImageTarget = (
+  image: { width: number; height: number },
+  drawnLongPt: number,
+  compression: Compression,
+) => {
+  const long = Math.max(image.width, image.height)
+  const wanted = Math.max(1, Math.round((drawnLongPt / PT_PER_IN) * compression.dpi))
+  const area = Math.sqrt(MAX_CANVAS_PIXELS / (image.width * image.height))
+  const scale = Math.min(1, wanted / long, area)
+  return {
+    width: Math.max(1, Math.round(image.width * scale)),
+    height: Math.max(1, Math.round(image.height * scale)),
+  }
+}
+
 export interface FitResult {
   pdf: Uint8Array
   /** The compression the returned PDF used; null if images were kept as they are. */
@@ -99,19 +122,36 @@ export const buildWithin = async (
  */
 const QUALITY_FACTOR = (q: number) => (q >= 0.85 ? 0.8 : q >= 0.8 ? 0.65 : q >= 0.7 ? 0.5 : 0.4)
 
+/** What a JPEG of a document page takes per pixel at each quality, for pictures stored as pixels. */
+const JPEG_BYTES_PER_PIXEL = (q: number) =>
+  q >= 0.85 ? 0.35 : q >= 0.8 ? 0.25 : q >= 0.7 ? 0.18 : 0.12
+
 export const estimateBytes = (
   items: {
-    asset: Pick<Asset, 'id' | 'bytesId' | 'width' | 'height' | 'format' | 'byteLength'>
+    asset: Pick<Asset, 'id' | 'bytesId' | 'width' | 'height' | 'format' | 'byteLength'> &
+      Partial<Pick<Asset, 'images'>>
     drawnWidthPt: number
   }[],
   compression: Compression | null,
 ): number => {
   const counted = new Set<string>()
+  /** Per PDF file: the longest any of its pages is drawn, and the pictures its used pages draw. */
+  const pdfs = new Map<
+    string,
+    { bytes: number; longPt: number; images: Map<string, PdfImageInfo> }
+  >()
   let total = 2_000 // document overhead
   for (const { asset, drawnWidthPt } of items) {
     if (asset.format === 'pdf') {
-      if (!counted.has(asset.bytesId)) total += asset.byteLength
-      counted.add(asset.bytesId)
+      const file = pdfs.get(asset.bytesId) ?? {
+        bytes: asset.byteLength,
+        longPt: 0,
+        images: new Map<string, PdfImageInfo>(),
+      }
+      const long = (drawnWidthPt * Math.max(asset.width, asset.height)) / asset.width
+      file.longPt = Math.max(file.longPt, long)
+      for (const image of asset.images ?? []) file.images.set(image.key, image)
+      pdfs.set(asset.bytesId, file)
       continue
     }
     const key = `${asset.id}:${Math.round(drawnWidthPt)}`
@@ -127,6 +167,23 @@ export const estimateBytes = (
       asset.byteLength,
       asset.byteLength * pixelRatio * QUALITY_FACTOR(compression.quality),
     )
+  }
+  // A PDF counts its whole file, less what shrinking its pictures saves (#115).
+  for (const file of pdfs.values()) {
+    let saved = 0
+    if (compression) {
+      for (const image of file.images.values()) {
+        const out = pdfImageTarget(image, file.longPt, compression)
+        const pixels = out.width * out.height
+        const after =
+          image.encoding === 'jpeg'
+            ? (image.bytes * pixels * QUALITY_FACTOR(compression.quality)) /
+              (image.width * image.height)
+            : pixels * JPEG_BYTES_PER_PIXEL(compression.quality)
+        saved += Math.max(0, image.bytes - after)
+      }
+    }
+    total += Math.max(0, file.bytes - saved)
   }
   return Math.round(total)
 }

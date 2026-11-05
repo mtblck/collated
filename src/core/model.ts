@@ -1,4 +1,5 @@
 import type { OcrLanguage } from './ocrLanguages'
+import type { PdfImageInfo } from './pdfImages'
 import { toPixels, warpSize, type Quad } from './perspective'
 
 /**
@@ -155,6 +156,12 @@ export interface Asset {
    * sharing `bytesId`.
    */
   fileId?: string
+  /**
+   * For `pdf` assets: the pictures the page draws that the export can shrink
+   * (#115), for the size estimate. Missing in work saved before, and when
+   * they couldn't be read; the estimate then counts the file as it is.
+   */
+  images?: PdfImageInfo[]
 }
 
 /** PDF pages are vector: printed resolution doesn't apply. */

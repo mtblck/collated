@@ -3964,6 +3964,107 @@ await context.close()
   await desk.close()
 }
 
+// 40. Scanned PDFs shrink (#115), by touch on a phone: Small caps the scan
+// inside a PDF page and the photo on another, with the real canvas; every
+// page keeps its text (the scan's invisible layer included), looks the same,
+// and the estimate counts it.
+{
+  const { context: phone, page: p } = await open({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  const input = join(fixtures, 'scan-heavy.pdf')
+  await p.setInputFiles('[data-testid="file-input"]', [input])
+  await p.waitForSelector('ol[aria-label="3 pages"]', { timeout: 20_000 })
+  const save = async (name) => {
+    const [d] = await Promise.all([p.waitForEvent('download'), exportNow(p)])
+    const path = join(mkdtempSync(join(tmpdir(), 'collated-verify-shrink-')), name)
+    await d.saveAs(path)
+    await p.waitForFunction(() => !/Building/.test(document.body.innerText))
+    return { path, bytes: readFileSync(path) }
+  }
+  // Pages as they are, so dpi reads off the PDF directly.
+  await pageSetup(p, async (panel) => {
+    await panel.getByLabel('Page size').selectOption('image')
+  })
+  const original = await save('original.pdf')
+  await exportMenu(p).tap()
+  const dialog = p.getByRole('dialog', { name: 'Export options' })
+  const small = dialog.getByRole('radio', { name: /Small/ })
+  await small.scrollIntoViewIfNeeded()
+  await dialog.getByText('Small', { exact: true }).tap()
+  check(await small.isChecked(), 'Small can be picked by touch')
+  check(
+    await dialog.getByText('the pictures inside PDF pages', { exact: false }).isVisible(),
+    'the quality options say they cover pictures inside PDF pages',
+  )
+  const estimateText = (await dialog.locator('dd').first().textContent()) ?? ''
+  await dialog.getByRole('radio', { name: /Small/ }).scrollIntoViewIfNeeded()
+  await p.screenshot({ path: join(shots, 'shrink-pdf-phone.png') })
+  await p.keyboard.press('Escape')
+  const shrunk = await save('small.pdf')
+  const inputBytes = readFileSync(input).byteLength
+  check(
+    shrunk.bytes.byteLength < inputBytes * 0.4 && original.bytes.byteLength > inputBytes * 0.9,
+    `Small shrinks a scanned PDF (${(original.bytes.byteLength / 1e6).toFixed(2)} MB → ${(shrunk.bytes.byteLength / 1e6).toFixed(2)} MB)`,
+  )
+  const estimated = /≈ ([\d.]+) (KB|MB)/.exec(estimateText)
+  const est = estimated ? Number(estimated[1]) * (estimated[2] === 'MB' ? 1024 * 1024 : 1024) : 0
+  check(
+    est > shrunk.bytes.byteLength * 0.5 && est < shrunk.bytes.byteLength * 2,
+    'the estimate counts the PDF’s pictures shrunk',
+    `${estimateText} vs ${shrunk.bytes.byteLength} bytes`,
+  )
+  if (hasPoppler) {
+    const images = execFileSync('pdfimages', ['-list', shrunk.path])
+      .toString()
+      .split('\n')
+      .slice(2)
+      .filter((l) => l.trim())
+      .map((l) => l.trim().split(/\s+/))
+      .map((c) => `${c[0]}:${c[3]}x${c[4]}:${c[8]}`)
+    check(
+      images.join(' ') === '1:1275x1650:jpeg 2:600x800:jpeg',
+      'the scan is capped at 150 dpi and the Flate photo becomes a JPEG',
+      images.join(' '),
+    )
+    const text = execFileSync('pdftotext', [shrunk.path, '-']).toString()
+    check(
+      ['Invoice searchable layer', 'Kept as text', 'Plain text page'].every((t) =>
+        text.includes(t),
+      ),
+      'every page keeps its text, the scan’s invisible layer included',
+      text,
+    )
+    for (const n of ['1', '2']) {
+      const render = (path) => {
+        const prefix = path.replace(/\.pdf$/, `-${n}`)
+        execFileSync('pdftoppm', [
+          '-png',
+          '-r',
+          '36',
+          '-f',
+          n,
+          '-l',
+          n,
+          '-singlefile',
+          path,
+          prefix,
+        ])
+        return readFileSync(`${prefix}.png`).toString('base64')
+      }
+      const diff = await compareImages(render(shrunk.path), render(original.path))
+      check(
+        diff.farShare < 0.01,
+        `page ${n} looks the same shrunk (${(diff.farShare * 100).toFixed(2)}% of pixels differ)`,
+      )
+    }
+  }
+  await phone.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()
