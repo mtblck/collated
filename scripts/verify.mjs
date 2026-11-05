@@ -3848,6 +3848,8 @@ await context.close()
   await panel.getByRole('button', { name: 'Sign this page…' }).tap()
   await maker.waitFor()
   const savedOne = maker.getByRole('button', { name: 'Use saved signature 1' })
+  // The maker lists saved signatures from IndexedDB after it opens: wait for them.
+  await savedOne.waitFor({ timeout: 5_000 }).catch(() => undefined)
   check((await savedOne.count()) === 1, 'the signature is saved on this device for next time')
   await p.screenshot({ path: join(shots, 'sign-saved-phone.png') })
   await maker.getByRole('button', { name: 'Delete saved signature 1 from this device' }).tap()
