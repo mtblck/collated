@@ -5,7 +5,7 @@ import type { SplitPart } from '../core/splitBuild'
 import type { OcrWord } from '../core/textLayer'
 import { assetStore } from '../import/assetStore'
 import { layeredImage } from './layered'
-import type { ExportRequest, ExportResponse } from './protocol'
+import type { ExportRequest, ExportResponse, UnlockRequest } from './protocol'
 
 export type Progress = (done: number, total: number, attempt: number) => void
 
@@ -120,6 +120,39 @@ const takeWorker = () => {
   return spawn()
 }
 
+/** Hands a worker back once it has answered: kept for the next job if none is waiting, else ended. */
+const giveBack = (worker: Worker) => {
+  worker.onmessage = null
+  worker.onerror = null
+  // Keep a healthy worker for the next export; one is enough.
+  if (idle) worker.terminate()
+  else idle = { worker, failed: false }
+  idle.worker.onerror = () => {
+    if (idle) idle.failed = true
+  }
+}
+
+/**
+ * A copy of a password-protected PDF that needs no password (#114), made by
+ * the export worker (pdf-lib stays out of the page). Rejects if pdf-lib
+ * can't open it.
+ */
+export const unlockPdf = (bytes: Uint8Array, password: string): Promise<Uint8Array> =>
+  new Promise((resolve, reject) => {
+    const worker = takeWorker()
+    worker.onmessage = ({ data }: MessageEvent<ExportResponse>) => {
+      giveBack(worker)
+      if (data.type === 'unlocked') resolve(data.file)
+      else reject(new Error(data.type === 'error' ? data.message : 'Unexpected answer.'))
+    }
+    worker.onerror = (event) => {
+      worker.terminate()
+      reject(new Error(event.message || START_FAILED))
+    }
+    const message: UnlockRequest = { unlock: { bytes, password } }
+    worker.postMessage(message)
+  })
+
 /**
  * Builds the PDF in the module worker; resolves with the file. With `parts`,
  * each is built as its own PDF and the file is a ZIP of them (#66);
@@ -195,14 +228,7 @@ const send = (
     const worker = takeWorker()
     let started = false
     const release = () => {
-      worker.onmessage = null
-      worker.onerror = null
-      // Keep a healthy worker for the next export; one is enough.
-      if (idle) worker.terminate()
-      else idle = { worker, failed: false }
-      idle.worker.onerror = () => {
-        if (idle) idle.failed = true
-      }
+      giveBack(worker)
     }
     worker.onmessage = ({ data }: MessageEvent<ExportResponse>) => {
       started = true
@@ -219,7 +245,7 @@ const send = (
         resolve({ draw: data.assetIds })
       } else {
         release()
-        reject(new Error(data.message))
+        reject(new Error(data.type === 'error' ? data.message : 'Unexpected answer.'))
       }
     }
     worker.onerror = (event) => {

@@ -13,6 +13,14 @@ export interface ExportRequest {
   parts?: SplitPart[]
 }
 
+/**
+ * Opens a password-protected PDF with its password and answers with a copy
+ * that needs none (#114). The password lives only in this message.
+ */
+export interface UnlockRequest {
+  unlock: { bytes: Uint8Array; password: string }
+}
+
 export type ExportResponse =
   | { type: 'progress'; done: number; total: number; attempt: number }
   /** `file` is the PDF, or the ZIP when the request had parts; `compression` is the smallest step any part needed. */
@@ -20,3 +28,5 @@ export type ExportResponse =
   | { type: 'error'; message: string }
   /** These PDF pages could hide something: draw them and ask again. */
   | { type: 'draw'; assetIds: string[] }
+  /** The unlocked copy, for an `UnlockRequest`. */
+  | { type: 'unlocked'; file: Uint8Array }

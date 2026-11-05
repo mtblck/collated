@@ -2,9 +2,10 @@
 import { buildWithin, compressionFor } from '../core/compression'
 import { buildPdf, type BuildInput } from '../core/pdf'
 import { NeedsDrawing } from '../core/pdfSanitize'
+import { unlockedCopy } from '../core/pdfUnlock'
 import { buildSplit } from '../core/splitBuild'
 import { flattenToBlob, processToBlob } from '../lib/filterCanvas'
-import type { ExportRequest, ExportResponse } from './protocol'
+import type { ExportRequest, ExportResponse, UnlockRequest } from './protocol'
 
 /*
  * Builds the PDF off the main thread. Embedding passthrough JPEGs is cheap,
@@ -17,8 +18,13 @@ const post = (message: ExportResponse, transfer: Transferable[] = []) => {
   self.postMessage(message, transfer)
 }
 
-self.onmessage = async ({ data }: MessageEvent<ExportRequest>) => {
+self.onmessage = async ({ data }: MessageEvent<ExportRequest | UnlockRequest>) => {
   try {
+    if ('unlock' in data) {
+      const file = await unlockedCopy(data.unlock.bytes, data.unlock.password)
+      post({ type: 'unlocked', file }, [file.buffer])
+      return
+    }
     const { settings } = data.input
     let attempt = 1
     /** One PDF, at smaller steps until it fits the size limit (each part of a split on its own). */

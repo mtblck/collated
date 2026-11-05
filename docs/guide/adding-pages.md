@@ -24,7 +24,7 @@ Before shared files go in, Collated names them and asks **Add N files shared wit
 
 ## What Collated reads
 
-- **PDFs:** each page becomes a page you can move, rotate or remove. PDFs that need a password to open can't be read; PDFs that only restrict editing or printing are fine. Pages stay as sharp as the original at any size, except a page with a hidden layer, which goes into the PDF as an image of what you see (turn on **Make text searchable** to keep its text searchable).
+- **PDFs:** each page becomes a page you can move, rotate or remove. A PDF that needs a password to open (bank and payroll statements often do) asks for it: type it and choose **Open**, or **Skip this file** to leave it out. Collated opens it in your browser and keeps an unlocked copy, so the pages, their text and the exported PDF need no password; the password itself isn't kept. PDFs that only restrict editing or printing open without asking. Pages stay as sharp as the original at any size, except a page with a hidden layer, which goes into the PDF as an image of what you see (turn on **Make text searchable** to keep its text searchable).
 - **JPEG and PNG:** go into the PDF as they are, without recompressing (see [Exporting](exporting.md)).
 - **HEIC / HEIF** (iPhone photos): read in every browser, not only Safari.
 - **WebP, AVIF, GIF and BMP:** converted once, because PDF can't hold them.

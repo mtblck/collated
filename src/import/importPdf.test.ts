@@ -1,11 +1,14 @@
 // @vitest-environment node
+import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { PDFDocument, PDFName, PDFString, type PDFRef } from '@cantoo/pdf-lib'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MAX_PDF_PAGES } from '../core/limits'
+import { unlockedCopy } from '../core/pdfUnlock'
 import { ImportError } from './importImage'
-import { importPdf, layeredPage } from './importPdf'
+import { SKIPPED_LOCKED, importPdf, layeredPage } from './importPdf'
 
 // In Node, pdf.js runs its worker in-process by importing workerSrc, so point
 // it at the real file rather than Vite's served URL.
@@ -26,13 +29,114 @@ describe('importPdf', () => {
     const bytes = await pdfWithPages(MAX_PDF_PAGES + 1)
     const onPage = vi.fn()
     const file = new File([bytes], 'huge.pdf')
-    const imported = importPdf(file, bytes, () => crypto.randomUUID(), onPage)
+    const imported = importPdf(file, bytes, () => crypto.randomUUID(), { onPage })
     await expect(imported).rejects.toBeInstanceOf(ImportError)
     await expect(imported).rejects.toThrow(
       `This PDF has 501 pages; up to ${MAX_PDF_PAGES} can be added from one file.`,
     )
     expect(onPage).not.toHaveBeenCalled()
   }, 20_000)
+})
+
+const fixture = (name: string) =>
+  new Uint8Array(readFileSync(join(import.meta.dirname, '../../tests/fixtures', name)))
+
+/**
+ * Thumbnails need a canvas, which Node doesn't have: lend importPdf the one
+ * pdf.js itself draws with in Node, with the toBlob the page has.
+ */
+const withCanvas = async () => {
+  const { createCanvas } = await import('@napi-rs/canvas')
+  vi.stubGlobal('document', {
+    createElement: () => {
+      const canvas = createCanvas(1, 1)
+      return Object.assign(canvas, {
+        toBlob: (done: (blob: Blob | null) => void, type: 'image/jpeg' | 'image/png') => {
+          done(new Blob([new Uint8Array(canvas.toBuffer(type as 'image/png'))], { type }))
+        },
+      })
+    },
+  })
+}
+
+describe('importPdf: password-protected PDFs (#114)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+  const id = () => {
+    let n = 0
+    return () => `id-${String(++n)}`
+  }
+  const open = (name: string, options: Parameters<typeof importPdf>[3]) => {
+    const bytes = fixture(name)
+    return importPdf(new File([bytes], name), bytes, id(), options)
+  }
+
+  it('asks again after a wrong password, then keeps an unlocked copy', async () => {
+    await withCanvas()
+    const answers = ['wrong', 'user-secret']
+    const askPassword = vi.fn(() => Promise.resolve(answers.shift() ?? null))
+    const unlock = vi.fn(unlockedCopy)
+    const imported = await open('quad-password.pdf', { askPassword, unlock })
+    expect(askPassword.mock.calls).toEqual([[false], [true]])
+    expect(unlock).toHaveBeenCalledOnce()
+    expect(unlock.mock.calls[0]?.[1]).toBe('user-secret')
+    expect(imported.assets.map((a) => [a.format, a.pdfPage, a.bytesId])).toEqual([
+      ['pdf', 0, 'id-1'],
+      ['pdf', 1, 'id-1'],
+      ['pdf', 2, 'id-1'],
+    ])
+    // What's kept opens without the password, and nothing holds it.
+    const [kept] = imported.files
+    expect(imported.files).toHaveLength(1)
+    expect((await PDFDocument.load(kept?.bytes ?? new Uint8Array())).getPageCount()).toBe(3)
+    expect(JSON.stringify(imported.assets)).not.toContain('user-secret')
+  }, 30_000)
+
+  it('skips the file on Cancel', async () => {
+    const unlock = vi.fn(unlockedCopy)
+    const imported = open('quad-password.pdf', {
+      askPassword: () => Promise.resolve(null),
+      unlock,
+    })
+    await expect(imported).rejects.toThrow(SKIPPED_LOCKED)
+    expect(unlock).not.toHaveBeenCalled()
+  })
+
+  it('refuses it when nothing can ask', async () => {
+    await expect(open('quad-password.pdf', {})).rejects.toThrow(
+      'This PDF needs a password to open.',
+    )
+  })
+
+  it('opens an owner-password-only PDF without asking, keeping its bytes', async () => {
+    await withCanvas()
+    const askPassword = vi.fn(() => Promise.resolve(null))
+    const unlock = vi.fn(unlockedCopy)
+    const imported = await open('quad-owner-locked.pdf', { askPassword, unlock })
+    expect(askPassword).not.toHaveBeenCalled()
+    expect(unlock).not.toHaveBeenCalled()
+    expect(imported.assets).toHaveLength(3)
+    expect(imported.files[0]?.bytes).toEqual(fixture('quad-owner-locked.pdf'))
+  }, 30_000)
+
+  it('brings the pages in as drawings when no unlocked copy can be made', async () => {
+    await withCanvas()
+    const imported = await open('quad-password.pdf', {
+      askPassword: () => Promise.resolve('user-secret'),
+      unlock: () => Promise.reject(new Error('unsupported encryption')),
+    })
+    expect(imported.assets.map((a) => [a.format, a.pdfPage])).toEqual([
+      ['jpeg', undefined],
+      ['jpeg', undefined],
+      ['jpeg', undefined],
+    ])
+    expect(imported.files.map((f) => f.id)).toEqual(imported.assets.map((a) => a.bytesId))
+    const first = imported.files[0]?.bytes ?? new Uint8Array()
+    expect([first[0], first[1]]).toEqual([0xff, 0xd8])
+    // 5 pixels a point (360 dpi) for this 300-point page; 4096 at most.
+    expect(Math.max(imported.assets[0]?.width ?? 0, imported.assets[0]?.height ?? 0)).toBe(1500)
+  }, 60_000)
 })
 
 describe('layeredPage: does the preview hide anything on a page?', () => {
