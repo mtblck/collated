@@ -32,3 +32,12 @@ export const layeredImage = (asset: Pick<Asset, 'bytesId' | 'pdfPage'>, force = 
 export const forgetLayered = () => {
   cache.clear()
 }
+
+/**
+ * Forgets the pages drawn because they had to be (`force`), which PDF/A
+ * (#116) does to every PDF page: kept, they'd hold about 1 MB each for the
+ * rest of the visit. Pages drawn for hiding a layer stay.
+ */
+export const forgetForced = () => {
+  for (const key of cache.keys()) if (key.endsWith(':force')) cache.delete(key)
+}

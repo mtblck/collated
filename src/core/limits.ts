@@ -25,3 +25,6 @@ export const PAGE_NUMBER_START_MAX = 9999
  * ~16.7 megapixels.
  */
 export const MAX_CANVAS_PIXELS = 16_000_000
+
+/** Long edge of a PDF page drawn for export: about 300 dpi for Letter, within Safari's canvas limit. */
+export const LAYERED_EDGE = 4096

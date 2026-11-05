@@ -1,5 +1,5 @@
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
-import { MAX_PDF_PAGES } from '../core/limits'
+import { LAYERED_EDGE, MAX_PDF_PAGES } from '../core/limits'
 import type { Asset, QuarterTurns } from '../core/model'
 import type { PdfImageInfo } from '../core/pdfImages'
 import { assetStore } from './assetStore'
@@ -127,9 +127,6 @@ const hidesContent = async (
   }
   return hides(list)
 }
-
-/** Long edge of a page drawn for export: about 300 dpi for Letter, within Safari's canvas limit. */
-export const LAYERED_EDGE = 4096
 
 /**
  * A page that hides something, drawn as the preview shows it (a JPEG, long

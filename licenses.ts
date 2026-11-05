@@ -37,6 +37,8 @@ export const LICENSE_FILES: Record<string, string> = {
   // The TIFF decoder and its inflate (#113): MIT, with no notice in the bundle.
   'UTIF-LICENSE.txt': fromPackage('utif2', 'LICENSE'),
   'pako-LICENSE.txt': fromPackage('pako', 'LICENSE'),
+  // Arimo, embedded in PDF/A exports (#116), vendored with scripts/make-archive-font.py.
+  'arimo-OFL.txt': vendored('arimo-OFL.txt'),
   'tesseract-worker-NOTICES.txt': fromPackage('tesseract.js', 'dist/worker.min.js.LICENSE.txt'),
   'THIRD-PARTY-NOTICES.md': join(import.meta.dirname, 'THIRD-PARTY-NOTICES.md'),
   ...Object.fromEntries(

@@ -60,6 +60,7 @@ import { headerSize } from './imageInfo'
 import { readGreyPng } from './png'
 import { placeWord, type OcrWord } from './textLayer'
 import { GlyphlessFont } from './glyphless'
+import { embedArchiveFont, makeArchival, xmlSafe } from './pdfa'
 import { ocrLanguageInfo } from './ocrLanguages'
 import { NUMBER_GREY, numberMark } from './pageNumbers'
 import {
@@ -283,7 +284,8 @@ export const imageJob = (
  * page's resource names for them, shared by every picture on the page.
  */
 interface TextFonts {
-  standard: () => Promise<PDFFont>
+  /** Unset for PDF/A, whose fonts must all be embedded: every word goes in the glyphless font. */
+  standard: (() => Promise<PDFFont>) | null
   glyphless: () => GlyphlessFont
   keys: Map<object, PDFName>
 }
@@ -335,7 +337,7 @@ const drawTextLayer = async (
     let font: { name: string; ref: PDFRef }
     let encoded: PDFHexString
     let natural: number
-    if (isWinAnsi(text)) {
+    if (fonts.standard && isWinAnsi(text)) {
       standard ??= await fonts.standard()
       font = standard
       encoded = standard.encodeText(`${text} `)
@@ -575,8 +577,8 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
   const now = options.now ?? new Date()
   const doc = await PDFDocument.create()
   // Only what the user chose to say: no default title, no tool URL, and the
-  // date without the time of day.
-  const title = settings.title.trim()
+  // date without the time of day. For PDF/A, only what its XMP can hold too.
+  const title = (settings.pdfa ? xmlSafe(settings.title) : settings.title).trim()
   if (title) doc.setTitle(title, { showInWindowTitleBar: true })
   doc.setCreator(PRODUCER)
   doc.setProducer(PRODUCER)
@@ -592,9 +594,14 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     cropped: boolean
   }
   const embedded = new Map<string, Embedded>()
-  // One Helvetica for marks, the watermark, page numbers and the text layer.
+  // PDF/A (#116): every font embedded, nothing encrypted, no PDF page copied.
+  const pdfa = settings.pdfa
+  if (pdfa && input.password) throw new Error('A PDF/A file can’t have a password.')
+  // One Helvetica for marks, the watermark, page numbers and the text layer;
+  // for PDF/A, the embedded Arimo in its place (OCR words go in the glyphless font).
   let helvetica: Promise<PDFFont> | undefined
-  const standardFont = () => (helvetica ??= doc.embedFont(StandardFonts.Helvetica))
+  const standardFont = () =>
+    (helvetica ??= pdfa ? embedArchiveFont(doc) : doc.embedFont(StandardFonts.Helvetica))
   let font: PDFFont | undefined
   let glyphless: GlyphlessFont | undefined
   let wordsWritten = 0
@@ -732,7 +739,9 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
   )
   const mustDraw: string[] = []
   for (const asset of toDraw) {
-    if (shown(asset).some(isRedacted)) {
+    // PDF/A: a copied page brings its own fonts and colours, which may not
+    // conform, so every PDF page goes as it's drawn (ADR 0027).
+    if (pdfa || shown(asset).some(isRedacted)) {
       mustDraw.push(asset.id)
       continue
     }
@@ -764,7 +773,7 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     )
     const pdfPage = doc.addPage([sheet.page.width, sheet.page.height])
     const textFonts: TextFonts = {
-      standard: standardFont,
+      standard: pdfa ? null : standardFont,
       glyphless: () => (glyphless ??= new GlyphlessFont(doc)),
       keys: new Map(),
     }
@@ -943,6 +952,7 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
   // read the text layer in, else English.
   const lang = wordsWritten ? ocrLanguageInfo(settings.ocrLanguage).tags[0] : 'en'
   doc.catalog.set(PDFName.of('Lang'), PDFString.of(lang))
+  if (pdfa) makeArchival(doc, { title, tool: PRODUCER, date: day })
 
   if (input.password) {
     const password = pdfPassword(input.password)
