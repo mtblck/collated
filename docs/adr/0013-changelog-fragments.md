@@ -4,7 +4,7 @@ public: false
 
 # 0013: Changelog entries are fragments in changelog.d/, compiled on main
 
-- **Status:** Accepted
+- **Status:** Superseded by [0019](0019-changelog-edited-in-prs.md)
 - **Date:** 2026-10-24
 - **PR:** [#98](https://github.com/mtblck/collated/pull/98)
 
