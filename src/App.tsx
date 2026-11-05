@@ -62,6 +62,7 @@ import { SaveImages } from './components/SaveImages'
 import { ShareConfirm } from './components/ShareConfirm'
 import { ScanCamera } from './components/ScanCamera'
 import { canScan } from './lib/camera'
+import { taskFrom, type Task } from './components/tasks'
 import { APP_URL } from './components/links'
 import { SheetInspector, type SheetActions } from './components/SheetInspector'
 import { BlankInspector, type BlankActions } from './components/BlankInspector'
@@ -166,6 +167,10 @@ export interface AppDeps {
   /** Whether the scan camera (#118) can open here; the paper in one of its frames. */
   canScan: boolean
   paperInFrame: (frame: ImageBitmap) => Promise<PaperGuess | null>
+  /** The task page (#120) this visit came from, `?task=`; null for the app itself. */
+  task: Task | null
+  /** Takes `?task=` out of the address once the task has its files, so a reload is the plain app. */
+  forgetTask: () => void
 }
 
 const safeStorage = (): AppDeps['storage'] => {
@@ -205,6 +210,12 @@ const defaultDeps = (): AppDeps => ({
   },
   canScan: canScan(),
   paperInFrame,
+  task: taskFrom(window.location.search),
+  forgetTask: () => {
+    const url = new URL(window.location.href)
+    url.searchParams.delete('task')
+    window.history.replaceState(window.history.state, '', url)
+  },
 })
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
@@ -337,6 +348,22 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   }, [notices])
   const [keepWork, setKeepWork] = useState(() => loadKeepWork(deps.storage))
   /**
+   * The task page this visit came from (#120): it shapes the landing view,
+   * and readies its part of the workspace once the first files are in. Then
+   * it's done with, so later files and a reload are the plain app.
+   */
+  const [task, setTask] = useState(deps.task)
+  const taskRef = useRef(task)
+  /** The task has its files, or restored work took its place: the plain app from now on. */
+  const forgetTask = useCallback(() => {
+    if (!taskRef.current) return
+    taskRef.current = null
+    setTask(null)
+    deps.forgetTask()
+  }, [deps])
+  /** Sign a PDF: bring the first page's Sign button into view once it's drawn. */
+  const signNext = useRef(false)
+  /**
    * Last visit's document, offered until it's restored or discarded; `pending`
    * until we've looked. Nothing is saved meanwhile, so the empty document
    * this page starts with can't overwrite it.
@@ -354,6 +381,11 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   // The inspector scrolls on its own; a newly selected page starts at its top.
   const rail = useRef<HTMLElement>(null)
   const { pages, assets, settings } = doc
+  /** Read when files come in for Compress a PDF (#120), without remaking addFiles. */
+  const quality = useRef(settings.quality)
+  useEffect(() => {
+    quality.current = settings.quality
+  }, [settings.quality])
   // Undo can remove selected pages; those simply drop out of the selection.
   const selection = useMemo(() => keepExisting(pages, rawSelection), [pages, rawSelection])
   const group = selection.ids.length > 1
@@ -541,6 +573,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       }
       setImporting(null)
       if (generation.current !== started) return
+      let ready: Task['ready']
       if (added.length > 0) {
         const pageIds = added.map(() => deps.newId())
         // Images added together are one pile for Interleave (a PDF is its
@@ -550,23 +583,35 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         const tagged = added.map((a) =>
           a.format === 'pdf' || !batch ? a : { ...a, source: a.fileId ?? batch },
         )
+        // The task page's part, once (#120). Small goes first, so undoing
+        // the add doesn't leave it half undone.
+        ready = taskRef.current?.ready
+        forgetTask()
+        if (ready === 'small' && quality.current !== 'small') {
+          act({ type: 'setSettings', patch: { quality: 'small' } })
+          notify(
+            'Image quality is set to Small, so the PDF comes out smaller. You can change it in Export options.',
+          )
+        }
         act({ type: 'addPages', assets: tagged, pageIds, corners: cropped })
         setSelection((current) => {
           const first = pageIds[0]
           return current.ids.length > 0 || !first ? current : { ids: [first], anchor: first }
         })
+        if (ready === 'sign') signNext.current = true
       }
       for (const message of failed) notify(message)
       setStatus(
         [
           added.length > 0 && `Added ${plural(added.length, 'page')}.`,
+          ready === 'sign' && 'Choose Sign this page to sign it, or select another page first.',
           failed.length > 0 && `${plural(failed.length, 'file')} could not be added.`,
         ]
           .filter(Boolean)
           .join(' '),
       )
     },
-    [act, deps, notify],
+    [act, deps, forgetTask, notify],
   )
 
   // Drop anywhere, paste anywhere, and keyboard undo/redo.
@@ -1614,6 +1659,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       notify('The document saved on this device couldn’t be read back, so it was discarded.')
       return
     }
+    forgetTask()
     const restored = saved.history.present.pages
     const select = restored.some((p) => p.id === saved.selectedId)
       ? saved.selectedId
@@ -1622,7 +1668,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     selectOnly(select)
     requestFocus(select, true)
     announce(`Restored ${plural(restored.length, 'page')}.`)
-  }, [announce, deps.work, notify, requestFocus, restore, restoring, selectOnly])
+  }, [announce, deps.work, forgetTask, notify, requestFocus, restore, restoring, selectOnly])
 
   // Files shared to Collated or opened with it (#73) join the work in
   // progress: a document kept from last time is restored first, never
@@ -1753,6 +1799,19 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     [act, announce, duplex, notify, orderScope],
   )
 
+  // Sign a PDF (#120): the first page is selected as it comes in; its Sign
+  // button is brought into view (below the pages on a phone) and focused.
+  useEffect(() => {
+    // Once, with the pages just added: when the panel shows no Sign button
+    // (several pages selected), nothing moves.
+    if (!signNext.current) return
+    signNext.current = false
+    const button = rail.current?.querySelector<HTMLElement>('[data-sign-start]')
+    if (!button) return
+    button.scrollIntoView({ block: 'center' })
+    button.focus({ preventScroll: true })
+  }, [pages])
+
   const workspace = pages.length > 0 || importing !== null
 
   return (
@@ -1817,6 +1876,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         {!workspace ? (
           <div className="scroll-pane lg:overflow-y-auto">
             <EmptyState
+              task={task}
               onChoose={chooseFiles}
               {...(touch && { onTakePhoto: takePhoto })}
               {...(touch && deps.canScan && { onScan: scan })}

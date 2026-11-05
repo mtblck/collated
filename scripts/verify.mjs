@@ -46,6 +46,12 @@ if (!existsSync(join(dist, 'index.html'))) {
 }
 
 // --- A static server that behaves like Vercel for this project. -------------
+/** The task pages (#120), read as hosting:check reads them. */
+const TASK_SLUGS = [
+  ...readFileSync(join(root, 'src', 'components', 'tasks.ts'), 'utf8').matchAll(
+    /^\s+slug: '([a-z0-9-]+)',$/gm,
+  ),
+].map((m) => m[1])
 const vercel = JSON.parse(readFileSync(join(root, 'vercel.json'), 'utf8'))
 const headerBlock = vercel.headers.find((b) => b.source === `${BASE}(.*)`)
 const types = {
@@ -61,6 +67,7 @@ const types = {
   '.gz': 'application/gzip',
   '.png': 'image/png',
   '.webmanifest': 'application/manifest+json',
+  '.xml': 'application/xml',
 }
 /** Set by step 28 to take the site off the network: every connection drops. */
 let serverDown = false
@@ -75,8 +82,8 @@ const server = createServer((req, res) => {
     res.writeHead(308, { Location: path.slice('/tools/collated'.length) || '/' }).end()
     return
   }
-  // As vercel.json: docs URLs typed without their slash go to the page.
-  if (/^\/(docs|docs\/[^/.]+|privacy|terms)$/.test(path)) {
+  // As vercel.json: docs and task URLs typed without their slash go to the page.
+  if (/^\/(docs|docs\/[^/.]+|privacy|terms)$/.test(path) || TASK_SLUGS.includes(path.slice(1))) {
     res.writeHead(308, { Location: `${path}/` }).end()
     return
   }
@@ -4959,6 +4966,97 @@ await context.close()
     )
   }
   await phone.close()
+}
+
+// 47. Task pages (#120), by touch on a 390px phone: six static pages, each
+//     with its own title, canonical URL and one h1, fitting the screen, in the
+//     sitemap and the footer; their button opens the app with the task
+//     ready: Sign a PDF focuses the Sign button, Compress a PDF picks Small.
+{
+  const slugs = TASK_SLUGS
+  const { context: phone, page: p } = await open({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  })
+  const sitemap = await p.request.get(`${ORIGIN}/sitemap.xml`)
+  const map = await sitemap.text()
+  check(
+    sitemap.status() === 200 &&
+      slugs.every((slug) => map.includes(`<loc>https://collatedpdf.com/${slug}/</loc>`)) &&
+      map.includes('<loc>https://collatedpdf.com/docs/signing/</loc>'),
+    'the sitemap lists the task pages and the docs',
+    map.slice(0, 300),
+  )
+  for (const slug of slugs) {
+    const response = await p.goto(`${URL_ROOT}${slug}/`, { waitUntil: 'networkidle' })
+    const canonical = await p.locator('link[rel="canonical"]').getAttribute('href')
+    const fits = await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth)
+    check(
+      response?.status() === 200 &&
+        (await p.locator('h1').count()) === 1 &&
+        canonical === `https://collatedpdf.com/${slug}/` &&
+        (await p.title()).endsWith(' · Collated') &&
+        fits,
+      `/${slug}/ is served with one h1 and its own canonical URL, and fits a phone`,
+      `${String(response?.status())} ${canonical} fits=${String(fits)}`,
+    )
+    await axe(p, `/${slug}/`)
+  }
+  await p.goto(`${URL_ROOT}sign-pdf`, { waitUntil: 'networkidle' })
+  check(p.url().endsWith('/sign-pdf/'), 'a task URL without its slash goes to the page', p.url())
+  await p.screenshot({ path: join(shots, 'task-page-phone.png'), fullPage: true })
+
+  // Sign a PDF: the page's button, then the app's.
+  await p.getByRole('link', { name: 'Choose a PDF to sign' }).tap()
+  await p.getByText('Drop the PDF to sign here').waitFor()
+  check(p.url().endsWith('/?task=sign-pdf'), 'the task page opens the app with its task', p.url())
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-3pages.pdf')])
+  await p.waitForSelector('ol[aria-label="3 pages"]', { timeout: 20_000 })
+  const sign = p.getByRole('button', { name: 'Sign this page…' })
+  await p.waitForFunction(() => document.activeElement?.hasAttribute('data-sign-start'))
+  const box = await sign.boundingBox()
+  check(
+    box !== null && box.y >= 0 && box.y + box.height <= 844 && !p.url().includes('task='),
+    'Sign a PDF: the first page’s Sign button is focused and on screen; the address is plain again',
+    `${JSON.stringify(box)} ${p.url()}`,
+  )
+  await p.screenshot({ path: join(shots, 'task-sign-ready-phone.png') })
+  await sign.tap()
+  await p.getByRole('dialog').first().waitFor()
+  ok('Sign this page opens by touch')
+  await phone.close()
+
+  // Compress a PDF: Small is chosen, and said.
+  const { context: phone2, page: q } = await open({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  })
+  await q.goto(`${URL_ROOT}compress-pdf/`, { waitUntil: 'networkidle' })
+  await q.getByRole('link', { name: 'Choose a PDF to compress' }).tap()
+  await q.getByText('Drop the PDF to compress here').waitFor()
+  await q.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-3pages.pdf')])
+  await q.waitForSelector('ol[aria-label="3 pages"]', { timeout: 20_000 })
+  await q.getByText('Image quality is set to Small').waitFor()
+  await exportMenu(q).tap()
+  const small = q
+    .getByRole('dialog', { name: 'Export options' })
+    .getByRole('radio', { name: /^Small/ })
+  check(await small.isChecked(), 'Compress a PDF: image quality is Small, and a notice says so')
+  await q.keyboard.press('Escape')
+
+  // The landing view's footer links every task page.
+  await q.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  const tools = await q
+    .locator('footer a')
+    .evaluateAll((as) => as.map((a) => a.getAttribute('href')))
+  check(
+    slugs.every((slug) => tools.includes(`/${slug}/`)),
+    'the landing footer links every task page',
+    tools.join(' '),
+  )
+  await phone2.close()
 }
 
 checkSameOrigin()

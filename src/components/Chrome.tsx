@@ -4,6 +4,7 @@ import { cx } from './cx'
 import { CameraIcon, CloseIcon, MoonIcon, ScanIcon, SunIcon } from './Icons'
 import { APP_URL, DOCS_URL, FOOTER, SOURCE_URL, SPONSORS_URL, SUPPORT_URL } from './links'
 import { savedWhen } from './format'
+import type { Task } from './tasks'
 import { useTheme } from './theme'
 
 /** The landing view's theme switch; in the workspace it lives in More. */
@@ -186,107 +187,132 @@ export const RestoreOffer = ({ pages, savedAt, busy, onRestore, onDiscard }: Res
 )
 
 export const EmptyState = ({
+  task = null,
   onChoose,
   onTakePhoto,
   onScan,
   restore,
 }: {
+  /** The task page this visit came from (#120): its words on the drop target. */
+  task?: Pick<Task, 'heading' | 'action' | 'drop' | 'ready'> | null
   onChoose: () => void
   /** Opens the camera; only on touch devices (#72). */
   onTakePhoto?: () => void
   /** Opens the scan camera; touch devices that allow the camera (#118). */
   onScan?: () => void
   restore?: RestoreOfferProps | null
-}) => (
-  <div className="mx-auto flex max-w-6xl flex-col gap-14 px-4 pt-10 pb-20 sm:px-6 sm:pt-16">
-    {restore && <RestoreOffer {...restore} />}
-    <div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-14">
-      <div className="flex flex-col gap-6">
-        <h1 className="text-display font-semibold text-ink">
-          Many pages in.
-          <br />
-          <span className="text-ink-faint">One PDF out.</span>
-        </h1>
-        <p className="max-w-md text-lg leading-relaxed text-ink-muted">
-          Lay scans, phone photos and PDFs out on the table, put them in order, and take one tidy
-          PDF away. It all happens in your browser.
-        </p>
+}) => {
+  const scanFirst = task?.ready === 'scan' && onScan !== undefined
+  return (
+    <div className="mx-auto flex max-w-6xl flex-col gap-14 px-4 pt-10 pb-20 sm:px-6 sm:pt-16">
+      {restore && <RestoreOffer {...restore} />}
+      <div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-14">
+        <div className="flex flex-col gap-6">
+          <h1 className="text-display font-semibold text-ink">
+            Many pages in.
+            <br />
+            <span className="text-ink-faint">One PDF out.</span>
+          </h1>
+          <p className="max-w-md text-lg leading-relaxed text-ink-muted">
+            Lay scans, phone photos and PDFs out on the table, put them in order, and take one tidy
+            PDF away. It all happens in your browser.
+          </p>
+        </div>
+
+        {/* The drop target: an empty patch of the light table. */}
+        <div className="relative flex flex-col items-center gap-5 overflow-hidden rounded-[1.75rem] border border-dashed border-control/70 bg-[radial-gradient(ellipse_at_50%_35%,var(--c-glow),transparent_70%)] px-6 pt-10 pb-12 text-center sm:pt-12">
+          <div className="relative h-44 w-64 sm:h-52 sm:w-72" aria-hidden="true">
+            <Sheet className="top-4 left-3 aspect-[17/22] h-[82%] -rotate-[9deg]" />
+            <Sheet className="top-6 right-2 aspect-[17/22] h-[82%] rotate-[8deg]" lines={8} />
+            <Sheet className="top-0 left-1/2 aspect-[17/22] h-[92%] -translate-x-1/2" />
+          </div>
+          {task && <p className="label text-accent">{task.heading}</p>}
+          <p className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+            {task?.drop ?? 'Drop scans, photos or PDFs here'}
+          </p>
+          {/* Where focus goes when the last page is removed. Scan to PDF puts
+            Scan pages first, where it can open. */}
+          <div className="flex flex-wrap justify-center gap-3">
+            {scanFirst && (
+              <Button variant="primary" size="lg" onClick={onScan}>
+                <ScanIcon />
+                Scan pages
+              </Button>
+            )}
+            <Button
+              variant={scanFirst ? 'secondary' : 'primary'}
+              size="lg"
+              onClick={onChoose}
+              data-focus-fallback
+            >
+              {task ? (task.ready === 'scan' ? 'Choose photos' : task.action) : 'Choose files'}
+            </Button>
+            {onTakePhoto && (
+              <Button size="lg" onClick={onTakePhoto}>
+                <CameraIcon />
+                Take photo
+              </Button>
+            )}
+            {onScan && !scanFirst && (
+              <Button size="lg" onClick={onScan}>
+                <ScanIcon />
+                Scan pages
+              </Button>
+            )}
+          </div>
+          {task?.ready === 'scan' && !onScan && (
+            <p className="max-w-sm text-sm text-ink-muted">
+              Scanning needs a phone or tablet with a camera: open this page there, or choose photos
+              you’ve already taken.
+            </p>
+          )}
+          <p className="text-sm text-ink-muted">or paste them from the clipboard</p>
+          <p className="label text-ink-faint">PDF · JPEG · PNG · HEIC · WebP · AVIF · GIF</p>
+        </div>
       </div>
 
-      {/* The drop target: an empty patch of the light table. */}
-      <div className="relative flex flex-col items-center gap-5 overflow-hidden rounded-[1.75rem] border border-dashed border-control/70 bg-[radial-gradient(ellipse_at_50%_35%,var(--c-glow),transparent_70%)] px-6 pt-10 pb-12 text-center sm:pt-12">
-        <div className="relative h-44 w-64 sm:h-52 sm:w-72" aria-hidden="true">
-          <Sheet className="top-4 left-3 aspect-[17/22] h-[82%] -rotate-[9deg]" />
-          <Sheet className="top-6 right-2 aspect-[17/22] h-[82%] rotate-[8deg]" lines={8} />
-          <Sheet className="top-0 left-1/2 aspect-[17/22] h-[92%] -translate-x-1/2" />
-        </div>
-        <p className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-          Drop scans, photos or PDFs here
-        </p>
-        {/* Where focus goes when the last page is removed. */}
-        <div className="flex flex-wrap justify-center gap-3">
-          <Button variant="primary" size="lg" onClick={onChoose} data-focus-fallback>
-            Choose files
-          </Button>
-          {onTakePhoto && (
-            <Button size="lg" onClick={onTakePhoto}>
-              <CameraIcon />
-              Take photo
-            </Button>
-          )}
-          {onScan && (
-            <Button size="lg" onClick={onScan}>
-              <ScanIcon />
-              Scan pages
-            </Button>
-          )}
-        </div>
-        <p className="text-sm text-ink-muted">or paste them from the clipboard</p>
-        <p className="label text-ink-faint">PDF · JPEG · PNG · HEIC · WebP · AVIF · GIF</p>
-      </div>
+      <ol className="grid gap-4 sm:grid-cols-3">
+        {[
+          [
+            'Add',
+            'Drop in every page at once, images or whole PDFs. Phone photos come in the right way up.',
+          ],
+          [
+            'Arrange',
+            'Drag to reorder. Rotate, straighten and scale each page; pick the paper size.',
+          ],
+          [
+            'Export',
+            'One PDF, built in your browser. Scanned JPEGs go in as they are, not recompressed.',
+          ],
+        ].map(([title, body], i) => (
+          <li key={title} className="rounded-[1.125rem] bg-paper p-6 shadow-panel">
+            <p className="label text-accent">{String(i + 1).padStart(2, '0')}</p>
+            <h2 className="mt-3 text-lg font-semibold tracking-tight text-ink">{title}</h2>
+            <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">{body}</p>
+          </li>
+        ))}
+      </ol>
+      <p className="text-sm text-ink-muted">
+        Nothing is uploaded: there is no server, no account and no cookies, only anonymous counts of
+        page views and exports. Open source under the MIT licence.
+      </p>
     </div>
-
-    <ol className="grid gap-4 sm:grid-cols-3">
-      {[
-        [
-          'Add',
-          'Drop in every page at once, images or whole PDFs. Phone photos come in the right way up.',
-        ],
-        [
-          'Arrange',
-          'Drag to reorder. Rotate, straighten and scale each page; pick the paper size.',
-        ],
-        [
-          'Export',
-          'One PDF, built in your browser. Scanned JPEGs go in as they are, not recompressed.',
-        ],
-      ].map(([title, body], i) => (
-        <li key={title} className="rounded-[1.125rem] bg-paper p-6 shadow-panel">
-          <p className="label text-accent">{String(i + 1).padStart(2, '0')}</p>
-          <h2 className="mt-3 text-lg font-semibold tracking-tight text-ink">{title}</h2>
-          <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">{body}</p>
-        </li>
-      ))}
-    </ol>
-    <p className="text-sm text-ink-muted">
-      Nothing is uploaded: there is no server, no account and no cookies, only anonymous counts of
-      page views and exports. Open source under the MIT licence.
-    </p>
-  </div>
-)
+  )
+}
 
 /** Landing-view footer; the docs pages render the same columns (docs-site.ts). */
 export const Footer = () => (
   <footer className="border-t border-rule">
-    <div className="mx-auto grid max-w-6xl gap-8 px-4 py-10 sm:grid-cols-3 sm:px-6">
+    <div className="mx-auto grid max-w-6xl grid-cols-2 gap-8 px-4 py-10 sm:px-6 lg:grid-cols-4">
       {FOOTER.map((column) => (
         <div key={column.title}>
           <h2 className="label mb-3 text-ink-faint">{column.title}</h2>
-          <ul className="flex flex-col gap-2">
+          <ul className="flex flex-col gap-1">
             {column.links.map((link) => (
               <li key={link.href}>
                 <a
-                  className="text-sm text-ink-muted hover:text-ink"
+                  className="inline-block py-1 text-sm text-ink-muted hover:text-ink"
                   href={link.href}
                   {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                 >

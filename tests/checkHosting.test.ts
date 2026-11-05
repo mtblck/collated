@@ -165,6 +165,13 @@ describe('hosting:check', () => {
       'adding the slash',
     ],
     [
+      'a task page is left out of the slash redirect',
+      (config: Config) => {
+        for (const r of config.redirects) r.source = r.source.replace('|sign-pdf', '')
+      },
+      'adding the slash',
+    ],
+    [
       'a second block loosens the CSP',
       (config: Config) => {
         config.headers.push({

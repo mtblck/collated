@@ -92,3 +92,10 @@ if (typeof HTMLElement !== 'undefined' && typeof HTMLElement.prototype.showPopov
     else if (action === 'toggle') target.togglePopover()
   })
 }
+
+// jsdom has no scrollIntoView (the app uses it for Sign a PDF, #120).
+if (typeof Element !== 'undefined' && typeof Element.prototype.scrollIntoView !== 'function') {
+  Element.prototype.scrollIntoView = function scrollIntoView() {
+    // Nothing to scroll in jsdom.
+  }
+}

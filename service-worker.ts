@@ -19,8 +19,8 @@ const ON_DEMAND = [
   /^assets\/libheif-/,
   /^assets\/tiff\.worker-/,
 ]
-/** Neither: source maps, licence texts (linked, never needed offline), robots.txt. */
-const SKIP = [/\.map$/, /^licenses\//, /^robots\.txt$/, /^sw\.js$/]
+/** Neither: source maps, licence texts (linked, never needed offline), robots.txt, the sitemap. */
+const SKIP = [/\.map$/, /^licenses\//, /^robots\.txt$/, /^sitemap\.xml$/, /^sw\.js$/]
 
 export interface BuiltFile {
   /** Path in dist, e.g. `assets/index-abc.js` or `docs/keyboard/index.html`. */

@@ -13,6 +13,7 @@ version or date when it ships.
 
 ### Added
 
+- Task pages (#120, #144): JPG to PDF, Merge PDF files, Scan to PDF, Sign a PDF, Compress a PDF and HEIC to PDF each have their own page with a short how-to, linked from the footer. Their button opens Collated ready for the task: Sign a PDF brings the Sign button into view, Compress a PDF sets image quality to Small, and Scan to PDF puts **Scan pages** first.
 - Print as a **booklet** or a **poster** (#119), under **Print as** in Export options. A booklet puts two pages on each side of a sheet in the order that folds and staples into the right sequence, padded with blank pages to a multiple of four. A poster enlarges each page across up to 8 × 8 sheets that overlap a little, with cut marks and a label on each sheet. Pick the paper; text stays sharp and searchable.
 - Export PDF/A for archiving (#116): tick **PDF/A, for archiving** in the export options for the kind of PDF courts, governments and records offices ask for (PDF/A-2b, checked with veraPDF), with or without searchable text. Pages from PDFs you added become pictures of themselves, and the file can't have a password.
 - **Scan pages** on phones and tablets (#118): the camera stays open inside Collated, outlines the page live and takes it by itself once it's steady, already cropped. Turn the page and it takes the next one. Shutter button, **Auto** on or off, a count of pages taken, and the phone's light where the browser allows it. Asks for camera access; **Take photo** stays for one shot without it.

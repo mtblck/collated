@@ -15,7 +15,7 @@
       "permanent": true
     },
     {
-      "source": "/:page(docs|docs/[^/.]+|privacy|terms)",
+      "source": "/:page(docs|docs/[^/.]+|privacy|terms|jpg-to-pdf|merge-pdf|scan-to-pdf|sign-pdf|compress-pdf|heic-to-pdf)",
       "destination": "/:page/",
       "permanent": true
     }

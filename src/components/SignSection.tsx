@@ -59,6 +59,7 @@ export const SignSection = ({
         <Button
           ref={button}
           className="flex-1"
+          data-sign-start
           onClick={() => {
             setEditing('sign')
           }}

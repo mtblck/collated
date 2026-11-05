@@ -7,6 +7,7 @@ import { ImportError } from './import/importFile'
 import { createWorkStore, memoryBackend } from './state/workStore'
 import type { Incoming } from './lib/incoming'
 import type { OutlineItem } from './core/outline'
+import { TASKS } from './components/tasks'
 
 const file = (name: string) => new File([new Uint8Array([1, 2, 3])], name, { type: 'image/jpeg' })
 
@@ -166,6 +167,73 @@ describe('App', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       'locked-payslip.pdf: Not added: it needs a password to open.',
     )
+  })
+
+  describe('from a task page (#120)', () => {
+    const task = (slug: string) => {
+      const found = TASKS.find((t) => t.slug === slug)
+      if (!found) throw new Error(slug)
+      return found
+    }
+
+    it('says the task on the drop target, and is the plain app once files are in', async () => {
+      const forgetTask = vi.fn()
+      const { upload } = setup({ task: task('merge-pdf'), forgetTask })
+      expect(screen.getByText('Drop the PDFs to merge here')).toBeInTheDocument()
+      await upload('a.pdf')
+      expect(await screen.findByRole('list', { name: '3 pages' })).toBeInTheDocument()
+      expect(forgetTask).toHaveBeenCalledOnce()
+      expect(status()).toHaveTextContent('Added 3 pages.')
+      await upload('b.jpg')
+      expect(await screen.findByRole('list', { name: '4 pages' })).toBeInTheDocument()
+      expect(forgetTask).toHaveBeenCalledOnce()
+    })
+
+    it('Sign a PDF focuses the first page’s Sign button', async () => {
+      const { upload } = setup({ task: task('sign-pdf'), forgetTask: vi.fn() })
+      expect(screen.getByRole('button', { name: 'Choose a PDF to sign' })).toBeEnabled()
+      await upload('lease.pdf')
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Sign this page…' })).toHaveFocus()
+      })
+      expect(status()).toHaveTextContent(
+        'Choose Sign this page to sign it, or select another page first.',
+      )
+    })
+
+    it('Compress a PDF sets image quality to Small, and says so', async () => {
+      const { upload, store } = setup({ task: task('compress-pdf'), forgetTask: vi.fn() })
+      await upload('big.pdf')
+      expect(await screen.findByRole('list', { name: '3 pages' })).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toHaveTextContent('Image quality is set to Small')
+      await waitFor(() => {
+        expect(JSON.parse(store.get('collated:settings') ?? '{}')).toMatchObject({
+          quality: 'small',
+        })
+      })
+    })
+
+    it('Scan to PDF puts Scan pages first where it can open, and explains where it can’t', () => {
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        matches: query === '(pointer: coarse)',
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      }))
+      try {
+        setup({ task: task('scan-to-pdf'), canScan: true })
+        const offered = new Set(['Scan pages', 'Choose photos', 'Take photo'])
+        const buttons = screen
+          .getAllByRole('button')
+          .map((b) => b.textContent)
+          .filter((name) => offered.has(name))
+        expect(buttons).toEqual(['Scan pages', 'Choose photos', 'Take photo'])
+      } finally {
+        vi.unstubAllGlobals()
+      }
+      cleanup()
+      setup({ task: task('scan-to-pdf'), canScan: false })
+      expect(screen.getByText(/Scanning needs a phone or tablet/)).toBeInTheDocument()
+    })
   })
 
   it('offers Take photo only on touch devices', () => {
