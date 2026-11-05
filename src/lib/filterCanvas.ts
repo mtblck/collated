@@ -4,6 +4,7 @@ import type { Filter, Redaction } from '../core/model'
 import type { FlattenJob, ImageJob } from '../core/pdf'
 import type { ShrinkJob } from '../core/pdfImages'
 import { WATERMARK_FONT } from '../core/watermark'
+import { STAMP_STROKE, type VectorMark } from '../core/marks'
 import { rotatedBounds, type Part } from '../core/geometry'
 import { redactionShapes } from '../core/redact'
 import { toPixels, warp, warpSize, type Point, type Quad } from '../core/perspective'
@@ -209,6 +210,38 @@ export const processToBlob = (source: Blob, job: ImageJob) =>
     job.redactions,
   )
 
+/** Text or a tick (#112) burned into a page, as the PDF and the preview draw it. */
+const drawVectorMark = (ctx: OffscreenCanvasRenderingContext2D, mark: VectorMark) => {
+  const { cx, cy, width, height, rotation } = mark.box
+  ctx.save()
+  ctx.translate(cx, cy)
+  ctx.rotate((rotation * Math.PI) / 180)
+  ctx.translate(-width / 2, -height / 2)
+  ctx.fillStyle = mark.colour
+  ctx.strokeStyle = mark.colour
+  if (mark.kind === 'text') {
+    ctx.font = `${String(mark.size)}px ${WATERMARK_FONT}`
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'alphabetic'
+    ctx.fontKerning = 'none'
+    for (const line of mark.lines) ctx.fillText(line.text, 0, line.baseline)
+  } else {
+    ctx.scale(width, height)
+    ctx.lineWidth = STAMP_STROKE
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.beginPath()
+    for (const path of mark.paths) {
+      path.forEach(([u, v], i) => {
+        if (i === 0) ctx.moveTo(u, v)
+        else ctx.lineTo(u, v)
+      })
+    }
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
 /**
  * A whole page as one JPEG, watermark burned in (#78): white paper, each
  * picture processed as the export would embed it (black-outs included) and
@@ -256,8 +289,12 @@ export const flattenToBlob = async (job: FlattenJob) => {
       if (image instanceof ImageBitmap) image.close()
     }
   }
-  // Signatures (#111): over the pictures, turned about their middles as the preview turns them.
+  // Marks: over the pictures, in order, turned about their middles as the preview turns them.
   for (const placed of job.marks) {
+    if (placed.kind !== 'image') {
+      drawVectorMark(ctx, placed)
+      continue
+    }
     const image = await createImageBitmap(new Blob([placed.bytes as Uint8Array<ArrayBuffer>]))
     try {
       const { cx, cy, width, height, rotation } = placed.image

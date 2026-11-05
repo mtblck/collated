@@ -3,9 +3,11 @@ public: true
 order: 4
 ---
 
-# Signing a page
+# Filling in and signing a page
 
-To sign a lease, a form or a letter and send it back: select the page, choose **Sign this page…** in the panel, and put your signature where it goes. It's a picture of your signature on the page, like signing a printout, not a certificate-based digital signature.
+To fill in a form that has no fields to type in, or sign a lease or a letter and send it back: select the page and use **Fill and sign** in the panel. **Sign this page…** starts with your signature; **Add text or ticks…** opens the page to type on, tick boxes or add today's date. Both open the same editor, and everything in it can go on one page.
+
+A signature is a picture of your signature on the page, like signing a printout, not a certificate-based digital signature.
 
 ## Making a signature
 
@@ -21,19 +23,31 @@ Drawn and typed signatures can be black or blue. **Use this signature** puts it 
 
 Tick **Save on this device for next time** (it starts unticked) and the signature is kept in your browser on this device, so next time it's under **Saved** and one tap puts it on the page. It's never uploaded. Collated keeps your 12 most recent; delete one with the bin button beside it under **Saved**. Clearing the site's data in your browser deletes them all. **Start over** doesn't: it clears your document, not your signatures.
 
+## Text, dates, ticks and crosses
+
+Under the page, **Add** has a button for each:
+
+- **Text:** a box appears in the middle of the page and the cursor goes to the typing box under the page. Type what goes there; press Return for another line. On a phone the editor shrinks to the space above the on-screen keyboard, so you can see the text on the page as you type. Tap a text on the page to select it and change it later.
+- **Date:** today's date, written the way your device writes dates ("5 Nov 2026"). It's text, so you can change it like any other.
+- **Tick** and **Cross:** for the boxes on a form.
+
+New text is about 12 pt and a tick about the size of a form's box; make them bigger or smaller as below. Text, ticks and crosses can be black, blue or red: select one and pick its colour.
+
+Text is set in Helvetica, the font the watermark uses, so it can only use Latin letters (those in Windows-1252: English and most Western European languages). If you type a letter it can't write, the editor says which, and **Apply** waits until it's gone.
+
 ## Placing it
 
-The editor shows the page exactly as it will print, with the signature low on the page. Then:
+The editor shows the page exactly as it will print. A new signature goes low on the page, anything else in the middle. Then select one (tap it) and:
 
-- **Move:** drag it, or tap the page where it should go.
+- **Move:** drag it, or tap the page where it should go. To tick several boxes, press **Tick** and tap the box, then do it again.
 - **Size:** pinch with two fingers, drag its corner, or use **Smaller** and **Larger**.
 - **Turn:** twist with two fingers, drag the knob above it, or use the turn buttons. It turns up to 30° either way.
-- **Keyboard:** focus the signature, then the arrow keys move it, **+** and **−** size it, **[** and **]** turn it (hold Shift for bigger steps), and Delete removes it.
+- **Keyboard:** focus it on the page, then the arrow keys move it, **+** and **−** size it, **[** and **]** turn it (hold Shift for bigger steps), and Delete removes it.
 
-**Add another** puts a second signature (or your initials) on the same page. **Apply** puts them on the page as one step, so **Undo** takes them all back; **Cancel** leaves the page as it was. In the panel, **Edit signatures…** changes them later and **Remove all** takes them off.
+**Signature** puts a second signature (or your initials) on the same page. The bin button removes the selected one. **Apply** puts everything on the page as one step, so **Undo** takes it all back; **Cancel** leaves the page as it was. Empty text is left off. In the panel, **Edit…** changes them later and **Remove all** takes them off.
 
-A signature can go anywhere on the page, the margins too. It works the same on single pages, combined pages and blank pages. It stays where you put it on the paper if you rotate, crop or change the picture underneath, and if you change the paper size it keeps its place as a share of the page. Duplicating a signed page copies the signatures; combining or splitting pages leaves them off the new pages, so sign after you combine.
+Signatures, text and ticks can go anywhere on the page, the margins too. It works the same on single pages, combined pages and blank pages. They stay where you put them on the paper if you rotate, crop or change the picture underneath, and if you change the paper size they keep their place and size as a share of the page, so they still line up with the form. Duplicating a page copies them; combining or splitting pages leaves them off the new pages, so fill in and sign after you combine.
 
 ## In the PDF
 
-The signature is drawn into the PDF where the preview shows it, over everything on the page, under a watermark and the page number. On a PDF page you added, the page keeps its own text and drawing, and the signature goes on top. With a watermark burned in, the signature is burned into the page picture too.
+Everything is drawn into the PDF where the preview shows it, over everything on the page, under a watermark and the page number. Text is real text in the PDF, so it can be selected, copied and searched; ticks and crosses are drawn as lines, sharp at any zoom. On a PDF page you added, the page keeps its own text and drawing, and these go on top. With a watermark burned in, they are burned into the page picture too, and the text can't be selected there.

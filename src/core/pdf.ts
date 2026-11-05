@@ -17,6 +17,16 @@ import {
   showText,
   grayscale,
   rgb,
+  concatTransformationMatrix,
+  lineTo,
+  moveTo,
+  setLineCap,
+  setLineJoin,
+  setLineWidth,
+  setStrokingRgbColor,
+  stroke,
+  LineCapStyle,
+  LineJoinStyle,
   PDFName,
   PDFString,
   PDFHexString,
@@ -33,7 +43,14 @@ import { layoutSheet, partLayout, snapPart, visiblePart, type Layout, type Part 
 import { compressionFor, targetPixels, type Compression } from './compression'
 import { contentSize, isRedacted, pictureKey, picturesOf, sizeModel } from './model'
 import type { Asset, Filter, Page, Redaction, Settings } from './model'
-import { markBox } from './marks'
+import {
+  STAMP_STROKE,
+  isImageMark,
+  markBox,
+  markTextProblems,
+  vectorMark,
+  type VectorMark,
+} from './marks'
 import { redactionShapes, wordsClear } from './redact'
 import { FULL_IMAGE, apply, homography, type Quad } from './perspective'
 import { NeedsDrawing, embedSanitized, reachesHiddenLayer, sanitizedPage } from './pdfSanitize'
@@ -43,7 +60,13 @@ import { headerSize } from './imageInfo'
 import { readGreyPng } from './png'
 import { placeWord, type OcrWord } from './textLayer'
 import { NUMBER_GREY, numberMark } from './pageNumbers'
-import { textWidth, unsupportedCharacters, watermarkMark, type WatermarkMark } from './watermark'
+import {
+  colourOf,
+  textWidth,
+  unsupportedCharacters,
+  watermarkMark,
+  type WatermarkMark,
+} from './watermark'
 import type { OutlineItem } from './outline'
 
 export interface BuildInput {
@@ -143,8 +166,12 @@ export interface FlattenJob {
     /** Its cell: nothing is drawn outside it. */
     clip: Layout['content']
   }[]
-  /** Signatures (#111), over the pictures and under the watermark: PNG bytes and where each goes. */
-  marks: { bytes: Uint8Array; image: Layout['image'] }[]
+  /**
+   * Marks over the pictures and under the watermark, in order: signatures
+   * (#111) as PNG bytes and where each goes, text and stamps (#112) as
+   * `vectorMark` draws them.
+   */
+  marks: ({ kind: 'image'; bytes: Uint8Array; image: Layout['image'] } | VectorMark)[]
   mark: WatermarkMark
   /** JPEG quality, 0–1. */
   quality: number
@@ -294,6 +321,75 @@ const drawTextLayer = (page: PDFPage, font: PDFFont, layout: Layout, words: read
     )
   }
   page.pushOperators(endText(), popGraphicsState())
+}
+
+/** A point of a mark's box, from its middle (`dx`, `dy` along its own axes), in PDF space. */
+const fromMiddle = (box: Layout['image'], dx: number, dy: number, height: number) => {
+  const r = (box.rotation * Math.PI) / 180
+  return {
+    x: box.cx + dx * Math.cos(r) - dy * Math.sin(r),
+    y: height - (box.cy + dx * Math.sin(r) + dy * Math.cos(r)),
+  }
+}
+
+/**
+ * Typed text (#112) as real text, so it can be selected and searched: each
+ * line from its start on its baseline, turned with the box.
+ */
+const drawMarkText = (
+  page: PDFPage,
+  font: PDFFont,
+  mark: Extract<VectorMark, { kind: 'text' }>,
+  height: number,
+) => {
+  const { r, g, b } = colourOf(mark.colour)
+  for (const line of mark.lines) {
+    if (!line.text) continue
+    const at = fromMiddle(
+      mark.box,
+      -mark.box.width / 2,
+      line.baseline - mark.box.height / 2,
+      height,
+    )
+    page.drawText(line.text, {
+      ...at,
+      size: mark.size,
+      font,
+      color: rgb(r, g, b),
+      rotate: degrees(-mark.box.rotation),
+    })
+  }
+}
+
+/** A tick or cross (#112) as round-ended strokes: its unit square mapped onto its box. */
+const drawStamp = (page: PDFPage, mark: Extract<VectorMark, { kind: 'stamp' }>, height: number) => {
+  const { box } = mark
+  const half = box.width / 2
+  // The unit square (y down) onto the box: its origin and where (1, 0) and (0, 1) land.
+  const origin = fromMiddle(box, -half, -half, height)
+  const u = fromMiddle(box, half, -half, height)
+  const v = fromMiddle(box, -half, half, height)
+  const { r: red, g, b } = colourOf(mark.colour)
+  page.pushOperators(
+    pushGraphicsState(),
+    concatTransformationMatrix(
+      u.x - origin.x,
+      u.y - origin.y,
+      v.x - origin.x,
+      v.y - origin.y,
+      origin.x,
+      origin.y,
+    ),
+    setLineWidth(STAMP_STROKE),
+    setLineCap(LineCapStyle.Round),
+    setLineJoin(LineJoinStyle.Round),
+    setStrokingRgbColor(red, g, b),
+    ...mark.paths.flatMap((path) =>
+      path.map(([u, v], i) => (i === 0 ? moveTo(u, v) : lineTo(u, v))),
+    ),
+    stroke(),
+    popGraphicsState(),
+  )
 }
 
 /**
@@ -610,9 +706,15 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     const pictures = picturesOf(page)
     if (
       pictures.some((slot) => !assets[slot.assetId]) ||
-      (page.marks ?? []).some((mark) => !assets[mark.assetId])
+      (page.marks ?? []).some((mark) => isImageMark(mark) && !assets[mark.assetId])
     ) {
       throw new Error(`Page ${index + 1} refers to missing content.`)
+    }
+    const unwritable = [...new Set((page.marks ?? []).flatMap(markTextProblems))]
+    if (unwritable.length) {
+      throw new Error(
+        `the text on page ${String(index + 1)} has ${unwritable.join(' ')}, which its font can’t write. Use Latin letters.`,
+      )
     }
     const sheet = layoutSheet(
       settings,
@@ -645,11 +747,15 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
       const job = imageJob(stored, look, layout.image.width, compression, part)
       return [{ i, layout, stored, look, part, job }]
     })
-    // Signatures (#111) and other marks: over the pictures, anywhere on the
-    // page (margins included), under the watermark and page number.
-    const marks = (page.marks ?? []).flatMap((mark) => {
+    // Signatures (#111), text and stamps (#112): over the pictures, anywhere
+    // on the page (margins included), under the watermark and page number.
+    type Drawn =
+      { kind: 'image'; asset: BuildInput['assets'][string]; box: Layout['image'] } | VectorMark
+    const marks = (page.marks ?? []).flatMap((mark): Drawn[] => {
+      if (!isImageMark(mark)) return [vectorMark(mark, sheet.page)]
       const asset = assets[mark.assetId]
-      return asset ? [{ asset, box: markBox(mark, sheet.page, asset) }] : []
+      const box = asset && markBox(mark, sheet.page, asset)
+      return asset && box ? [{ kind: 'image', asset, box }] : []
     })
     // Burned in only where every picture is pixels: a vector page keeps its
     // text and gets the watermark as text.
@@ -674,16 +780,23 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
         })
       }
       // A signature keeps its own sharpness too.
-      for (const { asset, box } of marks) scale = Math.max(scale, asset.width / box.width)
+      for (const m of marks) {
+        if (m.kind === 'image') scale = Math.max(scale, m.asset.width / m.box.width)
+      }
       const jpeg = await options.flattenPage({
         page: sheet.page,
         scale,
         pictures: pieces,
         marks: await Promise.all(
-          marks.map(async ({ asset, box }) => ({
-            bytes: await options.getBytes(asset.bytesId),
-            image: box,
-          })),
+          marks.map(async (m) =>
+            m.kind === 'image'
+              ? {
+                  kind: 'image' as const,
+                  bytes: await options.getBytes(m.asset.bytesId),
+                  image: m.box,
+                }
+              : m,
+          ),
         ),
         mark: watermark,
         quality: compression?.quality ?? 0.92,
@@ -717,10 +830,19 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
         else pdfPage.drawImage(content.image, draw)
         pdfPage.pushOperators(popGraphicsState())
       }
-      for (const { asset, box } of marks) {
-        const content = await embed(asset, null)
+      for (const m of marks) {
+        if (m.kind === 'stamp') {
+          drawStamp(pdfPage, m, sheet.page.height)
+          continue
+        }
+        if (m.kind === 'text') {
+          font ??= await doc.embedFont(StandardFonts.Helvetica)
+          drawMarkText(pdfPage, font, m, sheet.page.height)
+          continue
+        }
+        const content = await embed(m.asset, null)
         if (content.kind !== 'image') continue
-        const at = placement({ ...sheet, image: box, dpi: 0 }, content.turns)
+        const at = placement({ ...sheet, image: m.box, dpi: 0 }, content.turns)
         pdfPage.drawImage(content.image, { ...at, rotate: degrees(at.rotate) })
       }
     }

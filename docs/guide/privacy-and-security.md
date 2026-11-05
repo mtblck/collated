@@ -33,7 +33,7 @@ On a shared computer, or if you'd rather nothing were kept, turn off **Keep work
 
 ## Signatures
 
-A signature you save is kept in your browser on this device, in its own storage, apart from your document, and never uploaded. Delete one under **Saved** when you next sign, or clear the site's data in your browser to delete them all. A signature you put on a page is part of that document, so it's also in the copy of your work kept on this device until you start over. See [Signing a page](signing.md).
+A signature you save is kept in your browser on this device, in its own storage, apart from your document, and never uploaded. Delete one under **Saved** when you next sign, or clear the site's data in your browser to delete them all. A signature you put on a page is part of that document, so it's also in the copy of your work kept on this device until you start over. See [Filling in and signing a page](signing.md).
 
 ## Passwords
 

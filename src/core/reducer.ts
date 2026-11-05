@@ -1,7 +1,7 @@
 import { PAGE_MAX, PAGE_MIN } from './limits'
 import { interleave, reverse, sort, type SortKey } from './order'
 import { isConvex, type Point, type Quad } from './perspective'
-import { cleanMarks } from './marks'
+import { cleanMarks, markReady } from './marks'
 import { cleanRedactions } from './redact'
 import type {
   Asset,
@@ -397,8 +397,9 @@ export const docReducer = (state: DocState, action: Action): DocState => {
       const marks = cleanMarks(action.marks)
       const assets = { ...state.assets }
       for (const asset of action.assets ?? []) assets[asset.id] = asset
-      // A mark whose picture the document doesn't have would only fail the export.
-      const kept = marks.filter((mark) => assets[mark.assetId])
+      // A signature whose picture the document doesn't have would only fail
+      // the export; empty text would be a box nobody sees.
+      const kept = marks.filter((mark) => markReady(mark, assets))
       const page = state.pages.find((p) => p.id === action.id)
       // Nothing changed (an editor applied as it opened): no undo step.
       const fresh = (action.assets ?? []).some((a) => state.assets[a.id] !== a)

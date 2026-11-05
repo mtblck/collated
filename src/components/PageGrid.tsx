@@ -122,7 +122,7 @@ const PageCard = memo(function PageCard({
             ? { 'aria-pressed': selected }
             : { 'aria-current': selected ? 'true' : undefined })}
           data-page-select
-          aria-label={`Page ${index + 1}: ${name}${section ? `, starts section ${section}` : ''}${marks.length ? ', signed' : ''}${blank ? ', looks blank' : ''}`}
+          aria-label={`Page ${index + 1}: ${name}${section ? `, starts section ${section}` : ''}${marks.some((m) => m.kind === 'image') ? ', signed' : marks.length ? ', filled in' : ''}${blank ? ', looks blank' : ''}`}
           onClick={(event) => {
             const mode = pickModeOf(event)
             onSelect(page.id, selecting && mode === 'only' ? 'toggle' : mode)

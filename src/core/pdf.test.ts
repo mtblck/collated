@@ -16,8 +16,19 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { asset, fixture, page, settings } from '../../tests/helpers'
 import { layoutPage, layoutSheet, type Layout } from './geometry'
 import { DEFAULT_TRANSFORM, blankPage } from './model'
-import type { Asset, Mark, Page, PageTransform, Settings, SheetKind, Slot } from './model'
-import { markBox } from './marks'
+import type {
+  Asset,
+  ImageMark,
+  Mark,
+  StampMark,
+  TextMark,
+  Page,
+  PageTransform,
+  Settings,
+  SheetKind,
+  Slot,
+} from './model'
+import { TEXT_LINE_HEIGHT, markBox, vectorMark } from './marks'
 import { passthrough } from './imageInfo'
 import { pdfFilename } from './filename'
 import {
@@ -1049,7 +1060,7 @@ im.save(sys.stdout.buffer, 'PNG')`,
     height: 100,
     name: 'Signature',
   })
-  const mark = (patch: Partial<Mark> = {}): Mark => ({
+  const mark = (patch: Partial<ImageMark> = {}): ImageMark => ({
     id: 'm1',
     kind: 'signature',
     assetId: signatureAsset.id,
@@ -1151,7 +1162,7 @@ im.save(sys.stdout.buffer, 'PNG')`,
     const { sheet } = await signed(s, 'quad-landscape.jpg', [m], jobs)
     expect(jobs).toHaveLength(1)
     const box = markBox(m, sheet.page, signatureAsset)
-    expect(jobs[0]?.marks).toEqual([{ bytes: SIGNATURE, image: box }])
+    expect(jobs[0]?.marks).toEqual([{ kind: 'image', bytes: SIGNATURE, image: box }])
     // Drawn at no less than the signature's own resolution.
     expect((jobs[0]?.scale ?? 0) * box.width).toBeGreaterThanOrEqual(signatureAsset.width - 1e-6)
   })
@@ -1168,5 +1179,129 @@ im.save(sys.stdout.buffer, 'PNG')`,
         { getBytes: () => bytes, now: NOW },
       ),
     ).rejects.toThrow(/Page 1 refers to missing content/)
+  })
+})
+
+describe('text, ticks and crosses (#112)', () => {
+  const text = (patch: Partial<TextMark> = {}): TextMark => ({
+    id: 't1',
+    kind: 'text',
+    text: 'Avery Quinn',
+    x: 0.5,
+    y: 0.3,
+    angle: 0,
+    size: 24 / 612,
+    colour: '#000000',
+    ...patch,
+  })
+  const tick = (patch: Partial<StampMark> = {}): StampMark => ({
+    id: 's1',
+    kind: 'tick',
+    x: 0.3,
+    y: 0.7,
+    angle: 0,
+    width: 60 / 612,
+    colour: '#c0262d',
+    ...patch,
+  })
+  const build = async (
+    marks: Mark[],
+    s = settings({ size: 'letter', margin: 36 }),
+    jobs?: FlattenJob[],
+  ) => {
+    const { meta, bytes } = await fileAsset('quad-landscape.jpg')
+    const pages = [page('p0', meta.id, { marks })]
+    const out = await buildPdf(
+      { settings: s, pages, assets: { [meta.id]: meta } },
+      {
+        getBytes: () => bytes,
+        processImage: (b, job) => Promise.resolve(canvasStandIn(b, job)),
+        flattenPage: (job) => {
+          jobs?.push(job)
+          return Promise.resolve(
+            new Uint8Array(
+              execFileSync('python3', [
+                '-c',
+                `import sys; from PIL import Image; Image.new('RGB', (${String(Math.round(job.page.width))}, ${String(Math.round(job.page.height))}), 'white').save(sys.stdout.buffer, 'JPEG')`,
+              ]),
+            ),
+          )
+        },
+        now: NOW,
+      },
+    )
+    return {
+      bytes: out,
+      sheet: layoutSheet(s, { [meta.id]: meta }, pages[0] ?? page('p0', meta.id)),
+    }
+  }
+
+  it.skipIf(!hasPdftotext)('writes text as real text, in the box the preview draws', async () => {
+    const m = text({ text: 'Avery Quinn\n12 Elm Row' })
+    const { bytes, sheet } = await build([m])
+    const xml = execFileSync('pdftotext', ['-bbox', '-', '-'], {
+      input: Buffer.from(bytes),
+    }).toString()
+    const found = [
+      ...xml.matchAll(
+        /<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">([^<]*)<\/word>/g,
+      ),
+    ].map((w) => ({ x0: Number(w[1]), y0: Number(w[2]), x1: Number(w[3]), text: w[5] }))
+    expect(found.map((w) => w.text)).toEqual(['Avery', 'Quinn', '12', 'Elm', 'Row'])
+    const box = vectorMark(m, sheet.page).box
+    const left = box.cx - box.width / 2
+    const top = box.cy - box.height / 2
+    // Each line starts at the box's left; the second a line lower.
+    expect(found[0]?.x0).toBeCloseTo(left, 0)
+    expect(found[2]?.x0).toBeCloseTo(left, 0)
+    expect((found[2]?.y0 ?? 0) - (found[0]?.y0 ?? 0)).toBeCloseTo(
+      m.size * sheet.page.width * TEXT_LINE_HEIGHT,
+      0,
+    )
+    expect(found[0]?.y0).toBeGreaterThan(top - 1)
+    expect(found[1]?.x1).toBeLessThan(left + box.width + 1)
+  })
+
+  it.skipIf(!hasPdftoppm)('draws a tick as strokes where the preview does, turned', async () => {
+    const m = tick({ angle: 20 })
+    const { bytes, sheet } = await build([m])
+    const pixel = rasterise(bytes)
+    const box = vectorMark(m, sheet.page).box
+    const r = (box.rotation * Math.PI) / 180
+    const at = (u: number, v: number) => {
+      const dx = (u - 0.5) * box.width
+      const dy = (v - 0.5) * box.height
+      return [
+        box.cx + dx * Math.cos(r) - dy * Math.sin(r),
+        box.cy + dx * Math.sin(r) + dy * Math.cos(r),
+      ] as const
+    }
+    const RED = [192, 38, 45]
+    // On the strokes: the elbow, and midway up the long arm…
+    for (const [u, v] of [
+      [0.4, 0.8],
+      [0.64, 0.5],
+    ] as const) {
+      expect(close(pixel(...at(u, v)), RED), `stroke at ${u},${v}`).toBe(true)
+    }
+    // …and not in the empty corner above the short arm.
+    expect(close(pixel(...at(0.15, 0.15)), RED)).toBe(false)
+  })
+
+  it('burns text and stamps into a flattened page, in order', async () => {
+    const jobs: FlattenJob[] = []
+    const s = settings({
+      size: 'letter',
+      watermark: { ...NO_WATERMARK, show: true, text: 'Copy', flatten: true },
+    })
+    const marks = [text(), tick({ kind: 'cross' })]
+    const { sheet, bytes } = await build(marks, s, jobs)
+    expect(jobs[0]?.marks).toEqual(marks.map((m) => vectorMark(m, sheet.page)))
+    // Pixels only: no text of its own on the page.
+    if (hasPdftotext) expect(extractText(bytes)?.trim()).toBe('')
+  })
+
+  it('refuses text its font can’t write', async () => {
+    await expect(build([text({ text: 'Ωmega' })])).rejects.toThrow(/page 1 has Ω/)
   })
 })
