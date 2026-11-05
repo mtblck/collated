@@ -1,26 +1,38 @@
 /**
  * Languages OCR can read (#79): Tesseract's "best_int" data for each,
  * self-hosted under `ocr/lang/` by ocr-assets.ts and fetched only when chosen.
- * Only languages whose letters are all in Windows-1252 are offered, because
- * the text layer is written in a standard font with that encoding (see
- * `drawTextLayer` in core/pdf.ts); non-Latin scripts would need an embedded
- * font (ADR 0011).
+ * Words in Windows-1252 go in the text layer in standard Helvetica, others in
+ * an embedded glyphless font (#94, ADR 0025), so any left-to-right alphabet
+ * works. Right-to-left and CJK scripts aren't offered yet: their word order
+ * and spacing need their own handling (#139).
  */
 export const OCR_LANGUAGES = [
   // `tags`: the BCP 47 language subtags that default to it. `mb`: the
   // gzipped data's size, shown before the first download (ocrAssets.test.ts
   // keeps it true).
   { code: 'eng', label: 'English', tags: ['en'], mb: 2.9 },
+  { code: 'bul', label: 'Bulgarian (български)', tags: ['bg'], mb: 1.4 },
+  { code: 'hrv', label: 'Croatian (hrvatski)', tags: ['hr'], mb: 2.3 },
+  { code: 'ces', label: 'Czech (čeština)', tags: ['cs'], mb: 2.2 },
   { code: 'dan', label: 'Danish (dansk)', tags: ['da'], mb: 1.8 },
   { code: 'nld', label: 'Dutch (Nederlands)', tags: ['nl'], mb: 3 },
   { code: 'fin', label: 'Finnish (suomi)', tags: ['fi'], mb: 3.8 },
   { code: 'fra', label: 'French (français)', tags: ['fr'], mb: 0.7 },
   { code: 'deu', label: 'German (Deutsch)', tags: ['de'], mb: 1.3 },
+  { code: 'ell', label: 'Greek (Ελληνικά)', tags: ['el'], mb: 1.3 },
+  { code: 'hun', label: 'Hungarian (magyar)', tags: ['hu'], mb: 2.9 },
   { code: 'ita', label: 'Italian (italiano)', tags: ['it'], mb: 1.7 },
   { code: 'nor', label: 'Norwegian (norsk)', tags: ['no', 'nb', 'nn'], mb: 2.5 },
+  { code: 'pol', label: 'Polish (polski)', tags: ['pl'], mb: 2.6 },
   { code: 'por', label: 'Portuguese (português)', tags: ['pt'], mb: 1.4 },
+  { code: 'ron', label: 'Romanian (română)', tags: ['ro', 'mo'], mb: 1.7 },
+  { code: 'rus', label: 'Russian (русский)', tags: ['ru'], mb: 2.7 },
+  { code: 'slk', label: 'Slovak (slovenčina)', tags: ['sk'], mb: 2.4 },
+  { code: 'slv', label: 'Slovenian (slovenščina)', tags: ['sl'], mb: 1.3 },
   { code: 'spa', label: 'Spanish (español)', tags: ['es'], mb: 2.1 },
   { code: 'swe', label: 'Swedish (svenska)', tags: ['sv'], mb: 2.5 },
+  { code: 'tur', label: 'Turkish (Türkçe)', tags: ['tr'], mb: 2.1 },
+  { code: 'ukr', label: 'Ukrainian (українська)', tags: ['uk'], mb: 2.1 },
 ] as const
 
 export type OcrLanguage = (typeof OCR_LANGUAGES)[number]['code']

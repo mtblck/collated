@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process'
-import { PDFDocument } from '@cantoo/pdf-lib'
+import { PDFDocument, PDFName } from '@cantoo/pdf-lib'
 import { describe, expect, it } from 'vitest'
 import { asset, fixture, page, settings } from '../../tests/helpers'
 import { layoutPage, rotatedBounds } from './geometry'
@@ -56,14 +56,14 @@ describe.skipIf(!hasPdftotext)('text layer', () => {
       { getBytes: () => jpeg },
     )
     const found = readWords(bytes)
-    // The word the standard font can't encode is skipped, not mangled. (pdftotext
-    // may split words into fragments, so compare the joined text.)
-    expect(found.map((w) => w.text).join('')).toBe('InvoiceTotal')
+    // The word the standard font can't encode goes in the embedded font
+    // (#94). (pdftotext may split words into fragments, so compare the joined text.)
+    expect(found.map((w) => w.text).join('')).toBe('InvoiceTotalΩ-not-in-WinAnsi')
     const layout = layoutPage(s, meta, p)
     const { cx, cy, width, height, rotation } = layout.image
     // Words are fractions of the image as displayed: its rotated bounds.
     const box = rotatedBounds(width, height, rotation)
-    for (const word of words.slice(0, 2)) {
+    for (const word of words) {
       const expected = {
         x: cx + ((word.x0 + word.x1) / 2 - 0.5) * box.width,
         y: cy + ((word.y0 + word.y1) / 2 - 0.5) * box.height,
@@ -123,8 +123,8 @@ describe.skipIf(!hasPdftotext)('text layer', () => {
     ).toBe('final')
   })
 
-  // Words with every letter beyond A–Z each offered language uses (#79), in
-  // both cases: the standard font must encode them all, or they'd be skipped.
+  // Words with every letter beyond A–Z each offered language uses (#79, #94),
+  // in both cases: Helvetica or the embedded font must write them all.
   const ACCENTED: Record<OcrLanguage, string> = {
     eng: 'naïve café résumé',
     dan: 'blåbærgrød ÆØÅ',
@@ -137,6 +137,18 @@ describe.skipIf(!hasPdftotext)('text layer', () => {
     por: 'coração não pão você avô à ÃÕÂÊÔÇ',
     spa: 'niño ¿qué? ¡olé! pingüino acción ÑÁÉÍÓÚÜ',
     swe: 'räksmörgås ÅÄÖ',
+    bul: 'щастие ъгъл ЩЪЮЯ',
+    hrv: 'kuća đak čaša šuma žaba ĆĐČŠŽ',
+    ces: 'příliš žluťoučký kůň úpěl ďábelské ódy ŘŠČŽÝÁÍÉŮĚŤĎŇ',
+    ell: 'Γειά σου κόσμε ψυχή ΆΈΉΊΌΎΏ ϊΐϋΰ',
+    hun: 'árvíztűrő tükörfúrógép ŐŰ',
+    pol: 'zażółć gęślą jaźń ŁÓDŹ ĄĘŚĆŃŻ',
+    ron: 'știință țară mâine încă ȘȚĂÂÎ',
+    rus: 'съешь ещё этих ЁЖЩЪЫЭ',
+    slk: 'ďateľ kôň ľahký ŕba ÄÔĽĹŔ',
+    slv: 'češnja šola žaba ČŠŽ',
+    tur: 'ılık şeker dağ İstanbul ŞĞÇÖÜ',
+    ukr: 'їжак ґанок єнот ІЇЄҐ',
   }
 
   it.each(OCR_LANGUAGES)('writes $label words with their accents', async ({ code }) => {
@@ -182,6 +194,79 @@ describe.skipIf(!hasPdftotext)('text layer', () => {
     expect(plain).toMatch(/Invoice\s+Total/)
   })
 
+  /** The base font names of every font in the PDF, as pdffonts lists them. */
+  const fontsOf = (bytes: Uint8Array) =>
+    execFileSync('pdffonts', ['-'], { input: Buffer.from(bytes) })
+      .toString()
+      .split('\n')
+      .slice(2)
+      .filter(Boolean)
+      .map((line) => line.split(/\s+/).slice(0, 2).join(' '))
+
+  const build = (text: OcrWord[], extra: { password?: string; ocrLanguage?: OcrLanguage } = {}) =>
+    buildPdf(
+      {
+        settings: settings({ size: 'letter', ocrLanguage: extra.ocrLanguage ?? 'eng' }),
+        pages: [page('p', 'a')],
+        assets: { a: meta },
+        text: { p: text },
+        ...(extra.password ? { password: extra.password } : {}),
+      },
+      { getBytes: () => jpeg },
+    )
+
+  const lineOf = (...texts: string[]): OcrWord[] =>
+    texts.map((text, i) => ({
+      text,
+      x0: 0.05 + i * 0.15,
+      y0: 0.4,
+      x1: 0.17 + i * 0.15,
+      y1: 0.45,
+      baseline: 0.45,
+    }))
+
+  it('keeps Helvetica alone when every word fits it, so Latin files don’t grow', async () => {
+    expect(fontsOf(await build(lineOf('Invoice', 'Total')))).toEqual(['Helvetica Type'])
+  })
+
+  it('embeds the glyphless font only when a word needs it, and mixes the two in a line', async () => {
+    const bytes = await build(lineOf('Total', 'Ελληνικά', 'zażółć'))
+    expect(fontsOf(bytes).sort()).toEqual(['CollatedGlyphless CID', 'Helvetica Type'])
+    const plain = execFileSync('pdftotext', ['-raw', '-', '-'], { input: Buffer.from(bytes) })
+    expect(plain.toString().trim().split(/\s+/)).toEqual(['Total', 'Ελληνικά', 'zażółć'])
+  })
+
+  it('writes the embedded font only as an embedded subset-free CID font with its maps', async () => {
+    const bytes = await build(lineOf('Ελληνικά'))
+    const line = execFileSync('pdffonts', ['-'], { input: Buffer.from(bytes) })
+      .toString()
+      .split('\n')[2]
+    // name, type (CID TrueType), encoding (Identity-H), emb, sub, uni
+    expect(line).toMatch(/^CollatedGlyphless\s+CID TrueType\s+Identity-H\s+yes\s+no\s+yes/)
+  })
+
+  it('reads back characters beyond the Basic Multilingual Plane', async () => {
+    // 𝐀 (U+1D400) is NFKC-normalised to A, so use a CJK extension B character.
+    const bytes = await build(lineOf('𠀋𠀌', 'ok'))
+    const plain = execFileSync('pdftotext', ['-raw', '-', '-'], { input: Buffer.from(bytes) })
+    expect(plain.toString().trim().split(/\s+/)).toEqual(['𠀋𠀌', 'ok'])
+  })
+
+  it('writes the embedded font’s maps before a password encrypts them', async () => {
+    const bytes = await build(lineOf('Привет'), { password: 'secret' })
+    const plain = execFileSync('pdftotext', ['-upw', 'secret', '-raw', '-', '-'], {
+      input: Buffer.from(bytes),
+    })
+    expect(plain.toString().trim()).toBe('Привет')
+  })
+
+  it('tags the document with the language OCR read', async () => {
+    const lang = async (bytes: Uint8Array) =>
+      (await PDFDocument.load(bytes)).catalog.get(PDFName.of('Lang'))?.toString()
+    expect(await lang(await build(lineOf('Привет'), { ocrLanguage: 'rus' }))).toBe('(ru)')
+    expect(await lang(await build([], { ocrLanguage: 'rus' }))).toBe('(en)')
+  })
+
   it('is invisible: the page renders the same with and without it', async () => {
     const s = settings({ size: 'letter' })
     const p = page('p', 'a')
@@ -193,6 +278,9 @@ describe.skipIf(!hasPdftotext)('text layer', () => {
       return execFileSync('pdftoppm', ['-r', '20', '-gray', '-'], { input: Buffer.from(bytes) })
     }
     expect(Buffer.compare(await render(), await render({ p: words }))).toBe(0)
+    expect(Buffer.compare(await render(), await render({ p: lineOf('Ελληνικά', 'Привет') }))).toBe(
+      0,
+    )
     expect((await PDFDocument.create()).getPageCount()).toBe(0)
   })
 })

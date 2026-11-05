@@ -3848,6 +3848,8 @@ await context.close()
   await panel.getByRole('button', { name: 'Sign this page…' }).tap()
   await maker.waitFor()
   const savedOne = maker.getByRole('button', { name: 'Use saved signature 1' })
+  // The maker lists saved signatures from IndexedDB after it opens: wait for them.
+  await savedOne.waitFor({ timeout: 5_000 }).catch(() => undefined)
   check((await savedOne.count()) === 1, 'the signature is saved on this device for next time')
   await p.screenshot({ path: join(shots, 'sign-saved-phone.png') })
   await maker.getByRole('button', { name: 'Delete saved signature 1 from this device' }).tap()
@@ -4422,6 +4424,118 @@ await context.close()
     )
   }
   await ctx.close()
+}
+
+// 43. Non-Latin OCR (#94), by touch on a phone: the picker starts at the
+//     browser's language (ru-RU → Russian), Cyrillic comes back out of the
+//     PDF, then Polish is picked: its ł, ż, ó come back too, mixed with
+//     Helvetica words, and the glyphless font is embedded.
+{
+  const { context: phone, page: p } = await open({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+    locale: 'ru-RU',
+  })
+  const langFetches = []
+  p.on('request', (r) => {
+    if (r.url().includes('/ocr/lang/')) langFetches.push(new URL(r.url()).pathname)
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'text-page-ru.jpg')])
+  await p.waitForSelector('ol[aria-label="1 page"]', { timeout: 20_000 })
+  const textOf = (path, ...pages) => {
+    try {
+      return execFileSync('pdftotext', [...pages, path, '-'])
+        .toString()
+        .replace(/\s+/g, ' ')
+    } catch {
+      return null
+    }
+  }
+  const fontsOf = (path) => {
+    try {
+      return execFileSync('pdffonts', [path]).toString()
+    } catch {
+      return null
+    }
+  }
+  const exportPdf = async () => {
+    await exportMenu(p).tap()
+    const panel = p.getByRole('dialog', { name: 'Export options' })
+    const ocr = panel.getByRole('checkbox', { name: 'Make text searchable (OCR)' })
+    if (!(await ocr.isChecked())) await ocr.tap()
+    return panel
+  }
+  const download = async (panel, name) => {
+    const [d] = await Promise.all([
+      p.waitForEvent('download', { timeout: 120_000 }),
+      panel.getByRole('button', { name: 'Export PDF' }).tap(),
+    ])
+    const path = join(mkdtempSync(join(tmpdir(), `collated-verify-ocr-${name}-`)), `${name}.pdf`)
+    await d.saveAs(path)
+    return path
+  }
+
+  let panel = await exportPdf()
+  const picker = panel.getByLabel('Language of the text')
+  check(
+    (await picker.inputValue()) === 'rus',
+    'the OCR language starts at the browser’s (ru-RU → Russian)',
+    await picker.inputValue(),
+  )
+  const pickerHeight = (await picker.boundingBox())?.height ?? 0
+  check(pickerHeight >= 44, 'the language picker is a 44px touch target', String(pickerHeight))
+  await picker.scrollIntoViewIfNeeded()
+  await p.screenshot({ path: join(shots, 'ocr-russian-phone.png') })
+  await axe(p, 'OCR language picker on a phone')
+  const ru = await download(panel, 'ru')
+  const ruText = textOf(ru)
+  if (ruText !== null) {
+    const expected = ['Счёт номер 4417', 'Съешь же ещё этих мягких булок', 'чай и пирожные']
+    const missing = expected.filter((phrase) => !ruText.includes(phrase))
+    check(
+      missing.length === 0,
+      'Russian OCR comes back out of the PDF in Cyrillic',
+      `missing: ${missing.join(' | ')} in "${ruText.slice(0, 200)}"`,
+    )
+    const fonts = fontsOf(ru) ?? ''
+    check(
+      /CollatedGlyphless\s+CID TrueType\s+Identity-H\s+yes/.test(fonts),
+      'the glyphless font is embedded',
+      fonts,
+    )
+  }
+
+  // Polish, picked by touch, on a second page: letters inside and outside
+  // Windows-1252, so Helvetica and the glyphless font share its lines.
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'text-page-pl.jpg')])
+  await p.waitForSelector('ol[aria-label="2 pages"]', { timeout: 20_000 })
+  panel = await exportPdf()
+  await panel.getByLabel('Language of the text').selectOption('pol')
+  const pl = await download(panel, 'pl')
+  const plText = textOf(pl, '-f', '2', '-l', '2')
+  if (plText !== null) {
+    const expected = [
+      'płatna w sierpniu',
+      'Zażółć gęślą jaźń',
+      'Łódź i Kraków',
+      'herbata i ciastka',
+    ]
+    const missing = expected.filter((phrase) => !plText.includes(phrase))
+    check(
+      missing.length === 0,
+      'Polish OCR keeps ł, ż, ó and the rest: pdftotext reads them back',
+      `missing: ${missing.join(' | ')} in "${plText.slice(0, 200)}"`,
+    )
+  }
+  check(
+    JSON.stringify(langFetches) ===
+      JSON.stringify(['/ocr/lang/rus.traineddata.gz', '/ocr/lang/pol.traineddata.gz']),
+    'only the Russian and Polish data are fetched, from our own origin',
+    langFetches.join(', '),
+  )
+  await phone.close()
 }
 
 // 44. Scan pages (#118), by touch on a phone, with a fake camera: the paper
