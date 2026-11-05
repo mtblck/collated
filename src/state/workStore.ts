@@ -1,5 +1,6 @@
 import type { History } from '../core/history'
-import { picturesOf, type Asset, type DocState, type Settings } from '../core/model'
+import { assetIdsOf } from '../core/marks'
+import type { Asset, DocState, Settings } from '../core/model'
 import { NO_WATERMARK } from '../core/watermark'
 import { assetStore } from '../import/assetStore'
 
@@ -74,8 +75,9 @@ const statesOf = (history: History<DocState>) => [
 export const reachableAssets = (history: History<DocState>): Map<string, Asset> => {
   const assets = new Map<string, Asset>()
   for (const state of statesOf(history)) {
-    // A combined page (#76) needs every picture on it, not just the first.
-    for (const { assetId } of state.pages.flatMap((p) => picturesOf(p))) {
+    // A combined page (#76) needs every picture on it, not just the first,
+    // and a signed one (#111) its signatures.
+    for (const assetId of state.pages.flatMap(assetIdsOf)) {
       const asset = state.assets[assetId]
       if (asset) assets.set(asset.id, asset)
     }

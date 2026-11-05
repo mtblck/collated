@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNod
 import { layoutPage, singleSheet, visiblePart } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
 import { watermarkMark } from '../core/watermark'
-import type { Asset, Filter, FitMode, Page, PageTransform, Settings } from '../core/model'
+import type { Asset, Filter, FitMode, Mark, Page, PageTransform, Settings } from '../core/model'
 import type { Quad } from '../core/perspective'
 import { ANGLE_LIMIT, SCALE_MAX, SCALE_MIN, isVector } from '../core/model'
 import { formatBytes, formatLength } from '../core/units'
@@ -23,6 +23,8 @@ import { usePageThumb } from '../hooks/usePageThumb'
 import { CropEditor } from './CropEditor'
 import { RedactEditor } from './RedactEditor'
 import { pageCovers } from '../core/redact'
+import { placedMarks } from '../core/marks'
+import { SignSection } from './SignSection'
 import { PageViewer } from './PageViewer'
 import { detailImage } from '../lib/detailImage'
 import { PagePreview } from './PagePreview'
@@ -59,6 +61,8 @@ export interface InspectorActions {
   onAutoCropAll: () => void
   /** Names the section that starts at this page; blank removes it. */
   onSection: (title: string) => void
+  /** Puts these signatures on the page (#111), with any pictures new to the document. */
+  onMarks: (marks: Mark[], added: Asset[]) => void
 }
 
 const Stat = ({ term, children }: { term: string; children: ReactNode }) => (
@@ -72,6 +76,7 @@ const Stat = ({ term, children }: { term: string; children: ReactNode }) => (
 export const Inspector = ({
   page,
   asset,
+  assets,
   index,
   count,
   settings,
@@ -81,6 +86,8 @@ export const Inspector = ({
 }: {
   page: Page
   asset: Asset
+  /** The document's assets, for the signatures on the page. */
+  assets: Readonly<Record<string, Asset>>
   index: number
   count: number
   settings: Settings
@@ -134,6 +141,7 @@ export const Inspector = ({
   const redactButton = useRef<HTMLButtonElement>(null)
   const boxes = page.redactions ?? []
   const covers = useMemo(() => pageCovers(page, { [asset.id]: asset }), [page, asset])
+  const marks = useMemo(() => placedMarks(page, layout.page, assets), [page, layout.page, assets])
   // The whole image, sharp enough to find a number on.
   const loadWhole = useCallback(
     () => detailImage(asset, { filter: 'original', corners: null }),
@@ -199,6 +207,7 @@ export const Inspector = ({
           sheet={singleSheet(layout)}
           thumbUrls={[thumbUrl]}
           covers={covers}
+          marks={marks}
           showMargins
           mark={mark}
           watermark={watermark}
@@ -229,6 +238,7 @@ export const Inspector = ({
           mark={mark}
           watermark={watermark}
           covers={covers[0] ?? []}
+          marks={marks}
           loadDetail={loadDetail}
           onClose={() => {
             setViewing(false)
@@ -352,6 +362,18 @@ export const Inspector = ({
           />
         )}
       </div>
+
+      <SignSection
+        pageLabel={`page ${String(index + 1)}`}
+        page={page}
+        sheet={singleSheet(layout)}
+        thumbUrls={[thumbUrl]}
+        covers={covers}
+        watermark={watermark}
+        numbers={mark}
+        assets={assets}
+        onMarks={actions.onMarks}
+      />
 
       <div>
         <p className="label mb-2 text-ink-faint" id={`${id}-rotate`}>

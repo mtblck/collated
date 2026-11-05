@@ -234,3 +234,9 @@ export const BookmarkIcon = (p: P) => (
     <path d="M6 3.5h8v13l-4-3-4 3z" />
   </Icon>
 )
+export const SignIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M12.5 3.5l3 3-8 8H4.5v-3z" />
+    <path d="M3 17.5c2.5-1.5 4 .5 6-1s3.5.5 5.5-.5" />
+  </Icon>
+)

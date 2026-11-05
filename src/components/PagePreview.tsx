@@ -1,4 +1,6 @@
+import type { ReactNode } from 'react'
 import type { SheetLayout } from '../core/geometry'
+import type { PlacedMark } from '../core/marks'
 import type { Quad } from '../core/perspective'
 import { NUMBER_GREY, type NumberMark } from '../core/pageNumbers'
 import { WATERMARK_FONT, type WatermarkMark } from '../core/watermark'
@@ -22,8 +24,10 @@ export const PagePreview = ({
   selected = false,
   mark = null,
   covers = [],
+  marks = [],
   watermark = null,
   className,
+  children,
 }: {
   sheet: SheetLayout
   /** One per picture, in `sheet.pictures` order. */
@@ -38,9 +42,13 @@ export const PagePreview = ({
   selected?: boolean
   /** The page number to draw, placed exactly as the export places it. */
   mark?: NumberMark | null
+  /** Signatures (#111), placed exactly as the export places them (core/marks.ts). */
+  marks?: readonly PlacedMark[]
   /** The watermark (#78), placed exactly as the export places it. */
   watermark?: WatermarkMark | null
   className?: string
+  /** Drawn last, over the page itself (the sign editor's handles), sized to the page. */
+  children?: ReactNode
 }) => {
   const { page, content } = sheet
   const single = sheet.pictures.length === 1
@@ -137,6 +145,29 @@ export const PagePreview = ({
             )}
           </div>
         ))}
+        {marks.length > 0 && (
+          // Clipped to the paper, as the PDF clips them at its edge.
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+            {marks.map(({ id, src, box }) => (
+              <img
+                key={id}
+                data-mark={id}
+                src={src}
+                alt=""
+                draggable={false}
+                decoding="async"
+                className="absolute max-w-none select-none"
+                style={{
+                  left: pct(box.cx, page.width),
+                  top: pct(box.cy, page.height),
+                  width: pct(box.width, page.width),
+                  height: pct(box.height, page.height),
+                  transform: `translate(-50%, -50%) rotate(${String(box.rotation)}deg)`,
+                }}
+              />
+            ))}
+          </div>
+        )}
         {watermark && (
           <span
             aria-hidden="true"
@@ -179,6 +210,7 @@ export const PagePreview = ({
             {mark.text}
           </span>
         )}
+        {children}
       </div>
     </div>
   )

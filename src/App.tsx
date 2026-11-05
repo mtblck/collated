@@ -1133,6 +1133,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       onSection: (title) => {
         act({ type: 'setSection', id, title }, `section:${id}`)
       },
+      onMarks: (marks, added) => {
+        act({ type: 'setMarks', id, marks, assets: added })
+      },
     }
   }, [
     act,
@@ -1268,6 +1271,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       onSection: (title) => {
         act({ type: 'setSection', id, title }, `section:${id}`)
       },
+      onMarks: (marks, added) => {
+        act({ type: 'setMarks', id, marks, assets: added })
+      },
       onGestureEnd: endGesture,
     }
   }, [
@@ -1304,6 +1310,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       },
       onSection: (title) => {
         act({ type: 'setSection', id, title }, `section:${id}`)
+      },
+      onMarks: (marks, added) => {
+        act({ type: 'setMarks', id, marks, assets: added })
       },
       onGestureEnd: endGesture,
     }
@@ -1716,6 +1725,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
                   <Inspector
                     page={selected}
                     asset={selectedAsset}
+                    assets={assets}
                     index={selectedIndex}
                     count={pages.length}
                     settings={settings}

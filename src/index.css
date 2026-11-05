@@ -22,6 +22,15 @@
   font-display: optional;
   src: url('./assets/fonts/geist-mono-latin-wght-normal.woff2') format('woff2');
 }
+/* Typed signatures (#111): Dancing Script (OFL), loaded only when someone
+   types one, and waited for before the signature is drawn. */
+@font-face {
+  font-family: 'Collated Signature';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('./assets/fonts/dancing-script-latin-400-normal.woff2') format('woff2');
+}
 /* Fallback metrics: Geist's letter-frequency-weighted width against Arial's
    (Liberation Sans), and its ascent and descent rescaled to match. */
 @font-face {

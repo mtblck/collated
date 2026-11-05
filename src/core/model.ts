@@ -206,7 +206,41 @@ export interface Page {
    * it takes the size of the page before it (`sizeModel`).
    */
   blank?: true
+  /**
+   * What is put on the page itself, over its pictures (#111): signatures,
+   * and in time text and stamps (#112). Placed on the page, not on a
+   * picture, so a combined or blank page takes them too. Unset or empty:
+   * none. Reset keeps them; combining or splitting pages drops them (their
+   * places mean nothing on the new pages).
+   */
+  marks?: readonly Mark[]
 }
+
+/**
+ * Where a mark sits on its page: its middle, as fractions of the page's
+ * width and height, and a clockwise turn in degrees. Fractions, so a mark
+ * stays on the same part of the page when the page size changes.
+ */
+export interface MarkPlace {
+  id: string
+  x: number
+  y: number
+  angle: number
+}
+
+/**
+ * A picture on the page, such as a signature: an asset (a transparent PNG)
+ * at `width`, a fraction of the page's width; its height follows the
+ * picture's own shape.
+ */
+export interface ImageMark extends MarkPlace {
+  kind: 'signature'
+  assetId: string
+  width: number
+}
+
+/** Everything a page can carry over its pictures. #112 adds text and stamps here. */
+export type Mark = ImageMark
 
 /**
  * How a combined page is laid out: `two` stacked along the page's long side,

@@ -1,6 +1,6 @@
 ---
 public: true
-order: 7
+order: 8
 ---
 
 # Privacy and security
@@ -30,6 +30,10 @@ Only what you see on the pages, and what you chose to add:
 So that a reload, a crashed tab or a phone closing the page in the background doesn't lose your work, Collated keeps a copy of the document in your browser's storage on this device as you go: the files, the pages, your settings and the undo history. It never leaves the device, and the password is never part of it. Next time you open Collated it asks **Restore your last document?**: **Restore** brings it back, undo history and all; **Discard** deletes it. If you add files instead, they start a new document, which replaces the saved one.
 
 On a shared computer, or if you'd rather nothing were kept, turn off **Keep work after a reload** in the toolbar's **More** menu; that deletes the copy and stops keeping one. A very large document may not fit in the space the browser allows; Collated says so, and then keeps nothing, so export before you close the tab.
+
+## Signatures
+
+A signature you save is kept in your browser on this device, in its own storage, apart from your document, and never uploaded. Delete one under **Saved** when you next sign, or clear the site's data in your browser to delete them all. A signature you put on a page is part of that document, so it's also in the copy of your work kept on this device until you start over. See [Signing a page](signing.md).
 
 ## Passwords
 

@@ -1,9 +1,11 @@
 import { useEffect, useId, useMemo, useRef } from 'react'
 import { ID_CARD, layoutSheet } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
+import { placedMarks } from '../core/marks'
+import { SignSection } from './SignSection'
 import { watermarkMark } from '../core/watermark'
 import { pageCovers } from '../core/redact'
-import type { Asset, Page, Settings, SheetKind } from '../core/model'
+import type { Asset, Mark, Page, Settings, SheetKind } from '../core/model'
 import { SHEET_CAPACITY } from '../core/model'
 import { formatLength } from '../core/units'
 import { Button, IconButton, Segmented } from './controls'
@@ -36,6 +38,8 @@ export interface SheetActions {
   onRemove: () => void
   /** Names the section that starts at this page; blank removes it. */
   onSection: (title: string) => void
+  /** Puts these signatures on the page (#111), with any pictures new to the document. */
+  onMarks: (marks: Mark[], added: Asset[]) => void
   onGestureEnd: () => void
 }
 
@@ -63,6 +67,7 @@ export const SheetInspector = ({
   const { kind, slots } = page.sheet
   const sheet = useMemo(() => layoutSheet(settings, assets, page), [settings, assets, page])
   const covers = useMemo(() => pageCovers(page, assets), [page, assets])
+  const marks = useMemo(() => placedMarks(page, sheet.page, assets), [page, sheet.page, assets])
   const mark = numberMark(settings.pageNumbers, index, sheet.page, sheet.content.x)
   const watermark = watermarkMark(
     settings.watermark,
@@ -128,6 +133,7 @@ export const SheetInspector = ({
           sheet={sheet}
           thumbUrls={thumbUrls}
           covers={covers}
+          marks={marks}
           showMargins
           mark={mark}
           watermark={watermark}
@@ -180,6 +186,18 @@ export const SheetInspector = ({
           </Button>
         </div>
       </div>
+
+      <SignSection
+        pageLabel={`page ${String(index + 1)}`}
+        page={page}
+        sheet={sheet}
+        thumbUrls={thumbUrls}
+        covers={covers}
+        watermark={watermark}
+        numbers={mark}
+        assets={assets}
+        onMarks={actions.onMarks}
+      />
 
       <SectionField
         value={page.section ?? ''}

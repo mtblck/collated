@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
 import { singleSheet, type Layout } from '../core/geometry'
+import type { PlacedMark } from '../core/marks'
 import type { NumberMark } from '../core/pageNumbers'
 import type { Quad } from '../core/perspective'
 import type { WatermarkMark } from '../core/watermark'
@@ -28,6 +29,7 @@ export const PageViewer = ({
   loadDetail,
   mark = null,
   covers = [],
+  marks = [],
   watermark = null,
   onClose,
 }: {
@@ -39,6 +41,8 @@ export const PageViewer = ({
   mark?: NumberMark | null
   /** What's blacked out, as fractions of what the page shows (see PagePreview). */
   covers?: readonly Quad[]
+  /** Signatures on the page (#111), as PagePreview draws them. */
+  marks?: readonly PlacedMark[]
   watermark?: WatermarkMark | null
   onClose: () => void
 }) => {
@@ -412,6 +416,7 @@ export const PageViewer = ({
               sheet={singleSheet(layout)}
               thumbUrls={[detail ?? thumbUrl]}
               covers={[covers]}
+              marks={marks}
               mark={mark}
               watermark={watermark}
             />

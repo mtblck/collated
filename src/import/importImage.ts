@@ -51,8 +51,8 @@ export const render = async (
   quality?: number,
 ) => {
   const canvas = makeCanvas(width, height)
-  const ctx = canvas.getContext('2d') as
-    OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null
+  // Narrowed by kind: each kind's getContext('2d') then has one return type.
+  const ctx = 'convertToBlob' in canvas ? canvas.getContext('2d') : canvas.getContext('2d')
   if (!ctx) throw new ImportError('This browser has no canvas to process images with.')
   ctx.fillStyle = '#fff'
   ctx.fillRect(0, 0, width, height)

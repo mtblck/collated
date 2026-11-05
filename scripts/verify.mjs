@@ -3658,6 +3658,312 @@ await context.close()
   await ctx.close()
 }
 
+// 39. Sign a page (#111), by touch on a 375px phone: the pad fills the
+//     screen, a finger draws, pinch sizes, a drag places; one undo step;
+//     the PDF has it where the preview does, over a page kept as vectors;
+//     saved on the device, deletable; typed and placed by keyboard too.
+{
+  const { context: phone, page: p } = await open({
+    viewport: { width: 375, height: 740 },
+    hasTouch: true,
+    isMobile: true,
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  const form = await PDFDocument.create()
+  const formPage = form.addPage([612, 792])
+  const helvetica = await form.embedFont(StandardFonts.Helvetica)
+  formPage.drawText('TENANT SIGNATURE', { x: 72, y: 120, size: 14, font: helvetica })
+  const dir = mkdtempSync(join(tmpdir(), 'collated-verify-sign-'))
+  const formPath = join(dir, 'lease.pdf')
+  writeFileSync(formPath, await form.save())
+  await p.setInputFiles('[data-testid="file-input"]', [
+    formPath,
+    join(fixtures, 'quad-landscape.png'),
+  ])
+  await p.waitForSelector('ol[aria-label="2 pages"]', { timeout: 20_000 })
+  const card = (n) => p.locator(`ol[aria-label] > li:nth-child(${n}) [data-page-select]`)
+  const panel = p.locator('aside[aria-label="Selected page"]')
+  const cdp = await phone.newCDPSession(p)
+  const touch = (type, points) =>
+    cdp.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints: points.map(([x, y], id) => ({ x, y, id })),
+    })
+  /** One finger along `path`, or several fingers along paths of equal length. */
+  const gesture = async (...paths) => {
+    await touch(
+      'touchStart',
+      paths.map((path) => path[0]),
+    )
+    for (let i = 1; i < paths[0].length; i++) {
+      await touch(
+        'touchMove',
+        paths.map((path) => path[i]),
+      )
+    }
+    await touch('touchEnd', [])
+  }
+  // Chromium drops the first tap after a gesture sent through CDP (a second
+  // one lands), so buttons pressed right after a gesture are clicked.
+  const line = (from, to, steps = 8) =>
+    Array.from({ length: steps + 1 }, (_, i) => [
+      from[0] + ((to[0] - from[0]) * i) / steps,
+      from[1] + ((to[1] - from[1]) * i) / steps,
+    ])
+
+  await card(1).tap()
+  await panel.getByRole('button', { name: 'Sign this page…' }).tap()
+  const maker = p.getByRole('dialog', { name: 'Add a signature' })
+  await maker.waitFor()
+  const makerBox = await maker.boundingBox()
+  const pad = maker.locator('[data-signature-pad]')
+  const padBox = await pad.boundingBox()
+  check(
+    makerBox?.width === 375 && makerBox.height >= 739 && padBox && padBox.height > 300,
+    'the signature pad fills the phone screen',
+    JSON.stringify({ makerBox, padBox }),
+  )
+  await axe(p, 'signature pad on a phone')
+  // A finger signs: a loop and a tail.
+  const px = (fx, fy) => [padBox.x + fx * padBox.width, padBox.y + fy * padBox.height]
+  await gesture([px(0.15, 0.6), px(0.3, 0.35), px(0.4, 0.65), px(0.55, 0.4), px(0.7, 0.62)])
+  await gesture(line(px(0.2, 0.7), px(0.85, 0.66)))
+  check(
+    !(await maker.getByLabel('Save on this device for next time').isChecked()),
+    'saving a signature on the device is off until chosen',
+  )
+  await maker.getByLabel('Save on this device for next time').check()
+  await p.screenshot({ path: join(shots, 'sign-pad-phone.png') })
+  await maker.getByRole('button', { name: 'Use this signature' }).click()
+  const editor = p.getByRole('dialog', { name: 'Sign page 1' })
+  await maker.waitFor({ state: 'hidden' })
+  const signature = editor.getByRole('button', { name: 'Signature 1', exact: true })
+  await signature.waitFor()
+  check(
+    await signature.evaluate((el) => el === document.activeElement),
+    'the new signature is focused once the pad closes',
+  )
+  const where = async () =>
+    signature.evaluate(
+      (el) => document.getElementById(el.getAttribute('aria-describedby') ?? '')?.textContent ?? '',
+    )
+  const widthOf = async () => Number(/([\d.]+)% of the page wide/.exec(await where())?.[1])
+  const before = await widthOf()
+  // Pinch it bigger: two fingers moving apart either side of it.
+  const s1 = await signature.boundingBox()
+  const c = [s1.x + s1.width / 2, s1.y + s1.height / 2]
+  await gesture(
+    line([c[0] - 20, c[1]], [c[0] - 45, c[1]]),
+    line([c[0] + 20, c[1]], [c[0] + 45, c[1]]),
+  )
+  const pinched = await widthOf()
+  check(
+    pinched > before * 1.6 && pinched < before * 3,
+    'pinching sizes the signature',
+    `${before}% → ${pinched}%`,
+  )
+  // Drag it onto the line above "TENANT SIGNATURE" (y 792 − 120 − 30 from the top).
+  const stage = editor.locator('[data-mark-stage]')
+  const st = await stage.boundingBox()
+  const target = [st.x + 0.4 * st.width, st.y + (642 / 792) * st.height]
+  const s2 = await signature.boundingBox()
+  await gesture(line([s2.x + s2.width / 2, s2.y + s2.height / 2], target, 10))
+  const placed = await where()
+  check(/^40(\.\d)?% across, 81(\.\d)?% down/.test(placed), 'dragging places the signature', placed)
+  await p.screenshot({ path: join(shots, 'sign-place-phone.png') })
+  await axe(p, 'sign editor on a phone')
+  const overflow = await p.evaluate(() => document.documentElement.scrollWidth - 375)
+  check(overflow <= 0, 'the sign editor fits a 375px phone', `${overflow}px`)
+  await editor.getByRole('button', { name: 'Apply' }).click()
+  await editor.waitFor({ state: 'hidden' })
+  const signed = async () => /, signed/.test((await card(1).getAttribute('aria-label')) ?? '')
+  check(await signed(), 'the page is signed in the grid')
+  await p.keyboard.press('Control+z')
+  check(!(await signed()), 'one undo takes the signature off')
+  await p.keyboard.press('Control+Shift+z')
+  check(await signed(), 'redo puts it back')
+
+  // The PDF: the signature where the grid's preview draws it, the page still vectors.
+  const sheet = await card(1).locator('.sheet').boundingBox()
+  const ink = await card(1).locator('img[data-mark]').boundingBox()
+  const [dl] = await Promise.all([p.waitForEvent('download', { timeout: 120_000 }), exportNow(p)])
+  const out = join(dir, 'signed.pdf')
+  await dl.saveAs(out)
+  const pdf = await PDFDocument.load(readFileSync(out))
+  const xobjects = pdf.getPage(0).node.Resources()?.lookup(PDFName.of('XObject'))
+  check(
+    xobjects && xobjects.keys().length === 2,
+    'the signed PDF page holds its own page and one signature image',
+  )
+  if (hasPoppler) {
+    check(
+      execFileSync('pdftotext', ['-f', '1', '-l', '1', out, '-']).toString().includes('TENANT'),
+      'the signed PDF page keeps its text',
+    )
+    const prefix = join(dir, 'signed-page')
+    execFileSync('pdftoppm', ['-png', '-r', '72', '-f', '1', '-l', '1', '-singlefile', out, prefix])
+    const box = {
+      x0: (ink.x - sheet.x) / sheet.width,
+      y0: (ink.y - sheet.y) / sheet.height,
+      x1: (ink.x + ink.width - sheet.x) / sheet.width,
+      y1: (ink.y + ink.height - sheet.y) / sheet.height,
+    }
+    const dark = await p.evaluate(
+      async ({ png, box }) => {
+        const img = new Image()
+        img.src = `data:image/png;base64,${png}`
+        await img.decode()
+        const canvas = new OffscreenCanvas(img.width, img.height)
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0)
+        const share = (x0, y0, x1, y1) => {
+          const w = Math.max(1, Math.round((x1 - x0) * img.width))
+          const h = Math.max(1, Math.round((y1 - y0) * img.height))
+          const { data } = ctx.getImageData(
+            Math.round(x0 * img.width),
+            Math.round(y0 * img.height),
+            w,
+            h,
+          )
+          let n = 0
+          for (let i = 0; i < data.length; i += 4) if (data[i] < 100) n++
+          return n / (w * h)
+        }
+        return {
+          inside: share(box.x0, box.y0, box.x1, box.y1),
+          above: share(box.x0, box.y0 - 0.15, box.x1, box.y0 - 0.05),
+        }
+      },
+      { png: readFileSync(`${prefix}.png`).toString('base64'), box },
+    )
+    check(
+      dark.inside > 0.03 && dark.above < 0.005,
+      'the PDF draws the signature where the preview does',
+      JSON.stringify(dark),
+    )
+  }
+
+  // Saved on this device: offered next time, and deleted from there.
+  await card(2).tap()
+  await panel.getByRole('button', { name: 'Sign this page…' }).tap()
+  await maker.waitFor()
+  const savedOne = maker.getByRole('button', { name: 'Use saved signature 1' })
+  check((await savedOne.count()) === 1, 'the signature is saved on this device for next time')
+  await p.screenshot({ path: join(shots, 'sign-saved-phone.png') })
+  await maker.getByRole('button', { name: 'Delete saved signature 1 from this device' }).tap()
+  await maker.getByRole('radio', { name: 'Draw' }).waitFor()
+  const left = await p.evaluate(
+    () =>
+      new Promise((resolve, reject) => {
+        const req = indexedDB.open('collated-signatures')
+        req.onerror = () => reject(req.error)
+        req.onsuccess = () => {
+          const q = req.result.transaction('signatures').objectStore('signatures').count()
+          q.onsuccess = () => resolve(q.result)
+        }
+      }),
+  )
+  check(
+    left === 0 && (await savedOne.count()) === 0,
+    'deleting a saved signature removes it',
+    String(left),
+  )
+  await maker.getByRole('button', { name: 'Cancel' }).tap()
+  await p.getByRole('dialog', { name: 'Sign page 2' }).getByRole('button', { name: 'Cancel' }).tap()
+  await phone.close()
+
+  // By keyboard on a desk: type a name, place it with the arrow keys.
+  const { context: desk, page: d } = await open({ viewport: { width: 1280, height: 900 } })
+  await d.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await d.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-landscape.png')])
+  await d.waitForSelector('ol[aria-label="1 page"]', { timeout: 20_000 })
+  await d.locator('[data-page-select]').first().click()
+  await d.getByRole('button', { name: 'Sign this page…' }).focus()
+  await d.keyboard.press('Enter')
+  const typer = d.getByRole('dialog', { name: 'Add a signature' })
+  // A photo of a signature on unevenly lit paper: the paper goes, the ink stays.
+  const photo = await d.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 800
+    canvas.height = 400
+    const ctx = canvas.getContext('2d')
+    const light = ctx.createLinearGradient(0, 0, 800, 0)
+    light.addColorStop(0, '#a49e94')
+    light.addColorStop(1, '#f4f1ea')
+    ctx.fillStyle = light
+    ctx.fillRect(0, 0, 800, 400)
+    ctx.strokeStyle = '#1b2a6e'
+    ctx.lineWidth = 6
+    ctx.beginPath()
+    ctx.moveTo(120, 260)
+    ctx.bezierCurveTo(220, 60, 320, 330, 420, 160)
+    ctx.bezierCurveTo(500, 40, 600, 300, 690, 210)
+    ctx.stroke()
+    return canvas.toDataURL('image/jpeg', 0.9).split(',')[1]
+  })
+  const photoPath = join(dir, 'signature-photo.jpg')
+  writeFileSync(photoPath, Buffer.from(photo, 'base64'))
+  await typer.getByRole('radio', { name: 'Photo' }).check({ force: true })
+  await d.setInputFiles('[data-testid="signature-photo-input"]', photoPath)
+  const fromPhoto = typer.getByRole('img', { name: /signature from the photo/ })
+  await fromPhoto.waitFor({ timeout: 10_000 })
+  const cleared = await fromPhoto.evaluate(async (img) => {
+    await img.decode()
+    const canvas = new OffscreenCanvas(img.naturalWidth, img.naturalHeight)
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    let clear = 0
+    let blue = 0
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] === 0) clear++
+      else if (data[i + 2] > data[i] + 20) blue++
+    }
+    return { clear: clear / (data.length / 4), blue, w: canvas.width, h: canvas.height }
+  })
+  check(
+    cleared.clear > 0.7 && cleared.blue > 500 && cleared.w > 450,
+    'a photographed signature keeps its ink and loses the paper',
+    JSON.stringify(cleared),
+  )
+  await typer.getByRole('radio', { name: 'Type' }).check({ force: true })
+  await typer.getByLabel('Your name').fill('Avery Quinn')
+  await typer.getByRole('button', { name: 'Use this signature' }).click()
+  const deskEditor = d.getByRole('dialog', { name: 'Sign page 1' })
+  const typed = deskEditor.getByRole('button', { name: 'Signature 1', exact: true })
+  await typed.waitFor()
+  await d.keyboard.press('Shift+ArrowUp')
+  await d.keyboard.press('+')
+  await d.keyboard.press(']')
+  const typedWhere = await typed.evaluate(
+    (el) => document.getElementById(el.getAttribute('aria-describedby') ?? '')?.textContent ?? '',
+  )
+  check(
+    /^50% across, 70% down, .* turned 1°$/.test(typedWhere),
+    'a typed signature moves, sizes and turns from the keyboard',
+    typedWhere,
+  )
+  const typedImg = await deskEditor
+    .locator('img')
+    .last()
+    .evaluate((img) => img.naturalWidth)
+  check(typedImg > 200, 'the typed name is drawn in the script face', String(typedImg))
+  await d.screenshot({ path: join(shots, 'sign-typed.png') })
+  await deskEditor.getByRole('button', { name: 'Apply' }).click()
+  const kept = await d.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const req = indexedDB.open('collated-signatures')
+        req.onsuccess = () => {
+          const q = req.result.transaction('signatures').objectStore('signatures').count()
+          q.onsuccess = () => resolve(q.result)
+        }
+      }),
+  )
+  check(kept === 0, 'a signature is not saved unless chosen', String(kept))
+  await desk.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()

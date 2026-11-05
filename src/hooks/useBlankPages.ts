@@ -1,3 +1,4 @@
+import { hasMarks } from '../core/marks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { picturesOf, type Asset, type Page, type Slot } from '../core/model'
 
@@ -51,8 +52,11 @@ export const useBlankPages = (
   const blankIds = useMemo(
     () =>
       pages.flatMap((p) =>
-        // A blank page that was inserted (#80) is blank on purpose.
-        !p.blank && picturesOf(p).every((slot) => found.get(keyOf(slot))) ? [p.id] : [],
+        // A blank page that was inserted (#80) is blank on purpose, and a
+        // signed one (#111) isn't blank any more.
+        !p.blank && !hasMarks(p) && picturesOf(p).every((slot) => found.get(keyOf(slot)))
+          ? [p.id]
+          : [],
       ),
     [found, pages],
   )
