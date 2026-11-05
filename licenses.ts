@@ -34,6 +34,9 @@ export const LICENSE_FILES: Record<string, string> = {
   'LGPL-3.0-and-GPL-3.0.txt': fromPackage('libheif-js', 'libheif-wasm/LICENSE'),
   'Apache-2.0.txt': fromPackage('tesseract.js-core', 'LICENSE'),
   'idb-keyval-NOTICE.txt': fromPackage('idb-keyval', 'LICENCE'),
+  // The TIFF decoder and its inflate (#113): MIT, with no notice in the bundle.
+  'UTIF-LICENSE.txt': fromPackage('utif2', 'LICENSE'),
+  'pako-LICENSE.txt': fromPackage('pako', 'LICENSE'),
   'tesseract-worker-NOTICES.txt': fromPackage('tesseract.js', 'dist/worker.min.js.LICENSE.txt'),
   'THIRD-PARTY-NOTICES.md': join(import.meta.dirname, 'THIRD-PARTY-NOTICES.md'),
   ...Object.fromEntries(

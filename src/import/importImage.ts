@@ -16,7 +16,7 @@ export const THUMB_EDGE = 720
  * iOS Safari refuses canvases over ~16.7 megapixels. Re-encoded images are
  * scaled down to fit; passthrough JPEGs and PNGs never touch a canvas.
  */
-const MAX_CANVAS_PIXELS = 16_000_000
+export const MAX_CANVAS_PIXELS = 16_000_000
 
 type AnyCanvas = OffscreenCanvas | HTMLCanvasElement
 
@@ -43,7 +43,7 @@ export const toBlob = (canvas: AnyCanvas, type: string, quality?: number): Promi
       })
 
 /** Draws the bitmap at the given size on white (scans have no use for transparency). */
-const render = async (
+export const render = async (
   bitmap: ImageBitmap,
   width: number,
   height: number,

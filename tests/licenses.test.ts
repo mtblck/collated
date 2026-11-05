@@ -13,6 +13,8 @@ describe('shipped licence texts', () => {
     expect(text('idb-keyval-NOTICE.txt')).toContain('Apache License')
     expect(text('tesseract-worker-NOTICES.txt')).toContain('zlib.js')
     expect(text('THIRD-PARTY-NOTICES.md')).toContain('# Third-party notices')
+    expect(text('UTIF-LICENSE.txt')).toContain('Photopea')
+    expect(text('pako-LICENSE.txt')).toContain('Vitaly Puzrin')
   })
 
   it('include the C libraries compiled into tesseract.js-core, for the installed version', () => {

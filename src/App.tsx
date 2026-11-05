@@ -1737,7 +1737,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       <input
         ref={fileInput}
         type="file"
-        accept="image/*,.heic,.heif,application/pdf,.pdf"
+        accept="image/*,.heic,.heif,.tif,.tiff,application/pdf,.pdf"
         multiple
         hidden
         data-testid="file-input"

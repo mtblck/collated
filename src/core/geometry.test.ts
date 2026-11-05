@@ -93,3 +93,16 @@ describe('layoutPage', () => {
     expect(isLandscape(asset('s', { width: 200, height: 200 }), { turns: 0 })).toBe(false)
   })
 })
+
+describe('"match image" with the file’s own resolution (#113)', () => {
+  it('sizes a TIFF page at the dpi it was scanned at, others at the setting', () => {
+    const s = settings({ size: 'image', imageDpi: 300 })
+    const fax = asset('fax', { format: 'png', width: 1728, height: 2290, dpi: 204 })
+    const layout = layoutPage(s, fax, page('p', 'fax'))
+    expect(layout.page.width).toBeCloseTo((1728 / 204) * 72)
+    expect(layout.page.height).toBeCloseTo((2290 / 204) * 72)
+    expect(layout.dpi).toBeCloseTo(204)
+    const photo = layoutPage(s, asset('a', { width: 600, height: 300 }), page('q', 'a'))
+    expect(photo.page).toEqual({ width: 144, height: 72 })
+  })
+})

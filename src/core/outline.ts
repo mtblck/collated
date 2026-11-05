@@ -25,10 +25,13 @@ export const sectionTitle = (page: Pick<Page, 'section'>) => page.section?.trim(
 
 /**
  * What a file's bookmark is called: its name without the extension, and for
- * a page of a PDF without the " · p3" its pages are named with.
+ * a page of a PDF or multi-page TIFF without the " · p3" its pages are named with.
  */
-export const fileTitle = (asset: Pick<Asset, 'name' | 'format'>) => {
-  const name = asset.format === 'pdf' ? asset.name.replace(/ · p\d+$/, '') : asset.name
+export const fileTitle = (
+  asset: Pick<Asset, 'name' | 'format'> & Partial<Pick<Asset, 'fileId'>>,
+) => {
+  const paged = asset.format === 'pdf' || asset.fileId !== undefined
+  const name = paged ? asset.name.replace(/ · p\d+$/, '') : asset.name
   return name.replace(/\.[a-z0-9]{1,5}$/i, '') || name
 }
 
@@ -56,7 +59,10 @@ export const sectionBefore = (docPages: readonly Page[], pageId: string): string
  */
 export const buildOutline = (
   pages: readonly Page[],
-  assets: Record<string, Pick<Asset, 'name' | 'format' | 'bytesId'>>,
+  assets: Record<
+    string,
+    Pick<Asset, 'name' | 'format' | 'bytesId'> & Partial<Pick<Asset, 'fileId'>>
+  >,
   options: { files: boolean; carried?: string | null },
 ): OutlineItem[] => {
   const top: OutlineItem[] = []
@@ -72,8 +78,9 @@ export const buildOutline = (
     if (!options.files) continue
     for (const slot of picturesOf(page)) {
       const asset = assets[slot.assetId]
-      if (!asset || seen.has(asset.bytesId)) continue
-      seen.add(asset.bytesId)
+      const file = asset?.fileId ?? asset?.bytesId
+      if (!asset || file === undefined || seen.has(file)) continue
+      seen.add(file)
       ;(section?.children ?? top).push({ title: fileTitle(asset), pageId: page.id, children: [] })
     }
   }

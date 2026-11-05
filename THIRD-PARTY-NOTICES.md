@@ -6,7 +6,8 @@ licence texts that must travel with them are published with the site under
 (emitted by `licenses.ts` from the installed packages):
 [LGPL-3.0 and GPL-3.0](https://collatedpdf.com/licenses/LGPL-3.0-and-GPL-3.0.txt),
 [Apache-2.0](https://collatedpdf.com/licenses/Apache-2.0.txt),
-[idb-keyval's notice](https://collatedpdf.com/licenses/idb-keyval-NOTICE.txt) and
+[idb-keyval's notice](https://collatedpdf.com/licenses/idb-keyval-NOTICE.txt),
+[UTIF.js's](https://collatedpdf.com/licenses/UTIF-LICENSE.txt) and [pako's](https://collatedpdf.com/licenses/pako-LICENSE.txt) MIT notices and
 [the OCR worker's bundled notices](https://collatedpdf.com/licenses/tesseract-worker-NOTICES.txt),
 and [the C libraries in the OCR engine](https://collatedpdf.com/licenses/tesseract-core/README.md).
 
@@ -29,6 +30,7 @@ and [the C libraries in the OCR engine](https://collatedpdf.com/licenses/tessera
 | [tesseract.js-core](https://github.com/naptha/tesseract.js-core) ² (`ocr/core/*.wasm.js`)                                                                                                                                                                                 | Apache-2.0                   | The OCR engine (Tesseract in WebAssembly)         | With OCR                                                      |
 | [Language data](https://github.com/naptha/tessdata) (`@tesseract.js-data/` `eng`, `dan`, `deu`, `fin`, `fra`, `ita`, `nld`, `nor`, `por`, `spa`, `swe`; 4.0.0 best_int)                                                                                                   | Apache-2.0 data, MIT package | OCR, one language at a time                       | With OCR                                                      |
 | [Orientation and script data](https://github.com/naptha/tessdata) (`@tesseract.js-data/osd`, 4.0.0 best_int)                                                                                                                                                              | Apache-2.0 data, MIT package | Auto-rotate pages                                 | With Auto-rotate pages                                        |
+| [UTIF.js](https://github.com/photopea/UTIF.js) (`utif2`) ³ and [pako](https://github.com/nodeca/pako) (its Deflate decoder)                                                                                                                                               | MIT; pako MIT and Zlib       | Reading TIFF scans and faxes                      | When a TIFF file is added (worker)                            |
 | [libheif](https://github.com/strukturag/libheif) and [libde265](https://github.com/strukturag/libde265) via [libheif-js](https://github.com/catdad-experiments/libheif-js)                                                                                                | LGPL-3.0                     | Decoding HEIC photos where the browser can't      | When a HEIC file is added in a browser without native support |
 
 ¹ pdf-lib also carries code of its own origin from pdf.js (encryption and
@@ -50,6 +52,9 @@ builds, are in
 [`licenses/tesseract-core/`](https://collatedpdf.com/licenses/tesseract-core/README.md),
 which lists the version of each. This software is based in part on the work of
 the Independent JPEG Group.
+
+³ UTIF.js carries a JPEG decoder of its own origin from pdf.js (`jpg.js`,
+Apache-2.0), used for JPEG-compressed TIFF pages.
 
 ## libheif (LGPL-3.0)
 

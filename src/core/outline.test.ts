@@ -299,3 +299,14 @@ describe('bookmarks in the PDF (#75)', () => {
     ])
   })
 })
+
+describe('a multi-page TIFF (#113)', () => {
+  it('gets one bookmark, named for the file, though each page has its own bytes', () => {
+    const tiff = {
+      t1: asset('t1', { name: 'fax · p1', format: 'png', fileId: 'fax' }),
+      t2: asset('t2', { name: 'fax · p2', format: 'png', fileId: 'fax' }),
+    }
+    const pages = [page('p1', 't1'), page('p2', 't2')]
+    expect(shape(buildOutline(pages, tiff, { files: true }))).toEqual(['fax @p1'])
+  })
+})

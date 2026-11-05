@@ -48,16 +48,25 @@ export const isLandscape = (asset: Pick<Asset, 'width' | 'height'>, page: Pick<P
 }
 
 /**
+ * Points per pixel (or per point, for a PDF page) at natural size: the
+ * file's own resolution when it gave one (TIFF scans), else `imageDpi`.
+ */
+const pointsPerUnit = (
+  settings: Pick<Settings, 'imageDpi'>,
+  asset: Partial<Pick<Asset, 'format' | 'dpi'>>,
+) => (asset.format === 'pdf' ? 1 : PT_PER_IN / (asset.dpi ?? settings.imageDpi))
+
+/**
  * A "match image" page: the content's rotated bounds at its natural size
- * (images at `imageDpi`, PDF pages in their own points) plus the margins, so
+ * (images at their own dpi or `imageDpi`, PDF pages in their own points) plus the margins, so
  * at scale 1 it fills the page exactly. Clamped to PDF's page-size limits.
  */
 const matchedSize = (
   settings: Pick<Settings, 'margin' | 'imageDpi'>,
-  asset: Pick<Asset, 'width' | 'height'> & Partial<Pick<Asset, 'format'>>,
+  asset: Pick<Asset, 'width' | 'height'> & Partial<Pick<Asset, 'format' | 'dpi'>>,
   rotation: number,
 ) => {
-  const perUnit = asset.format === 'pdf' ? 1 : PT_PER_IN / settings.imageDpi
+  const perUnit = pointsPerUnit(settings, asset)
   const bounds = rotatedBounds(asset.width * perUnit, asset.height * perUnit, rotation)
   const fit = (n: number) => Math.min(PAGE_MAX, Math.max(PAGE_MIN, n + settings.margin * 2))
   return { width: fit(bounds.width), height: fit(bounds.height) }
@@ -87,7 +96,7 @@ export interface Cell {
  */
 export const layoutPage = (
   settings: Pick<Settings, 'size' | 'custom' | 'orientation' | 'margin' | 'imageDpi'>,
-  asset: Pick<Asset, 'width' | 'height'> & Partial<Pick<Asset, 'format'>>,
+  asset: Pick<Asset, 'width' | 'height'> & Partial<Pick<Asset, 'format' | 'dpi'>>,
   page: Pick<Page, 'turns' | 'angle' | 'scale' | 'fit'> & Partial<Pick<Page, 'corners'>>,
   cell?: Cell,
 ): Layout => {
@@ -143,7 +152,7 @@ export const SHEET_GAP = 18
 /** An ID-1 card (ID cards, driving licences, bank cards): 85.6 × 54 mm, ISO/IEC 7810. */
 export const ID_CARD = { width: toPoints(85.6, 'mm'), height: toPoints(54, 'mm') }
 
-type SizedAsset = Pick<Asset, 'width' | 'height'> & Partial<Pick<Asset, 'format'>>
+type SizedAsset = Pick<Asset, 'width' | 'height'> & Partial<Pick<Asset, 'format' | 'dpi'>>
 
 /** A single picture's page as a sheet, so every page draws the same way. */
 export const singleSheet = (layout: Layout): SheetLayout => ({
@@ -313,7 +322,7 @@ const packedSize = (
   // Every cell is as big as the biggest picture, so none is shrunk.
   const natural = pictures.map(({ asset, slot }) => {
     const source = { ...asset, ...contentSize(asset, slot) }
-    const perUnit = asset.format === 'pdf' ? 1 : PT_PER_IN / settings.imageDpi
+    const perUnit = pointsPerUnit(settings, asset)
     return rotatedBounds(source.width * perUnit, source.height * perUnit, pageRotation(slot))
   })
   const cellW = Math.max(...natural.map((b) => b.width))
