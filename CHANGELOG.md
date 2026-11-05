@@ -53,4 +53,4 @@ version or date when it ships.
 
 ### Fixed
 
-- The header is the same height on the home page, the docs, the task pages and while you work, and the name at its left is the same size and weight on every one: it no longer comes up wider and bolder on some pages while the font loads (#PR).
+- The header is the same height on the home page, the docs, the task pages and while you work, and the name at its left is the same size and weight on every one: it no longer comes up wider and bolder on some pages while the font loads (#145).
