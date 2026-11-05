@@ -9,7 +9,7 @@ import {
   picturesOf,
   sizeModel,
 } from './core/model'
-import { imageFilename, partFilename, pdfFilename, zipFilename } from './core/filename'
+import { imageFilename, partFilename, pdfFilename, timeLabel, zipFilename } from './core/filename'
 import {
   IMAGE_TYPES,
   imageCompression,
@@ -215,10 +215,7 @@ const filesFrom = (list: FileList | null | undefined): File[] =>
  * and date; the type is read from the bytes anyway.
  */
 const namePhoto = (file: File): File => {
-  const at = new Date(file.lastModified)
-  const time = [at.getHours(), at.getMinutes(), at.getSeconds()]
-    .map((n) => String(n).padStart(2, '0'))
-    .join('.')
+  const time = timeLabel(new Date(file.lastModified))
   const ext = /\.[a-z0-9]+$/i.exec(file.name)?.[0] ?? ''
   return new File([file], `Photo ${time}${ext}`, {
     type: file.type,
@@ -476,8 +473,14 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   }, [deps.work, history, keptSelection, notify, saving])
 
   const addFiles = useCallback(
-    /** `corners[i]` crops file i's page as it comes in (the scan camera, #118). */
-    async (files: File[], { corners }: { corners?: readonly (Quad | null)[] } = {}) => {
+    /**
+     * `corners[i]` crops file i's page as it comes in, and `batch` puts the
+     * pages in a pile of earlier ones for Interleave (the scan camera, #118).
+     */
+    async (
+      files: File[],
+      { corners, batch: pile }: { corners?: readonly (Quad | null)[]; batch?: string } = {},
+    ) => {
       if (files.length === 0) return
       // Adding files instead of restoring starts a new document; it replaces
       // the saved one once it's saved. Also before we've looked: a late answer
@@ -538,7 +541,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         const pageIds = added.map(() => deps.newId())
         // Images added together are one pile for Interleave (a PDF is its
         // own); the first one's id names the batch.
-        const batch = added.find((a) => a.format !== 'pdf')?.id
+        const batch = pile ?? added.find((a) => a.format !== 'pdf')?.id
         // A multi-page TIFF is its own pile, like a PDF.
         const tagged = added.map((a) =>
           a.format === 'pdf' || !batch ? a : { ...a, source: a.fileId ?? batch },
@@ -743,15 +746,18 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   /** Scan mode (#118): open while true. */
   const [scanning, setScanning] = useState(false)
   const [scanAuto, setScanAuto] = useState(() => loadScanAuto(deps.storage))
+  /** One scanning session's pages are one pile for Interleave, like files added together. */
+  const scanBatch = useRef('')
   const scan = useCallback(() => {
+    scanBatch.current = deps.newId()
     setScanning(true)
-  }, [])
+  }, [deps])
   /** Shots are added one after another, as they're taken, each with its outline. */
   const shots = useRef<Promise<void>>(Promise.resolve())
   const addShot = useCallback(
     (file: File, corners: Quad | null) => {
       shots.current = shots.current
-        .then(() => addFiles([file], { corners: [corners] }))
+        .then(() => addFiles([file], { corners: [corners], batch: scanBatch.current }))
         .catch((error: unknown) => {
           console.error(error) // a bug; the next shot still goes in
         })

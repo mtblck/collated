@@ -4636,7 +4636,12 @@ await context.close()
   check(track === 'live', 'the camera track is live while scanning', track)
   await c.getByRole('button', { name: 'Close the camera' }).tap()
   await c.getByRole('dialog', { name: 'Scan pages' }).waitFor({ state: 'hidden' })
-  const after = await c.evaluate(() => window.__track.readyState)
+  const after = await c
+    .waitForFunction(() => window.__track.readyState === 'ended', undefined, { timeout: 3000 })
+    .then(
+      () => 'ended',
+      () => c.evaluate(() => window.__track.readyState),
+    )
   check(after === 'ended', 'closing the scanner stops the camera', after)
   await cam.close()
   await camBrowser.close()

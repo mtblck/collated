@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Quad } from './perspective'
 import {
   COOLDOWN_MS,
+  REARM_MS,
   SHUTTER_START,
   STEADY_MS,
   cornerShift,
@@ -91,9 +92,15 @@ describe('sight', () => {
     expect(fired).toEqual([STEADY_MS, 2000 + STEADY_MS])
   })
 
+  it('takes a page once even when the detector misses a frame of it', () => {
+    const { fired } = run(SHUTTER_START, 0, 6000, (t) => (t === 1500 || t === 3000 ? null : quad()))
+    expect(fired).toEqual([STEADY_MS])
+  })
+
   it('keeps shots at least COOLDOWN_MS apart', () => {
     // The page leaves and comes back straight after the first shot.
-    const { fired } = run(SHUTTER_START, 0, 4000, (t) => (t === 900 ? null : quad()))
+    const gone = (t: number) => t >= 900 && t < 900 + REARM_MS + 100
+    const { fired } = run(SHUTTER_START, 0, 4000, (t) => (gone(t) ? null : quad()))
     expect(fired[0]).toBe(STEADY_MS)
     expect((fired[1] ?? Infinity) - (fired[0] ?? 0)).toBeGreaterThanOrEqual(COOLDOWN_MS)
   })

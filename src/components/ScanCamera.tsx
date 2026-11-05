@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
+import { timeLabel } from '../core/filename'
 import type { PaperGuess } from '../core/paper'
 import type { Quad } from '../core/perspective'
 import { SHUTTER_START, shotByHand, sight } from '../core/shutter'
-import { Button, IconButton } from './controls'
+import { Button } from './controls'
 import { cx } from './cx'
 import { CameraIcon, CloseIcon, TorchIcon } from './Icons'
 import { cameraProblem } from '../lib/camera'
@@ -39,10 +40,7 @@ const CONSTRAINTS: MediaStreamConstraints = {
 }
 
 /** "Scan 14.03.22.jpg", as Take photo names its shots by the time they were taken. */
-const scanName = (at: Date) =>
-  `Scan ${[at.getHours(), at.getMinutes(), at.getSeconds()]
-    .map((n) => String(n).padStart(2, '0'))
-    .join('.')}.jpg`
+const scanName = (at: Date) => `Scan ${timeLabel(at)}.jpg`
 
 const subscribeVisibility = (onChange: () => void) => {
   document.addEventListener('visibilitychange', onChange)
@@ -109,6 +107,15 @@ export const ScanCamera = ({
   const seen = useRef<{ at: number; corners: Quad | null }>({ at: 0, corners: null })
   const onShotRef = useRef(onShot)
   const lastName = useRef({ base: '', count: 0 })
+  const flashTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  /** The open stream, so closing stops the camera at once, before React unmounts us. */
+  const live = useRef<MediaStream | null>(null)
+  useEffect(
+    () => () => {
+      clearTimeout(flashTimer.current)
+    },
+    [],
+  )
   useEffect(() => {
     autoRef.current = auto
     onShotRef.current = onShot
@@ -137,6 +144,7 @@ export const ScanCamera = ({
           return
         }
         stream = s
+        live.current = s
         v.srcObject = s
         try {
           await v.play()
@@ -156,6 +164,7 @@ export const ScanCamera = ({
     return () => {
       running = false
       stop(stream)
+      live.current = null
       v.srcObject = null
       setPhase('starting')
       setTorch(null)
@@ -176,7 +185,8 @@ export const ScanCamera = ({
     const at = new Date()
     setTaken((n) => n + 1)
     setFlash(true)
-    setTimeout(() => {
+    clearTimeout(flashTimer.current)
+    flashTimer.current = setTimeout(() => {
       setFlash(false)
     }, FLASH_MS)
     if ('vibrate' in navigator) navigator.vibrate(15)
@@ -283,7 +293,10 @@ export const ScanCamera = ({
       ref={dialog}
       aria-labelledby={`${id}-title`}
       className="m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden bg-black p-0 text-white backdrop:bg-black"
-      onClose={onClose}
+      onClose={() => {
+        stop(live.current)
+        onClose()
+      }}
     >
       <div className="flex h-full flex-col">
         <div className="flex items-center justify-between gap-3 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2">
@@ -292,27 +305,20 @@ export const ScanCamera = ({
           </h2>
           <div className="flex items-center gap-2">
             {torch && (
-              <Button
-                size="lg"
-                variant="quiet"
-                aria-pressed={torch.on}
-                onClick={toggleTorch}
-                className={cx(
-                  'px-4 text-white hover:bg-white/10 hover:text-white',
-                  torch.on && 'bg-white/20',
-                )}
-              >
+              <Button size="lg" variant="overlay" aria-pressed={torch.on} onClick={toggleTorch}>
                 <TorchIcon />
                 Light
               </Button>
             )}
-            <IconButton
-              label="Close the camera"
+            <Button
+              size="icon-lg"
+              variant="overlay"
+              aria-label="Close the camera"
+              title="Close the camera"
               onClick={() => dialog.current?.close()}
-              className="size-11 text-white hover:bg-white/10 hover:text-white"
             >
               <CloseIcon />
-            </IconButton>
+            </Button>
           </div>
         </div>
 
@@ -372,8 +378,10 @@ export const ScanCamera = ({
                     variant="primary"
                     size="lg"
                     onClick={() => {
-                      onTakePhoto()
+                      // Closed first: the file input is outside the dialog,
+                      // so inert while it's modal.
                       dialog.current?.close()
+                      onTakePhoto()
                     }}
                   >
                     <CameraIcon />
@@ -396,16 +404,13 @@ export const ScanCamera = ({
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <Button
             size="lg"
-            variant="quiet"
             aria-pressed={auto}
             inactive={problem !== null}
             onClick={() => {
               onAuto(!auto)
             }}
-            className={cx(
-              'justify-self-start px-4 text-white hover:bg-white/10 hover:text-white',
-              auto && 'bg-white/20',
-            )}
+            variant="overlay"
+            className="justify-self-start"
           >
             Auto
             {/* Seen, not read: the button's pressed state says it. */}
@@ -422,9 +427,9 @@ export const ScanCamera = ({
           />
           <Button
             size="lg"
-            variant={taken > 0 ? 'primary' : 'quiet'}
+            variant={taken > 0 ? 'primary' : 'overlay'}
             onClick={() => dialog.current?.close()}
-            className={cx('justify-self-end px-4', taken === 0 && 'text-white hover:bg-white/10')}
+            className="justify-self-end"
           >
             Done
           </Button>

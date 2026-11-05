@@ -25,6 +25,8 @@ export interface Shutter {
   armed: boolean
   /** When the last shot was taken, and of what. */
   shot: { at: number; corners: Quad | null } | null
+  /** Since when no paper has been seen, while waiting for a new page. */
+  lost: number | null
 }
 
 /** How long the outline has to hold still. */
@@ -35,8 +37,13 @@ export const STEADY_DRIFT = 0.02
 export const NEW_PAGE_SHIFT = 0.1
 /** Never two shots closer than this, whatever the outline does. */
 export const COOLDOWN_MS = 1500
+/**
+ * The page has to be gone this long to count as turned: the detector misses
+ * the odd frame (glare, a shadow), and one miss mustn't take the page again.
+ */
+export const REARM_MS = 300
 
-export const SHUTTER_START: Shutter = { recent: [], armed: true, shot: null }
+export const SHUTTER_START: Shutter = { recent: [], armed: true, shot: null, lost: null }
 
 /** The largest distance any corner of `a` is from the same corner of `b`. */
 export const cornerShift = (a: Quad, b: Quad) =>
@@ -55,14 +62,18 @@ export const sight = (state: Shutter, sighting: Sighting): ShutterStep => {
   const { at, corners } = sighting
   let { armed } = state
   const { shot } = state
-  // Re-armed by the page going away or moving well off where it was shot.
+  // Re-armed by the page going away for a moment or moving well off where it was shot.
+  const lost = corners === null ? (state.lost ?? at) : null
   if (
     !armed &&
-    (corners === null || (shot?.corners && cornerShift(corners, shot.corners) > NEW_PAGE_SHIFT))
+    ((lost !== null && at - lost >= REARM_MS) ||
+      (corners && shot?.corners && cornerShift(corners, shot.corners) > NEW_PAGE_SHIFT))
   ) {
     armed = true
   }
-  if (corners === null) return { shutter: { recent: [], armed, shot }, fire: false, steady: 0 }
+  if (corners === null) {
+    return { shutter: { recent: [], armed, shot, lost }, fire: false, steady: 0 }
+  }
 
   // Keep the run of sightings that are still close to this one.
   const kept: Sighting[] = []
@@ -79,12 +90,12 @@ export const sight = (state: Shutter, sighting: Sighting): ShutterStep => {
   const steady = armed ? Math.min(1, held / STEADY_MS) : 0
   if (armed && cooled && held >= STEADY_MS) {
     return {
-      shutter: { recent: [], armed: false, shot: { at, corners } },
+      shutter: { recent: [], armed: false, shot: { at, corners }, lost: null },
       fire: true,
       steady: 1,
     }
   }
-  return { shutter: { recent: kept, armed, shot }, fire: false, steady }
+  return { shutter: { recent: kept, armed, shot, lost: null }, fire: false, steady }
 }
 
 /**
@@ -96,4 +107,5 @@ export const shotByHand = (state: Shutter, at: number, corners: Quad | null): Sh
   recent: [],
   armed: false,
   shot: { at, corners },
+  lost: null,
 })

@@ -5,11 +5,10 @@
 
 /** Whether this browser can open the camera here (a secure page, and the API). */
 export const canScan = () =>
-  typeof navigator !== 'undefined' &&
-  'mediaDevices' in navigator &&
-  typeof navigator.mediaDevices.getUserMedia === 'function' &&
   typeof window !== 'undefined' &&
-  window.isSecureContext
+  window.isSecureContext &&
+  // Missing on insecure pages, whatever the types say.
+  typeof (navigator.mediaDevices as MediaDevices | undefined)?.getUserMedia === 'function'
 
 /** What went wrong, in words for the person; Take photo is offered after it. */
 export const cameraProblem = (error: unknown) => {
