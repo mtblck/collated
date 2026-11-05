@@ -1,5 +1,7 @@
 /** Where Collated points, inside and outside itself. One place, so the app,
  * the docs pages (docs-site.ts) and verify all agree. */
+import { TASKS, taskUrl } from './tasks'
+
 const BASE = '/'
 
 export const SOURCE_URL = 'https://github.com/mtblck/collated'
@@ -21,8 +23,13 @@ export interface FooterLink {
   external?: boolean
 }
 
-/** The footer's columns, on the landing view and every docs page. */
+/** The footer's columns, on the landing view, every docs page and every task page. */
 export const FOOTER: readonly { title: string; links: readonly FooterLink[] }[] = [
+  {
+    // The task pages (#120): how search finds what Collated does.
+    title: 'Tools',
+    links: TASKS.map((task) => ({ label: task.heading, href: taskUrl(task) })),
+  },
   {
     title: 'Collated',
     links: [

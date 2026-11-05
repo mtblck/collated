@@ -57,16 +57,25 @@ if (
 ) {
   problems.push(`Missing permanent redirects ${OLD} -> ${ORIGIN}/ and ${OLD}/(.*) -> ${ORIGIN}/$1.`)
 }
-// Docs pages are folders; a URL typed without the slash would otherwise get
-// the app from the fallback.
+// Docs and task pages are folders; a URL typed without the slash would
+// otherwise get the app from the fallback. Every task page (#120) is named.
+const taskSlugs = [...read('src/components/tasks.ts').matchAll(/^\s+slug: '([a-z0-9-]+)',$/gm)].map(
+  (m) => m[1],
+)
+// Written any other way, a task would be missed here: say so instead.
+const slugLines = read('src/components/tasks.ts').match(/^\s+slug:(?! string)/gm)?.length ?? 0
+if (taskSlugs.length === 0 || taskSlugs.length !== slugLines) {
+  problems.push(
+    "Couldn't read every task slug in src/components/tasks.ts (write each as `    slug: 'name',`).",
+  )
+}
+const SLASH_SOURCE = `${BASE}:page(${['docs', 'docs/[^/.]+', 'privacy', 'terms', ...taskSlugs].join('|')})`
 if (
   !(config.redirects ?? []).some(
-    (r) =>
-      r.source === `${BASE}:page(docs|docs/[^/.]+|privacy|terms)` &&
-      r.destination === `${BASE}:page/`,
+    (r) => r.source === SLASH_SOURCE && r.destination === `${BASE}:page/`,
   )
 ) {
-  problems.push('Missing redirect adding the slash to docs, privacy and terms URLs.')
+  problems.push(`Missing redirect ${SLASH_SOURCE} -> ${BASE}:page/ adding the slash to page URLs.`)
 }
 for (const key of ['cleanUrls', 'trailingSlash', 'routes']) {
   if (key in config) problems.push(`"${key}" is set; it has silently disabled rewrites before.`)
