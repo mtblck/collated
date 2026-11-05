@@ -16,6 +16,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { asset, fixture, page, settings } from '../../tests/helpers'
 import { layoutPage, layoutSheet, type Layout } from './geometry'
 import { DEFAULT_TRANSFORM, blankPage } from './model'
+import { bookletSheets, posterSheets, type Imposition, type Placement, type Size } from './impose'
 import type {
   Asset,
   ImageMark,
@@ -38,6 +39,7 @@ import {
   pageTurns,
   placement,
   visibleBox,
+  type BuildInput,
   type FlattenJob,
   type ImageJob,
 } from './pdf'
@@ -85,7 +87,11 @@ const fileAsset = async (key: string): Promise<{ meta: Asset; bytes: Uint8Array 
   }
 }
 
-const build = async (s: Settings, items: { file: string; page?: Partial<Page> }[]) => {
+const build = async (
+  s: Settings,
+  items: { file: string; page?: Partial<Page> }[],
+  extra: Partial<BuildInput> = {},
+) => {
   const files = new Map(
     await Promise.all(items.map(async ({ file }) => [file, await fileAsset(file)] as const)),
   )
@@ -93,7 +99,7 @@ const build = async (s: Settings, items: { file: string; page?: Partial<Page> }[
   const bytesById = new Map([...files.values()].map((v) => [v.meta.bytesId, v.bytes]))
   const pages = items.map(({ file, page: p }, i) => page(`p${i}`, file, p))
   const bytes = await buildPdf(
-    { settings: s, pages, assets },
+    { settings: s, pages, assets, ...extra },
     {
       getBytes: (id) => bytesById.get(id) ?? new Uint8Array(),
       // Stands in for the worker's canvas: decodes upright (EXIF applied),
@@ -491,8 +497,8 @@ afterAll(() => {
   rmSync(work, { recursive: true, force: true })
 })
 
-/** Renders page 1 and returns a pixel reader in PDF points (top-left origin). */
-const rasterise = (bytes: Uint8Array) => {
+/** Renders a page (1-based) and returns a pixel reader in PDF points (top-left origin). */
+const rasterise = (bytes: Uint8Array, n = 1) => {
   const pdfPath = join(work, `${String(Math.random()).slice(2)}.pdf`)
   writeFileSync(pdfPath, bytes)
   const prefix = pdfPath.replace(/\.pdf$/, '')
@@ -500,9 +506,9 @@ const rasterise = (bytes: Uint8Array) => {
     '-r',
     String(DPI),
     '-f',
-    '1',
+    String(n),
     '-l',
-    '1',
+    String(n),
     '-singlefile',
     pdfPath,
     prefix,
@@ -1303,5 +1309,125 @@ describe('text, ticks and crosses (#112)', () => {
 
   it('refuses text its font can’t write', async () => {
     await expect(build([text({ text: 'Ωmega' })])).rejects.toThrow(/page 1 has Ω/)
+  })
+})
+
+describe.skipIf(!hasPdftoppm)('booklets and posters (#119)', () => {
+  const A4 = { width: 595.28, height: 841.89 }
+  /** A page's layout as drawn on a sheet: scaled, moved, and cut to the sheet. */
+  const onSheet = (layout: Layout, at: Placement, sheet: Size): Layout => {
+    const move = (x: number, y: number) => ({ x: at.x + x * at.scale, y: at.y + y * at.scale })
+    const c = move(layout.content.x, layout.content.y)
+    const x0 = Math.max(0, c.x)
+    const y0 = Math.max(0, c.y)
+    const x1 = Math.min(sheet.width, c.x + layout.content.width * at.scale)
+    const y1 = Math.min(sheet.height, c.y + layout.content.height * at.scale)
+    const centre = move(layout.image.cx, layout.image.cy)
+    return {
+      ...layout,
+      content: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 },
+      image: {
+        ...layout.image,
+        cx: centre.x,
+        cy: centre.y,
+        width: layout.image.width * at.scale,
+        height: layout.image.height * at.scale,
+      },
+    }
+  }
+
+  it('folds five pages into the right order, two to a side, against the fold', async () => {
+    const s = settings({ size: 'a4', orientation: 'portrait', margin: 20 })
+    // Each page turned differently, so a page in the wrong slot shows.
+    const items = ([0, 1, 2, 3, 0] as const).map((turns, i) => ({
+      file: 'quad-landscape.jpg',
+      page: { turns, angle: i === 4 ? 10 : 0 },
+    }))
+    const print: Imposition = { kind: 'booklet', paper: A4 }
+    const { bytes, assets, pages } = await build(s, items, { print })
+    const doc = await PDFDocument.load(bytes)
+    // 5 pages pad to 8: two sheets, both sides.
+    expect(doc.getPageCount()).toBe(4)
+    const meta = assets['quad-landscape.jpg']
+    if (!meta) throw new Error('setup')
+    const layouts = pages.map((p) => layoutPage(s, meta, p))
+    const sheets = bookletSheets(
+      layouts.map((l) => l.page),
+      A4,
+    )
+    expect(sheets.map((sheet) => sheet.pages.map((p) => p.page))).toEqual([[0], [1], [2], [3, 4]])
+    for (const [i, sheet] of sheets.entries()) {
+      const pixel = rasterise(bytes, i + 1)
+      expect(doc.getPage(i).getSize().width).toBeCloseTo(A4.height, 1)
+      for (const at of sheet.pages) {
+        const layout = layouts[at.page]
+        if (!layout) throw new Error('setup')
+        expectDrawn(pixel, onSheet(layout, at, sheet.size))
+      }
+      // An empty slot (the padding) stays white.
+      if (sheet.pages.length === 1) {
+        const empty = sheet.pages[0]?.x === sheet.size.width / 2 ? 0.25 : 0.75
+        expect(close(pixel(sheet.size.width * empty, sheet.size.height / 2), [255, 255, 255])).toBe(
+          true,
+        )
+      }
+    }
+  })
+
+  it('tiles a page across 2 × 2 sheets with overlap, cut marks and labels', async () => {
+    const s = settings({ size: 'letter', orientation: 'auto', margin: 0 })
+    const print: Extract<Imposition, { kind: 'poster' }> = {
+      kind: 'poster',
+      paper: A4,
+      across: 2,
+      down: 2,
+      overlap: 28.35,
+      cutMarks: true,
+    }
+    const { bytes, assets, pages } = await build(s, [{ file: 'quad-landscape.jpg' }], { print })
+    const doc = await PDFDocument.load(bytes)
+    expect(doc.getPageCount()).toBe(4)
+    const meta = assets['quad-landscape.jpg']
+    const model = pages[0]
+    if (!meta || !model) throw new Error('setup')
+    const layout = layoutPage(s, meta, model)
+    const sheets = posterSheets([layout.page], print)
+    // A landscape page is bigger across landscape sheets.
+    expect(sheets[0]?.size.width).toBeCloseTo(A4.height, 1)
+    for (const [i, sheet] of sheets.entries()) {
+      const pixel = rasterise(bytes, i + 1)
+      const [at] = sheet.pages
+      if (!at) throw new Error('setup')
+      // The grid it checks misses the marks and the label, in the strips by the edges.
+      expectDrawn(pixel, onSheet(layout, at, sheet.size))
+      for (const cut of sheet.cuts) {
+        const got = cut.axis === 'x' ? pixel(cut.at, 20) : pixel(20, cut.at)
+        expect(close(got, [0, 0, 0]), `cut on sheet ${String(i + 1)} was ${got.join(',')}`).toBe(
+          true,
+        )
+      }
+    }
+    expect(sheets.map((sheet) => sheet.cuts.length)).toEqual([0, 1, 1, 2])
+    if (hasPdftotext) {
+      const text = extractText(bytes) ?? ''
+      for (const label of ['A1', 'A2', 'B1', 'B2']) expect(text).toContain(label)
+    }
+  })
+
+  it('keeps one copy of a poster page however many sheets show it', async () => {
+    const s = settings({ size: 'letter' })
+    const print: Imposition = {
+      kind: 'poster',
+      paper: A4,
+      across: 3,
+      down: 3,
+      overlap: 20,
+      cutMarks: false,
+    }
+    const plain = await build(s, [{ file: 'quad-landscape.jpg' }])
+    const poster = await build(s, [{ file: 'quad-landscape.jpg' }], { print })
+    expect((await PDFDocument.load(poster.bytes)).getPageCount()).toBe(9)
+    // The picture is stored once: nine sheets cost little more than one page.
+    expect(poster.bytes.length).toBeLessThan(plain.bytes.length + 6_000)
   })
 })

@@ -1,4 +1,5 @@
 import type { Compression } from '../core/compression'
+import type { Imposition } from '../core/impose'
 import { usedAssetIds } from '../core/marks'
 import { isRedacted, picturesOf, type DocState } from '../core/model'
 import type { OutlineItem } from '../core/outline'
@@ -54,6 +55,7 @@ const request = (
   drawn: Record<string, Uint8Array> = {},
   parts?: SplitPart[],
   outline?: OutlineItem[],
+  print?: Imposition,
 ): ExportRequest => {
   const used = usedAssetIds(state)
   const assets = Object.fromEntries(Object.entries(state.assets).filter(([id]) => used.has(id)))
@@ -78,6 +80,7 @@ const request = (
       ...(text ? { text } : {}),
       ...(Object.keys(rendered).length ? { rendered } : {}),
       ...(outline?.length ? { outline } : {}),
+      ...(print ? { print } : {}),
     },
     bytes,
     ...(parts ? { parts } : {}),
@@ -206,9 +209,11 @@ export const exportPdf = (
     parts?: SplitPart[]
     /** Bookmarks for the single file; parts carry their own. */
     outline?: OutlineItem[]
+    /** Prints the pages as a booklet or poster (#119), each part on its own. */
+    print?: Imposition
   } = {},
 ): Promise<Exported> => {
-  const { parts, outline } = options
+  const { parts, outline, print } = options
   const type = parts ? 'application/zip' : 'application/pdf'
   const hasPdf = [...usedAssetIds(state)].some((id) => state.assets[id]?.format === 'pdf')
   const finish = (result: Exported | { draw: string[] }) => {
@@ -218,7 +223,7 @@ export const exportPdf = (
   // Without PDF pages there's nothing to draw first: post straight away.
   if (!hasPdf) {
     return send(
-      request(state, options.password, options.text, {}, parts, outline),
+      request(state, options.password, options.text, {}, parts, outline, print),
       type,
       onProgress,
     ).then(finish)
@@ -226,7 +231,7 @@ export const exportPdf = (
   const buildDrawn = async () => {
     const drawn = await drawLayered(state, onProgress)
     const first = await send(
-      request(state, options.password, options.text, drawn, parts, outline),
+      request(state, options.password, options.text, drawn, parts, outline, print),
       type,
       onProgress,
     )
@@ -248,7 +253,11 @@ export const exportPdf = (
       }
     }
     return finish(
-      await send(request(state, options.password, text, drawn, parts, outline), type, onProgress),
+      await send(
+        request(state, options.password, text, drawn, parts, outline, print),
+        type,
+        onProgress,
+      ),
     )
   }
   // PDF/A's drawings (every PDF page, ~1 MB each) aren't kept for later exports.

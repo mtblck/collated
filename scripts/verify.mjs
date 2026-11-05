@@ -4859,6 +4859,108 @@ await context.close()
   await phone.close()
 }
 
+// 46. Booklets and posters (#119), by touch on a 390px phone: five pages
+//     with page numbers print as a booklet of two sheets, the numbers in
+//     folding order; one page as a 2 × 2 poster gets four labelled sheets.
+{
+  const { context: phone, page: p } = await open({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [
+    join(fixtures, 'quad-3pages.pdf'),
+    join(fixtures, 'doc-colour.jpg'),
+    join(fixtures, 'quad-portrait.jpg'),
+  ])
+  await p.waitForSelector('ol[aria-label="5 pages"]', { timeout: 30_000 })
+  await exportMenu(p).tap()
+  const panel = p.getByRole('dialog', { name: 'Export options' })
+  await panel.getByRole('checkbox', { name: 'Page numbers' }).tap()
+  const booklet = panel.getByRole('radio', { name: 'Booklet' })
+  await booklet.scrollIntoViewIfNeeded()
+  await booklet.tap()
+  const targets = await panel
+    .locator('input[name$="-print"]')
+    .evaluateAll((els) => els.map((el) => el.closest('label').getBoundingClientRect().height))
+  check(
+    targets.length === 3 && targets.every((h) => h >= 44),
+    'Pages / Booklet / Poster are 44px touch targets on a phone',
+    targets.join(', '),
+  )
+  const group = panel.getByRole('group', { name: 'Print as' })
+  const hint = await group.evaluate(
+    (el) => document.getElementById(el.getAttribute('aria-describedby'))?.textContent ?? '',
+  )
+  check(
+    hint.includes('5 pages on 2 sheets') && hint.includes('flipping on the short edge'),
+    'the booklet says how many sheets and how to print and fold it',
+    hint,
+  )
+  await panel.getByLabel('Paper', { exact: true }).selectOption('a4')
+  await p.screenshot({ path: join(shots, 'print-booklet-phone.png') })
+  await axe(p, 'export options set to a booklet on a phone')
+  const dir = mkdtempSync(join(tmpdir(), 'collated-verify-print-'))
+  const [bookletDl] = await Promise.all([
+    p.waitForEvent('download'),
+    panel.getByRole('button', { name: 'Export PDF' }).tap(),
+  ])
+  const bookletPath = join(dir, 'booklet.pdf')
+  await bookletDl.saveAs(bookletPath)
+  const bookletDoc = await PDFDocument.load(readFileSync(bookletPath))
+  const sides = bookletDoc.getPages().map((pg) => pg.getSize())
+  check(
+    sides.length === 4 &&
+      sides.every((sz) => Math.abs(sz.width - 841.89) < 1 && Math.abs(sz.height - 595.28) < 1),
+    'five pages make a booklet of two A4 sheets, both sides, turned sideways',
+    JSON.stringify(sides),
+  )
+  if (hasPoppler) {
+    const numbers = sides.map((_, i) =>
+      execFileSync('pdftotext', ['-f', String(i + 1), '-l', String(i + 1), bookletPath, '-'])
+        .toString()
+        .split(/\s+/)
+        .filter((w) => /^\d$/.test(w))
+        .join(' '),
+    )
+    check(
+      JSON.stringify(numbers) === JSON.stringify(['1', '2', '3', '4 5']),
+      'the page numbers fall in folding order (blanks at the end)',
+      JSON.stringify(numbers),
+    )
+  }
+
+  // One page as a 2 × 2 poster.
+  await p.locator('ol[aria-label="5 pages"] [data-page-select]').nth(4).tap()
+  await exportMenu(p).tap()
+  await panel.getByRole('radio', { name: /^Selected pages/ }).tap()
+  const poster = panel.getByRole('radio', { name: 'Poster' })
+  await poster.scrollIntoViewIfNeeded()
+  await poster.tap()
+  await panel.getByLabel('Sheets across').selectOption('2')
+  await panel.getByLabel('Sheets down').selectOption('2')
+  await p.screenshot({ path: join(shots, 'print-poster-phone.png') })
+  await axe(p, 'export options set to a poster on a phone')
+  const [posterDl] = await Promise.all([
+    p.waitForEvent('download'),
+    panel.getByRole('button', { name: 'Export PDF' }).tap(),
+  ])
+  const posterPath = join(dir, 'poster.pdf')
+  await posterDl.saveAs(posterPath)
+  const posterDoc = await PDFDocument.load(readFileSync(posterPath))
+  check(posterDoc.getPageCount() === 4, 'a 2 × 2 poster of one page is four sheets')
+  if (hasPoppler) {
+    const text = execFileSync('pdftotext', [posterPath, '-']).toString()
+    check(
+      ['A1', 'A2', 'B1', 'B2'].every((label) => text.includes(label)),
+      'each poster sheet carries its label',
+      text.replace(/\s+/g, ' ').slice(0, 120),
+    )
+  }
+  await phone.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()

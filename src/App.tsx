@@ -75,6 +75,8 @@ import {
   type Selection,
 } from './core/selection'
 import { DEFAULT_TRANSFORM } from './core/model'
+import { imposition, type Imposition } from './core/impose'
+import { localeDefaults } from './core/pageSizes'
 import { DEFAULT_SPLIT, pagesUsed, planExport, type SplitOptions } from './core/split'
 import { pdfToImages, zipImages, type ImageOptions } from './export/exportImages'
 import { download as saveFile, exportPdf, prepareExport, type Exported } from './export/exportPdf'
@@ -111,6 +113,7 @@ export interface AppDeps {
       parts?: SplitPart[]
       /** Bookmarks for a single file (#75); each part carries its own. */
       outline?: OutlineItem[]
+      print?: Imposition
     },
   ) => Promise<Exported>
   download: (blob: Blob, filename: string) => void
@@ -905,6 +908,11 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           },
         }
       : { ...doc, pages: exportPages }
+    const print = imposition(
+      split.print,
+      settings,
+      localeDefaults(deps.locale).size === 'letter' ? 'letter' : 'a4',
+    )
     setExporting({ busy: true, done: 0, total })
     setStatus('Building PDF…')
     setSupportNote(false)
@@ -980,6 +988,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           ...(readDrawn ? { readDrawn } : {}),
           ...(parts ? { parts } : {}),
           ...(outline.length ? { outline } : {}),
+          ...(print ? { print } : {}),
         },
       )
       const filename = parts ? zipFilename(settings.title) : pdfFilename(settings.title)
@@ -989,7 +998,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       const used = result.compression ? `${result.compression.dpi} dpi` : 'original images'
       setLastExport({ size, used, fits: result.fits })
       setStatus(
-        `Saved ${filename} (${parts ? `${String(parts.length)} PDFs, ` : ''}${size}, ${used}${text ? ', searchable' : ''}${settings.pdfa ? ', PDF/A' : ''}${lockPassword ? ', password-protected' : ''}).`,
+        `Saved ${filename} (${parts ? `${String(parts.length)} PDFs, ` : ''}${print ? `as a ${print.kind}, ` : ''}${size}, ${used}${text ? ', searchable' : ''}${settings.pdfa ? ', PDF/A' : ''}${lockPassword ? ', password-protected' : ''}).`,
       )
       if (!result.fits && settings.maxBytes !== null) {
         notify(
@@ -1029,6 +1038,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     lockPassword,
     passwordError,
     split.format,
+    split.print,
     onExportImages,
   ])
 

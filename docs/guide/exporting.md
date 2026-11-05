@@ -26,6 +26,16 @@ The title is stored in the PDF (readers show it in their title bar) and names th
 
 Under the choices, a line says what you'll get, or what's wrong with the ranges. Several files download together as one ZIP, named from the title (`Bills.zip`, holding `Bills-part-1.pdf`, `Bills-part-2.pdf` and so on). Every file gets the same options: quality, size limit (each file on its own), searchable text, page numbers, watermark and password. With page numbers on, **In each file** chooses whether each file starts again from the first number or carries on from the file before.
 
+## Print as
+
+How the pages go onto paper. PDF only.
+
+- **Pages:** each page on its own sheet, the usual choice.
+- **Booklet:** two pages on each side of a sheet turned sideways, in the order that folds into a booklet. Print on both sides, flipping on the short edge, then stack the sheets, fold them in half and staple along the fold. Blank pages are added at the end to make a multiple of four. Each page is shrunk to fit half the sheet, against the fold: A4 pages on A4 paper come out A5.
+- **Poster:** each page enlarged across a grid of sheets, up to 8 across and 8 down. Neighbouring sheets share a strip (**Overlap**, 10 mm to start), so the white edge printers leave is trimmed away. With **Cut marks and sheet labels**, each sheet with a neighbour to its left or above has short marks at each end of a line: cut that strip off along it and lay the sheet over its neighbour so the picture lines up. Labels (`A1`, `A2`, … by row and column) say where each sheet goes, printed where they end up cut off or covered. A sheet that would come out blank, such as the ends of a wide grid under a tall page, is left out.
+
+**Paper** is the sheet you print on: **Same as the pages** takes the page size from Page setup (your usual paper when pages match their pictures). A line under the choices says how many sheets it takes. A booklet or poster has no bookmarks, since its pages are no longer the document's; page numbers, the watermark, searchable text and a password all stay. With a split, each file is its own booklet or poster.
+
 ## Image quality
 
 - **Original:** images go in as they are, with no recompression. JPEG photos keep their exact image data. A page is re-encoded once only when it must be: a filter, a crop, a blacked-out area, or Fill / a scale above 100% hiding part of the image (so the hidden part isn't stored).
