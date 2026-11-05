@@ -117,6 +117,57 @@ describe('App', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'a.jpg' })).toBeInTheDocument()
   })
 
+  it('asks for a locked PDF’s password, again when it’s wrong, and skips it on Skip', async () => {
+    const asked: boolean[] = []
+    const { user, upload } = setup({
+      importFile: async (f, newId, options) => {
+        if (!f.name.startsWith('locked')) {
+          const id = newId()
+          return {
+            assets: [asset(id, { name: f.name })],
+            files: [{ id, bytes: new Uint8Array([1]) }],
+          }
+        }
+        // Stands in for pdf.js: "secret" opens it.
+        for (let wrong = false; ; wrong = true) {
+          asked.push(wrong)
+          const given = await options?.askPassword?.(wrong)
+          if (given === null || given === undefined)
+            throw new ImportError('Not added: it needs a password to open.')
+          if (given === 'secret') break
+        }
+        const id = newId()
+        return {
+          assets: [asset(id, { name: f.name })],
+          files: [{ id, bytes: new Uint8Array([1]) }],
+        }
+      },
+    })
+    await upload('locked-statement.pdf', 'a.jpg', 'locked-payslip.pdf')
+    const prompt = await screen.findByRole('dialog', { name: 'Password for locked-statement.pdf' })
+    expect(within(prompt).getByRole('button', { name: 'Open' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
+    await user.type(within(prompt).getByLabelText('Password'), 'guess{Enter}')
+    const again = await screen.findByRole('dialog', { name: 'Password for locked-statement.pdf' })
+    expect(within(again).getByRole('alert')).toHaveTextContent('That password didn’t open it.')
+    expect(within(again).getByLabelText('Password')).toHaveValue('')
+    await user.click(within(again).getByRole('button', { name: 'Show password' }))
+    expect(within(again).getByLabelText('Password')).toHaveAttribute('type', 'text')
+    await user.type(within(again).getByLabelText('Password'), 'secret')
+    await user.click(within(again).getByRole('button', { name: 'Open' }))
+    const next = await screen.findByRole('dialog', { name: 'Password for locked-payslip.pdf' })
+    await user.click(within(next).getByRole('button', { name: 'Skip this file' }))
+    expect(await screen.findByRole('list', { name: '2 pages' })).toBeInTheDocument()
+    expect(pageLabels()).toEqual(['Page 1: locked-statement.pdf', 'Page 2: a.jpg'])
+    expect(asked).toEqual([false, true, false])
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'locked-payslip.pdf: Not added: it needs a password to open.',
+    )
+  })
+
   it('offers Take photo only on touch devices', () => {
     setup()
     expect(screen.queryByRole('button', { name: 'Take photo' })).not.toBeInTheDocument()

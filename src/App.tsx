@@ -49,6 +49,7 @@ import { PageGrid } from './components/PageGrid'
 import { GroupInspector, type GroupActions } from './components/GroupInspector'
 import { SelectionBar } from './components/SelectionBar'
 import { BlankPagesBar } from './components/BlankPagesBar'
+import { PdfPasswordPrompt } from './components/PdfPasswordPrompt'
 import { ShareConfirm } from './components/ShareConfirm'
 import { APP_URL } from './components/links'
 import { SheetInspector, type SheetActions } from './components/SheetInspector'
@@ -69,7 +70,7 @@ import { track } from './lib/track'
 import { STALE_BUILD_MESSAGE, isStaleBuild } from './lib/staleBuild'
 import { listenForIncoming, type Incoming } from './lib/incoming'
 import { assetStore } from './import/assetStore'
-import { ImportError, importFile, type Imported } from './import/importFile'
+import { ImportError, importFile, type ImportOptions, type Imported } from './import/importFile'
 import {
   loadKeepWork,
   loadSettings,
@@ -83,11 +84,7 @@ import { useDocument } from './state/useDocument'
 import type { DocState } from './core/model'
 
 export interface AppDeps {
-  importFile: (
-    file: File,
-    newId: () => string,
-    onPage?: (done: number, total: number) => void,
-  ) => Promise<Imported>
+  importFile: (file: File, newId: () => string, options?: ImportOptions) => Promise<Imported>
   exportPdf: (
     doc: DocState,
     onProgress: (done: number, total: number, attempt: number) => void,
@@ -248,6 +245,17 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const [exporting, setExporting] = useState<ExportState>({ busy: false, done: 0, total: 0 })
   // In memory only: never in settings, storage or undo history.
   const [password, setPassword] = useState('')
+  /**
+   * A PDF being added that needs its password (#114). What's typed goes
+   * straight to pdf.js and is forgotten once the file is open.
+   */
+  const [locked, setLocked] = useState<{
+    name: string
+    wrong: boolean
+    /** Counts the asks, so a retry opens a fresh, empty prompt. */
+    ask: number
+    answer: (password: string | null) => void
+  } | null>(null)
   /** Which pages to export, and into how many files (#66). Per document, so not saved. */
   const [split, setSplit] = useState<SplitOptions>(DEFAULT_SPLIT)
   const [lastExport, setLastExport] = useState<{
@@ -428,8 +436,23 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       for (const [i, file] of files.entries()) {
         try {
           setImporting({ file: i + 1, files: files.length })
-          const imported = await deps.importFile(file, deps.newId, (done, total) => {
-            setImporting({ file: i + 1, files: files.length, pages: { done, total } })
+          let asks = 0
+          const imported = await deps.importFile(file, deps.newId, {
+            onPage: (done, total) => {
+              setImporting({ file: i + 1, files: files.length, pages: { done, total } })
+            },
+            askPassword: (wrong) =>
+              new Promise((resolve) => {
+                setLocked({
+                  name: file.name || 'this PDF',
+                  wrong,
+                  ask: ++asks,
+                  answer: (given) => {
+                    setLocked(null)
+                    resolve(given)
+                  },
+                })
+              }),
           })
           if (generation.current !== started) break
           for (const { id, bytes } of imported.files) assetStore.putBytes(id, bytes)
@@ -1743,6 +1766,14 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       <p id="status" className="sr-only" role="status" aria-live="polite">
         {status}
       </p>
+      {locked && (
+        <PdfPasswordPrompt
+          key={locked.ask}
+          name={locked.name}
+          wrong={locked.wrong}
+          onAnswer={locked.answer}
+        />
+      )}
       {shared.length > 0 && (
         <ShareConfirm
           files={shared}

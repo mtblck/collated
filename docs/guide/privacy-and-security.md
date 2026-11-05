@@ -35,6 +35,8 @@ On a shared computer, or if you'd rather nothing were kept, turn off **Keep work
 
 A password encrypts the PDF's content with AES-256. The filename and the page count aren't hidden. Collated keeps the password in memory while the page is open and never stores it, not even with the copy of your work kept on this device; closing or reloading the tab forgets it.
 
+The password of a PDF you add is used once, in your browser, to open it, and then forgotten. What Collated keeps, with the rest of your work on this device, is an unlocked copy of that PDF: anyone who can use this browser can see those pages, as with any other file you added. To lock what you export, set **Password to open**.
+
 ## Starting over
 
 Pages you remove stay in the page's memory so **Undo** can bring them back. On a shared computer, **Start over** in the toolbar's **More** menu clears everything at once: the pages (removed ones too), the undo history, recognised text, the password and the copy kept on this device. It can't be undone. Your page setup is kept.

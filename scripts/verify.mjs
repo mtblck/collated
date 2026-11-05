@@ -501,6 +501,11 @@ await context.close()
       'quad-landscape.jpg',
     ].map((f) => join(fixtures, f)),
   )
+  // The password-protected one asks first (#114); skipped here, opened in step 37.
+  await p
+    .getByRole('dialog', { name: 'Password for quad-password.pdf' })
+    .getByRole('button', { name: 'Skip this file' })
+    .click({ timeout: 20_000 })
   await p.waitForSelector('ol[aria-label="8 pages"]', { timeout: 20_000 })
   ok('imported 3 + 1 + 3 PDF pages and an image; the password-protected PDF was skipped')
   const alertText = (await p.locator('[role="alert"]').allTextContents()).join(' ')
@@ -1444,6 +1449,10 @@ await context.close()
     join(fixtures, 'not-an-image.txt'),
     join(fixtures, 'quad-password.pdf'),
   ])
+  await p
+    .getByRole('dialog', { name: 'Password for quad-password.pdf' })
+    .getByRole('button', { name: 'Skip this file' })
+    .tap({ timeout: 20_000 })
   await p.waitForSelector('ol[aria-label="1 page"]')
   await p.waitForSelector('[role="alert"]')
   check(
@@ -3457,6 +3466,108 @@ await context.close()
     JSON.stringify(small),
   )
   await q.screenshot({ path: join(shots, 'tipjar-phone.png') })
+  await phone.close()
+}
+
+// 37. Password-protected PDFs (#114), by touch on a phone: asks, asks again
+// when wrong, opens; what's kept and exported needs no password, and the
+// password is stored nowhere, so restored work comes back without asking.
+{
+  const { context: phone, page: p } = await open({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-password.pdf')])
+  const prompt = p.getByRole('dialog', { name: 'Password for quad-password.pdf' })
+  await prompt.waitFor({ timeout: 20_000 })
+  const field = prompt.getByLabel('Password', { exact: true })
+  const sizes = await prompt.evaluate((d) => ({
+    width: d.getBoundingClientRect().width,
+    font: parseFloat(getComputedStyle(d.querySelector('input')).fontSize),
+    targets: [...d.querySelectorAll('input, button')].map(
+      (el) => el.getBoundingClientRect().height,
+    ),
+  }))
+  check(
+    sizes.width <= 390 - 32 && sizes.font >= 16 && sizes.targets.every((h) => h >= 44),
+    'the password prompt fits a phone, with 16px text (no zoom) and 44px targets',
+    JSON.stringify(sizes),
+  )
+  await axe(p, 'PDF password prompt on a phone')
+  await field.tap()
+  await p.keyboard.type('wrong-guess')
+  await prompt.getByRole('button', { name: 'Open' }).tap()
+  await prompt.getByRole('alert').waitFor({ timeout: 10_000 })
+  check(
+    (await prompt.getByRole('alert').textContent())?.includes('didn’t open it') ?? false,
+    'a wrong password says so and asks again',
+  )
+  await p.screenshot({ path: join(shots, 'pdf-password-wrong.png') })
+  await field.tap()
+  await p.keyboard.type('user-secret')
+  await prompt.getByRole('button', { name: 'Open' }).tap()
+  await p.waitForSelector('ol[aria-label="3 pages"]', { timeout: 20_000 })
+  check((await p.getByRole('dialog').count()) === 0, 'the right password opens it: 3 pages')
+  await p.screenshot({ path: join(shots, 'pdf-password-opened.png') })
+
+  const [dl] = await Promise.all([p.waitForEvent('download'), exportNow(p)])
+  const outPath = join(mkdtempSync(join(tmpdir(), 'collated-verify-locked-')), 'unlocked.pdf')
+  await dl.saveAs(outPath)
+  const out = readFileSync(outPath)
+  const exported = await PDFDocument.load(out).catch(() => null)
+  check(
+    exported?.getPageCount() === 3 && !/\/Subtype\s*\/Image/.test(out.toString('latin1')),
+    'its export opens without a password and keeps the pages as vectors',
+  )
+
+  await p.waitForTimeout(1000) // saved shortly after each change
+  const kept = await p.evaluate(
+    () =>
+      new Promise((resolve, reject) => {
+        const req = indexedDB.open('collated-work')
+        req.onerror = () => reject(req.error)
+        req.onsuccess = () => {
+          const tx = req.result.transaction(['bytes', 'doc'], 'readonly')
+          const all = tx.objectStore('bytes').getAll()
+          const doc = tx.objectStore('doc').get('current')
+          tx.oncomplete = () => {
+            // Bytes are stored as Uint8Arrays, one per file.
+            const latin1 = new TextDecoder('latin1')
+            resolve({
+              files: all.result.length,
+              text:
+                all.result.map((bytes) => latin1.decode(bytes)).join('') +
+                JSON.stringify(doc.result),
+            })
+            req.result.close()
+          }
+        }
+      }),
+  )
+  check(
+    kept.files === 1 && !kept.text.includes('user-secret') && !kept.text.includes('/Encrypt'),
+    'the device keeps one unlocked copy and never the password',
+    `${kept.files} files`,
+  )
+  await p.reload({ waitUntil: 'networkidle' })
+  const offer = p.getByRole('region', { name: 'Restore your last document?' })
+  await offer.waitFor()
+  await offer.getByRole('button', { name: 'Restore' }).tap()
+  await p.waitForSelector('ol[aria-label="3 pages"]', { timeout: 20_000 })
+  check(
+    (await p.getByRole('dialog').count()) === 0,
+    'restored work comes back without asking for the password',
+  )
+
+  // Owner-password-only (print or copy restrictions): opens without asking.
+  await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-owner-locked.pdf')])
+  await p.waitForSelector('ol[aria-label="6 pages"]', { timeout: 20_000 })
+  check(
+    (await p.getByRole('dialog').count()) === 0,
+    'an owner-password-only PDF opens without asking',
+  )
   await phone.close()
 }
 

@@ -189,16 +189,69 @@ export const layeredPage = async (
 }
 
 /**
+ * Asks for the password of a PDF that needs one to open (#114): `wrong` when
+ * the last one given didn't open it. Resolves with the password, or null to
+ * skip the file.
+ */
+export type AskPassword = (wrong: boolean) => Promise<string | null>
+
+export interface ImportPdfOptions {
+  onPage?: (done: number, total: number) => void
+  /** Without it, a PDF that needs a password is refused. */
+  askPassword?: AskPassword
+  /** A copy of the PDF that opens without the password (see `unlockPdf`). */
+  unlock?: (bytes: Uint8Array, password: string) => Promise<Uint8Array>
+}
+
+/** Turned down in the password prompt: the file isn't added. */
+export const SKIPPED_LOCKED = 'Not added: it needs a password to open.'
+
+/** The page as it shows, as a JPEG (long edge `LAYERED_EDGE`), for a PDF that couldn't be unlocked. */
+const drawnPage = async (page: PDFPageProxy, width: number, height: number) => {
+  const size = fit(width * 5, height * 5, LAYERED_EDGE)
+  const viewport = page.getViewport({ scale: size.width / width })
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(viewport.width)
+  canvas.height = Math.round(viewport.height)
+  try {
+    await page.render({ canvas, viewport, background: '#ffffff' }).promise
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (b) => {
+          if (b) resolve(b)
+          else reject(new ImportError('The browser could not draw this PDF page.'))
+        },
+        'image/jpeg',
+        0.92,
+      )
+    })
+    return {
+      bytes: new Uint8Array(await blob.arrayBuffer()),
+      width: canvas.width,
+      height: canvas.height,
+    }
+  } finally {
+    canvas.width = 0
+    canvas.height = 0
+  }
+}
+
+/**
  * Reads a PDF into one asset per page. All pages share the file's bytes (kept
  * as they are: the export embeds the pages as vectors, so nothing is
  * rasterised). pdf.js renders the thumbnails with each page's /Rotate applied,
  * and the export applies the same rotation through `storedTurns`.
+ *
+ * A PDF that needs a password to open asks for it (`askPassword`) and keeps
+ * an unlocked copy instead (`unlock`), so the export, the page viewer and
+ * restored work never need the password again; it's never stored. If that
+ * copy can't be made, each page comes in as a drawing of itself instead.
  */
 export const importPdf = async (
   file: File,
   bytes: Uint8Array,
   newId: () => string,
-  onPage?: (done: number, total: number) => void,
+  { onPage, askPassword, unlock }: ImportPdfOptions = {},
 ): Promise<Imported> => {
   const pdfjs = await loadPdfJs()
   const bytesId = newId()
@@ -208,13 +261,34 @@ export const importPdf = async (
     verbosity: pdfjs.VerbosityLevel.ERRORS,
     useSystemFonts: true,
   })
-  task.onPassword = () => {
-    void task.destroy()
+  /** The password that opened it, once one did; or that it was skipped. */
+  const asked: { password: string | null; skipped: boolean } = { password: null, skipped: false }
+  // Owner-password-only PDFs (print or copy restrictions) open without this.
+  task.onPassword = (update: (password: string) => void, reason: number) => {
+    if (!askPassword) {
+      void task.destroy()
+      return
+    }
+    askPassword(reason === pdfjs.PasswordResponses.INCORRECT_PASSWORD).then(
+      (given) => {
+        if (given === null) {
+          asked.skipped = true
+          void task.destroy()
+          return
+        }
+        asked.password = given
+        update(given)
+      },
+      () => {
+        void task.destroy()
+      },
+    )
   }
   let pdf
   try {
     pdf = await task.promise
   } catch (error) {
+    if (asked.skipped) throw new ImportError(SKIPPED_LOCKED)
     const name = error instanceof Error ? error.name : ''
     if (name === 'PasswordException' || task.destroyed) {
       throw new ImportError('This PDF needs a password to open. Remove the password and try again.')
@@ -223,6 +297,7 @@ export const importPdf = async (
   }
 
   const assets: Asset[] = []
+  const files: Imported['files'] = []
   try {
     // Checked before rendering anything: each page costs a thumbnail.
     if (pdf.numPages > MAX_PDF_PAGES) {
@@ -230,25 +305,52 @@ export const importPdf = async (
         `This PDF has ${pdf.numPages.toLocaleString('en-US')} pages; up to ${MAX_PDF_PAGES} can be added from one file. Split it and add the parts.`,
       )
     }
+    let kept: Uint8Array | null = bytes
+    if (asked.password !== null) {
+      kept = unlock ? await unlock(bytes, asked.password).catch(() => null) : null
+      asked.password = null
+    }
+    if (kept) files.push({ id: bytesId, bytes: kept })
     const base = file.name.replace(/\.pdf$/i, '') || 'PDF'
     for (let index = 0; index < pdf.numPages; index++) {
       const page = await pdf.getPage(index + 1)
       // getViewport applies /Rotate and the crop box: the page as it shows.
       const upright = page.getViewport({ scale: 1 })
       const thumb = await renderThumb(page, upright.width, upright.height)
-      assets.push({
-        id: newId(),
-        bytesId,
-        pdfPage: index,
-        name: pdf.numPages === 1 ? file.name : `${base} · p${index + 1}`,
-        width: upright.width,
-        height: upright.height,
-        format: 'pdf',
-        storedTurns: toTurns(page.rotate),
-        thumbUrl: assetStore.thumbUrl(thumb),
-        byteLength: bytes.byteLength,
-        capturedAt: file.lastModified,
-      })
+      const name = pdf.numPages === 1 ? file.name : `${base} · p${index + 1}`
+      const thumbUrl = assetStore.thumbUrl(thumb)
+      if (kept) {
+        assets.push({
+          id: newId(),
+          bytesId,
+          pdfPage: index,
+          name,
+          width: upright.width,
+          height: upright.height,
+          format: 'pdf',
+          storedTurns: toTurns(page.rotate),
+          thumbUrl,
+          byteLength: kept.byteLength,
+          capturedAt: file.lastModified,
+        })
+      } else {
+        // Locked, and pdf-lib couldn't copy it: keep what pdf.js draws.
+        const drawn = await drawnPage(page, upright.width, upright.height)
+        const id = newId()
+        files.push({ id, bytes: drawn.bytes })
+        assets.push({
+          id,
+          bytesId: id,
+          name,
+          width: drawn.width,
+          height: drawn.height,
+          format: 'jpeg',
+          storedTurns: 0,
+          thumbUrl,
+          byteLength: drawn.bytes.byteLength,
+          capturedAt: file.lastModified,
+        })
+      }
       page.cleanup()
       onPage?.(index + 1, pdf.numPages)
     }
@@ -256,5 +358,5 @@ export const importPdf = async (
     await task.destroy()
   }
   if (assets.length === 0) throw new ImportError('This PDF has no pages.')
-  return { assets, files: [{ id: bytesId, bytes }] }
+  return { assets, files }
 }
