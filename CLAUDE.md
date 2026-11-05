@@ -36,8 +36,8 @@ The full reasoning behind these, and every other decision worth keeping, is in
 `docs/adr/` (one short record per decision; copy `0000-template.md`). Reversing
 one means a new ADR that supersedes it, in the same PR.
 
-**Changelog:** never edit `CHANGELOG.md` in a PR (parallel PRs all conflicted on it). Add a fragment to
-`changelog.d/` (`### Added` + `- line for people using Collated (#123).`); it's compiled into
-CHANGELOG.md on main after merge. See `changelog.d/README.md` and ADR 0013.
+**Changelog:** like seedkin and tinkerkit, a PR people using Collated would notice adds its line under
+**Unreleased** in `CHANGELOG.md` (`### Added` + `- line for people using Collated (#123).`), in the
+same PR. If it conflicts after another merge, rebase and keep both lines. No `changelog.d/` (ADR 0022).
 
 Tickets: GitHub Issues here (shown at mattblack.space/boards/collated). Commit as `mtblck <105079242+mtblck@users.noreply.github.com>`.

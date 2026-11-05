@@ -21,7 +21,7 @@
     "test:watch": "vitest",
     "hosting:check": "node scripts/check-hosting.js",
     "verify": "node scripts/verify.mjs",
-    "changelog:check": "node scripts/changelog.mjs --check",
+    "changelog:check": "node scripts/changelog.mjs",
     "check": "npm run format:check && npm run lint && npm run changelog:check && npm run typecheck && npm test"
   },
   "dependencies": {
