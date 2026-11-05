@@ -2,8 +2,11 @@ import type { PaperGuess } from '../core/paper'
 
 export interface PaperRequest {
   id: number
-  /** The page's upright thumbnail (a JPEG). */
-  thumb: Blob
+  /**
+   * The page's upright thumbnail (a JPEG), or a downscaled camera frame
+   * (#118), transferred.
+   */
+  thumb: Blob | ImageBitmap
 }
 
 export type PaperResponse =

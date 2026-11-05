@@ -9,7 +9,7 @@ import {
   picturesOf,
   sizeModel,
 } from './core/model'
-import { imageFilename, partFilename, pdfFilename, zipFilename } from './core/filename'
+import { imageFilename, partFilename, pdfFilename, timeLabel, zipFilename } from './core/filename'
 import {
   IMAGE_TYPES,
   imageCompression,
@@ -22,9 +22,10 @@ import type { Skew } from './core/deskew'
 import { skewOf } from './lib/skew'
 import { looksBlank } from './lib/blank'
 import { useBlankPages } from './hooks/useBlankPages'
-import { paperOf } from './lib/paper'
+import { paperInFrame, paperOf } from './lib/paper'
 import { pageOrientation } from './lib/orientation'
 import { describeAutoRotate, uprightTurns, type Osd } from './core/orientation'
+import type { PaperGuess } from './core/paper'
 import type { Quad } from './core/perspective'
 import { forgetPageWords, pageWords } from './lib/pageText'
 import { forgetPageThumbs } from './hooks/usePageThumb'
@@ -59,6 +60,8 @@ import { BlankPagesBar } from './components/BlankPagesBar'
 import { PdfPasswordPrompt } from './components/PdfPasswordPrompt'
 import { SaveImages } from './components/SaveImages'
 import { ShareConfirm } from './components/ShareConfirm'
+import { ScanCamera } from './components/ScanCamera'
+import { canScan } from './lib/camera'
 import { APP_URL } from './components/links'
 import { SheetInspector, type SheetActions } from './components/SheetInspector'
 import { BlankInspector, type BlankActions } from './components/BlankInspector'
@@ -82,8 +85,10 @@ import { assetStore } from './import/assetStore'
 import { ImportError, importFile, type ImportOptions, type Imported } from './import/importFile'
 import {
   loadKeepWork,
+  loadScanAuto,
   loadSettings,
   saveKeepWork,
+  saveScanAuto,
   saveSettings,
   saveSupportPrompt,
   supportPromptDue,
@@ -154,6 +159,9 @@ export interface AppDeps {
   now: () => number
   /** Goes to another page of the site, as following a link would. */
   leave: (href: string) => void
+  /** Whether the scan camera (#118) can open here; the paper in one of its frames. */
+  canScan: boolean
+  paperInFrame: (frame: ImageBitmap) => Promise<PaperGuess | null>
 }
 
 const safeStorage = (): AppDeps['storage'] => {
@@ -191,6 +199,8 @@ const defaultDeps = (): AppDeps => ({
   leave: (href) => {
     window.location.assign(href)
   },
+  canScan: canScan(),
+  paperInFrame,
 })
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
@@ -205,10 +215,7 @@ const filesFrom = (list: FileList | null | undefined): File[] =>
  * and date; the type is read from the bytes anyway.
  */
 const namePhoto = (file: File): File => {
-  const at = new Date(file.lastModified)
-  const time = [at.getHours(), at.getMinutes(), at.getSeconds()]
-    .map((n) => String(n).padStart(2, '0'))
-    .join('.')
+  const time = timeLabel(new Date(file.lastModified))
   const ext = /\.[a-z0-9]+$/i.exec(file.name)?.[0] ?? ''
   return new File([file], `Photo ${time}${ext}`, {
     type: file.type,
@@ -466,7 +473,14 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   }, [deps.work, history, keptSelection, notify, saving])
 
   const addFiles = useCallback(
-    async (files: File[]) => {
+    /**
+     * `corners[i]` crops file i's page as it comes in, and `batch` puts the
+     * pages in a pile of earlier ones for Interleave (the scan camera, #118).
+     */
+    async (
+      files: File[],
+      { corners, batch: pile }: { corners?: readonly (Quad | null)[]; batch?: string } = {},
+    ) => {
       if (files.length === 0) return
       // Adding files instead of restoring starts a new document; it replaces
       // the saved one once it's saved. Also before we've looked: a late answer
@@ -475,6 +489,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       setImporting({ file: 1, files: files.length })
       setStatus(`Reading ${plural(files.length, 'file')}…`)
       const added: Asset[] = []
+      const cropped: Record<string, Quad> = {}
       const failed: string[] = []
       const started = generation.current
       // One at a time: decoding several 12-megapixel photos at once can
@@ -503,6 +518,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           if (generation.current !== started) break
           for (const { id, bytes } of imported.files) assetStore.putBytes(id, bytes)
           added.push(...imported.assets)
+          const crop = corners?.[i]
+          const only = imported.assets.length === 1 ? imported.assets[0] : undefined
+          if (crop && only) cropped[only.id] = crop
         } catch (error) {
           // Expected failures (unsupported file, password) are ImportErrors
           // with a message for the person; anything else is a bug, so keep
@@ -523,12 +541,12 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         const pageIds = added.map(() => deps.newId())
         // Images added together are one pile for Interleave (a PDF is its
         // own); the first one's id names the batch.
-        const batch = added.find((a) => a.format !== 'pdf')?.id
+        const batch = pile ?? added.find((a) => a.format !== 'pdf')?.id
         // A multi-page TIFF is its own pile, like a PDF.
         const tagged = added.map((a) =>
           a.format === 'pdf' || !batch ? a : { ...a, source: a.fileId ?? batch },
         )
-        act({ type: 'addPages', assets: tagged, pageIds })
+        act({ type: 'addPages', assets: tagged, pageIds, corners: cropped })
         setSelection((current) => {
           const first = pageIds[0]
           return current.ids.length > 0 || !first ? current : { ids: [first], anchor: first }
@@ -725,6 +743,27 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const takePhoto = useCallback(() => {
     cameraInput.current?.click()
   }, [])
+  /** Scan mode (#118): open while true. */
+  const [scanning, setScanning] = useState(false)
+  const [scanAuto, setScanAuto] = useState(() => loadScanAuto(deps.storage))
+  /** One scanning session's pages are one pile for Interleave, like files added together. */
+  const scanBatch = useRef('')
+  const scan = useCallback(() => {
+    scanBatch.current = deps.newId()
+    setScanning(true)
+  }, [deps])
+  /** Shots are added one after another, as they're taken, each with its outline. */
+  const shots = useRef<Promise<void>>(Promise.resolve())
+  const addShot = useCallback(
+    (file: File, corners: Quad | null) => {
+      shots.current = shots.current
+        .then(() => addFiles([file], { corners: [corners], batch: scanBatch.current }))
+        .catch((error: unknown) => {
+          console.error(error) // a bug; the next shot still goes in
+        })
+    },
+    [addFiles],
+  )
 
   // Normalised so the same password typed on another keyboard or system
   // (composed vs decomposed accents, full-width forms) opens the file.
@@ -1731,6 +1770,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             busy={importing !== null || straightening || autoCropping || rotating}
             onAdd={chooseFiles}
             {...(touch && { onTakePhoto: takePhoto })}
+            {...(touch && deps.canScan && { onScan: scan })}
             onExport={() => void onExport()}
             estimate={estimate}
             lastExport={lastExport}
@@ -1754,6 +1794,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             <EmptyState
               onChoose={chooseFiles}
               {...(touch && { onTakePhoto: takePhoto })}
+              {...(touch && deps.canScan && { onScan: scan })}
               restore={
                 offer && offer !== 'pending'
                   ? {
@@ -1906,7 +1947,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         }}
       />
       {/* Take photo (#72): `capture` hands off to the system camera, so it
-          needs no camera permission (Permissions-Policy keeps camera=()).
+          needs no camera permission (only Scan pages, #118, asks for it).
           One shot per press; the button stays for the next page. */}
       <input
         ref={cameraInput}
@@ -1921,6 +1962,21 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           void addFiles(files)
         }}
       />
+      {scanning && (
+        <ScanCamera
+          auto={scanAuto}
+          onAuto={(auto) => {
+            setScanAuto(auto)
+            saveScanAuto(deps.storage, auto)
+          }}
+          onShot={addShot}
+          onTakePhoto={takePhoto}
+          onClose={() => {
+            setScanning(false)
+          }}
+          findPaper={deps.paperInFrame}
+        />
+      )}
       <p id="status" className="sr-only" role="status" aria-live="polite">
         {status}
       </p>

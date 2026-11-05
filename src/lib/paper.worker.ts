@@ -2,7 +2,8 @@
 /*
  * Looks for a sheet of paper in a page's thumbnail (core/paper.ts), off the
  * main thread: decoding and the edge search take tens of milliseconds a page,
- * which adds up over "Auto-crop all pages".
+ * which adds up over "Auto-crop all pages", and the scan camera (#118) asks
+ * several times a second while its preview has to stay smooth.
  */
 import { findPaper } from '../core/paper'
 import type { PaperRequest, PaperResponse } from './paperProtocol'
@@ -15,7 +16,7 @@ const post = (message: PaperResponse) => {
 
 self.onmessage = async ({ data }: MessageEvent<PaperRequest>) => {
   try {
-    const bitmap = await createImageBitmap(data.thumb)
+    const bitmap = data.thumb instanceof Blob ? await createImageBitmap(data.thumb) : data.thumb
     try {
       const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
       const ctx = canvas.getContext('2d', { willReadFrequently: true })

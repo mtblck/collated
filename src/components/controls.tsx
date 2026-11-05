@@ -1,7 +1,7 @@
 import { useId, type ButtonHTMLAttributes, type ReactNode, type Ref } from 'react'
 import { cx } from './cx'
 
-type Variant = 'primary' | 'secondary' | 'quiet' | 'danger'
+type Variant = 'primary' | 'secondary' | 'quiet' | 'danger' | 'overlay'
 
 // `aria-disabled:` mirrors `disabled:` for buttons that stay focusable (`inactive`).
 const VARIANTS: Record<Variant, string> = {
@@ -16,6 +16,9 @@ const VARIANTS: Record<Variant, string> = {
   // only grows.
   danger:
     'border border-transparent bg-danger text-on-danger hover:bg-[color-mix(in_oklab,var(--c-danger),var(--c-ink)_14%)] disabled:opacity-50 aria-disabled:opacity-50',
+  /** Over the camera picture (#118), which is black in either theme; pressed shows. */
+  overlay:
+    'border border-transparent text-white hover:bg-white/10 aria-pressed:bg-white/20 disabled:opacity-40 aria-disabled:opacity-40',
   quiet:
     'border border-transparent text-ink-muted hover:text-ink hover:bg-ink/5 disabled:text-ink-faint/60 disabled:hover:bg-transparent aria-disabled:text-ink-faint/60 aria-disabled:hover:bg-transparent',
 }
@@ -25,7 +28,7 @@ const VARIANTS: Record<Variant, string> = {
  * element resolve by stylesheet order, not by which was written last, which
  * once squeezed every icon button's glyph to 6px wide.
  */
-type Size = 'sm' | 'md' | 'lg' | 'tile' | 'icon' | 'icon-sm'
+type Size = 'sm' | 'md' | 'lg' | 'tile' | 'icon' | 'icon-sm' | 'icon-lg'
 
 // The corner radius rides with the size for the same reason: pills, except
 // the tile, which is a rounded square.
@@ -37,6 +40,8 @@ const SIZES: Record<Size, string> = {
   lg: 'h-11 gap-2 rounded-full px-6 text-base',
   icon: 'size-9 rounded-full',
   'icon-sm': 'size-7 rounded-full',
+  /** A full 44 px touch target, for screens used only by touch (the scan camera). */
+  'icon-lg': 'size-11 rounded-full',
 }
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
