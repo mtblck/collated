@@ -76,6 +76,17 @@ describe('planning an export (#66)', () => {
     expect(plan({ mode: 'selection' }, [])).toEqual({ error: 'Select the pages to export first.' })
   })
 
+  it('says how many images a page export makes (#117)', () => {
+    expect(describePlan(plan({}), 'all', 'jpg')).toBe(
+      `${String(pages.length)} JPGs, one per page, in one ZIP.`,
+    )
+    const some = plan({ mode: 'selection' }, ['p7', 'p2', 'p3'])
+    expect(describePlan(some, 'selection', 'png')).toBe('Pages 3–4, 8, as 3 PNGs in one ZIP.')
+    expect(describePlan(plan({ mode: 'selection' }, ['p2']), 'selection', 'jpg')).toBe(
+      'Page 3, as a JPG.',
+    )
+  })
+
   it('makes one file per range, with pages in order', () => {
     const p = plan({ mode: 'ranges', ranges: '1-3, 4-10, 11-' })
     expect(parts(p)).toEqual([

@@ -16,8 +16,8 @@ export interface ExportState {
   total: number
   /** Above 1 when a size limit forced a retry at lower quality. */
   attempt?: number
-  /** Reading text before the build. */
-  phase?: 'ocr'
+  /** Reading text before the build, or drawing the built pages as images (#117). */
+  phase?: 'ocr' | 'images'
 }
 
 /**

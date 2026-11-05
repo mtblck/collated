@@ -34,6 +34,7 @@ version or date when it ships.
 - Add PDFs that need a password to open, such as bank and payroll statements (#114). Collated asks for the password, unlocks the file in your browser and forgets the password; the pages stay sharp and searchable.
 - Add TIFF scans, including multi-page TIFFs from fax machines and office scanners (#113). Each page of the file becomes a page, in order; black-and-white pages stay black and white, so a faxed document stays small, and "Match image" sizes each page to the paper that was scanned.
 - Sign a page (#111): draw your signature with a finger, stylus or mouse, type it, or photograph one signed on paper, then place, size and turn it on any page. Signatures can be saved on your device for next time, and are never uploaded.
+- Save pages as images (#117): **Save as JPG** or **PNG** in the export options turns each page, or just the selected ones, into an image for upload forms that won't take a PDF. Crops, filters, black-outs, watermarks and page numbers are all in it, at the resolution of the image quality you pick. One page downloads as an image, several as one ZIP; on a phone, Share sends them to your photos or an app.
 
 ### Changed
 

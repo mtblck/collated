@@ -1858,6 +1858,167 @@ describe('App', () => {
     })
   })
 
+  describe('save pages as images (#117)', () => {
+    const card = (n: number) => screen.getByRole('button', { name: new RegExp(`^Page ${n}:`) })
+    const jpeg = (n: number) => new Blob([new Uint8Array(n)], { type: 'image/jpeg' })
+    const imageDeps = (pages: number) => ({
+      pdfToImages: vi.fn<AppDeps['pdfToImages']>(() =>
+        Promise.resolve(Array.from({ length: pages }, () => jpeg(10))),
+      ),
+      zipImages: vi.fn<AppDeps['zipImages']>(() =>
+        Promise.resolve(new Blob(['PK'], { type: 'application/zip' })),
+      ),
+      canShare: vi.fn<AppDeps['canShare']>(() => true),
+      share: vi.fn<AppDeps['share']>(() => Promise.resolve()),
+    })
+
+    it('exports the selected pages as JPGs in one ZIP, without the PDF-only options', async () => {
+      const images = imageDeps(2)
+      const { user, deps, upload } = setup(images)
+      await upload('a.jpg', 'b.jpg', 'c.jpg')
+      await screen.findByRole('list', { name: '3 pages' })
+      await user.click(await findExportMenu())
+      await user.type(screen.getByLabelText('Title & filename'), 'Receipts')
+      await user.click(screen.getByRole('radio', { name: 'Split by page ranges', hidden: true }))
+      await user.type(screen.getByLabelText('Page ranges'), '1-2')
+      await user.type(screen.getByLabelText('Password to open'), 'secret')
+      await user.click(screen.getByRole('radio', { name: 'JPG', hidden: true }))
+      // Images are one per page: the split modes, password, OCR and size limit go.
+      expect(
+        screen.queryByRole('radio', { name: 'Split by page ranges', hidden: true }),
+      ).not.toBeInTheDocument()
+      expect(screen.getByRole('radio', { name: 'All pages', hidden: true })).toBeChecked()
+      expect(screen.queryByLabelText('Password to open')).not.toBeInTheDocument()
+      expect(screen.queryByRole('checkbox', { name: /OCR/, hidden: true })).not.toBeInTheDocument()
+      expect(screen.queryByLabelText(/Keep the file under/)).not.toBeInTheDocument()
+      expect(exportMenu()).toHaveAccessibleName('Export · 3 JPGs, options')
+      expect(screen.getByText('3 JPGs, one per page, in one ZIP.')).toBeInTheDocument()
+
+      await user.keyboard('{Escape}')
+      await user.click(card(1))
+      await user.keyboard('{Control>}')
+      await user.click(card(3))
+      await user.keyboard('{/Control}')
+      await user.click(
+        screen.getByRole('radio', { name: /^Selected pages\s*\(2\)$/, hidden: true }),
+      )
+      expect(screen.getByText('Pages 1, 3, as 2 JPGs in one ZIP.')).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Export 2 JPGs', hidden: true }))
+      await waitFor(() => {
+        expect(deps.download).toHaveBeenCalledWith(expect.any(Blob), 'Receipts.zip')
+      })
+      const [doc, , options] =
+        (deps.exportPdf ? vi.mocked(deps.exportPdf).mock.calls[0] : undefined) ?? []
+      const sent = doc ? doc.pages.map((p) => doc.assets[p.assetId]?.name) : []
+      expect(sent).toEqual(['a.jpg', 'c.jpg'])
+      // Pictures kept as they are (compressed once, as images); no lock, limit or text.
+      expect(doc?.settings.quality).toBe('original')
+      expect(doc?.settings.maxBytes).toBeNull()
+      expect(options).toBeUndefined()
+      expect(images.pdfToImages).toHaveBeenCalledWith(
+        expect.any(Blob),
+        { format: 'jpg', dpi: 300, quality: 0.92 },
+        expect.any(Function),
+      )
+      expect(images.zipImages.mock.calls[0]?.[0].map((f) => f.name)).toEqual([
+        'Receipts-page-1.jpg',
+        'Receipts-page-2.jpg',
+      ])
+      expect(status()).toHaveTextContent('Saved Receipts.zip (2 JPGs, 2 B, 300 dpi).')
+      // Not on a phone: no share sheet.
+      expect(images.share).not.toHaveBeenCalled()
+    })
+
+    it('downloads one page as a PNG at the quality’s resolution', async () => {
+      const images = imageDeps(1)
+      const { user, deps, upload } = setup(images)
+      await upload('a.jpg')
+      await screen.findByRole('list', { name: '1 page' })
+      await user.click(await findExportMenu())
+      await user.type(screen.getByLabelText('Title & filename'), 'Scan')
+      await user.click(screen.getByRole('radio', { name: 'PNG', hidden: true }))
+      await user.click(screen.getByRole('radio', { name: /^Small/, hidden: true }))
+      await user.click(screen.getByRole('button', { name: 'Export PNG', hidden: true }))
+      await waitFor(() => {
+        expect(deps.download).toHaveBeenCalledWith(expect.any(File), 'Scan.png')
+      })
+      expect(images.pdfToImages).toHaveBeenCalledWith(
+        expect.any(Blob),
+        { format: 'png', dpi: 150, quality: 0.7 },
+        expect.any(Function),
+      )
+      expect(images.zipImages).not.toHaveBeenCalled()
+    })
+
+    it('on a phone, offers the share sheet with the images themselves, or the ZIP', async () => {
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        matches: query === '(pointer: coarse)',
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      }))
+      try {
+        const images = imageDeps(2)
+        const { user, deps, upload } = setup(images)
+        await upload('a.jpg', 'b.jpg')
+        await screen.findByRole('list', { name: '2 pages' })
+        await user.click(await findExportMenu())
+        await user.type(screen.getByLabelText('Title & filename'), 'Trip')
+        await user.click(screen.getByRole('radio', { name: 'JPG', hidden: true }))
+        await user.click(screen.getByRole('button', { name: 'Export 2 JPGs', hidden: true }))
+        const dialog = await screen.findByRole('dialog', { name: '2 JPGs ready' })
+        expect(deps.download).not.toHaveBeenCalled()
+        await user.click(within(dialog).getByRole('button', { name: 'Share…' }))
+        expect(images.share).toHaveBeenCalledOnce()
+        expect(images.share.mock.calls[0]?.[0].map((f) => f.name)).toEqual([
+          'Trip-page-1.jpg',
+          'Trip-page-2.jpg',
+        ])
+        expect(screen.queryByRole('dialog', { name: '2 JPGs ready' })).not.toBeInTheDocument()
+
+        // Sharing failing (not cancelled) asks again, offering Download: a
+        // download long after the tap could be blocked.
+        images.share.mockRejectedValueOnce(new DOMException('No', 'NotAllowedError'))
+        await user.click(await findExportMenu())
+        await user.click(screen.getByRole('button', { name: 'Export 2 JPGs', hidden: true }))
+        await user.click(
+          within(await screen.findByRole('dialog', { name: '2 JPGs ready' })).getByRole('button', {
+            name: 'Share…',
+          }),
+        )
+        const retry = await screen.findByRole('dialog', { name: '2 JPGs ready' })
+        expect(retry).toHaveAccessibleDescription(/Sharing didn’t work/)
+        expect(within(retry).queryByRole('button', { name: 'Share…' })).not.toBeInTheDocument()
+        expect(deps.download).not.toHaveBeenCalled()
+        await user.click(within(retry).getByRole('button', { name: 'Download ZIP' }))
+        expect(deps.download).toHaveBeenCalledWith(expect.any(Blob), 'Trip.zip')
+
+        // Not now drops them.
+        await user.click(await findExportMenu())
+        await user.click(screen.getByRole('button', { name: 'Export 2 JPGs', hidden: true }))
+        await user.click(
+          within(await screen.findByRole('dialog', { name: '2 JPGs ready' })).getByRole('button', {
+            name: 'Not now',
+          }),
+        )
+        expect(status()).toHaveTextContent('The images were not saved.')
+        expect(deps.download).toHaveBeenCalledOnce()
+
+        // Download skips the share sheet.
+        await user.click(await findExportMenu())
+        await user.click(screen.getByRole('button', { name: 'Export 2 JPGs', hidden: true }))
+        await user.click(
+          within(await screen.findByRole('dialog', { name: '2 JPGs ready' })).getByRole('button', {
+            name: 'Download ZIP',
+          }),
+        )
+        expect(deps.download).toHaveBeenCalledTimes(2)
+        expect(images.share).toHaveBeenCalledTimes(2)
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+  })
+
   describe('focus and announcements', () => {
     it('moves focus to the next page (else the previous) after removing one', async () => {
       const { user, upload } = setup()

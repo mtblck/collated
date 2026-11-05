@@ -5,7 +5,13 @@ order: 6
 
 # Exporting
 
-**Export** in the toolbar (it says how many pages, or files, it will make) opens the export options: everything below. At the foot, always in view, are the estimated file size and **Export PDF**, which builds the file and saves it to your downloads. When a password is set, it says **Export locked PDF**. While a file is being built, the toolbar button shows its progress.
+**Export** in the toolbar (it says how many pages, or files, it will make) opens the export options: everything below. At the foot, always in view, are the estimated file size and **Export PDF**, which builds the file and saves it to your downloads (or **Export JPG**, **Export 3 PNGs** and so on, when saving [as images](#save-as)). When a password is set, it says **Export locked PDF**. While a file is being built, the toolbar button shows its progress.
+
+## Save as
+
+**PDF** is the usual choice. **JPG** or **PNG** saves each page as an image instead, for an upload form that won't take a PDF. The image is the page exactly as the PDF would show it: crop, filters, blacked-out areas, watermark and page numbers included. It's drawn at your image quality's resolution: 300 dpi for Original and High, 200 for Balanced, 150 for Small. JPG makes smaller files and suits photos; PNG keeps text perfectly sharp but is larger.
+
+Images take **All pages** or **Selected pages**, one image each. One page downloads as an image (`Lease.jpg`); several come in one ZIP (`Lease.zip`, holding `Lease-page-1.jpg`, `Lease-page-2.jpg` and so on, numbered `01`, `02` once there are ten or more). On a phone, when they're ready, **Share…** opens the share sheet, so you can save them to your photos or send them straight to an app; **Download** (or **Download ZIP**) saves them as a file instead, and **Not now** drops them. An image can't carry searchable text, a password, bookmarks or a size limit, so those options are hidden while JPG or PNG is chosen.
 
 ## Title and filename
 

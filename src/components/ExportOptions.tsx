@@ -8,6 +8,7 @@ import type {
   WatermarkPosition,
   WatermarkSize,
 } from '../core/model'
+import { IMAGE_TYPES, imagesWord, isImageFormat, type ExportFormat } from '../core/imageExport'
 import { OCR_LANGUAGES, isOcrLanguage, ocrLanguageInfo } from '../core/ocrLanguages'
 import { describePlan, type Plan, type SplitMode, type SplitOptions } from '../core/split'
 import { formatBytes } from '../core/units'
@@ -33,6 +34,15 @@ const OPTIONS: readonly { value: Quality; label: string; hint: string }[] = [
   })),
 ]
 
+const FORMATS: readonly { value: ExportFormat; label: string }[] = [
+  { value: 'pdf', label: 'PDF' },
+  { value: 'jpg', label: 'JPG' },
+  { value: 'png', label: 'PNG' },
+]
+
+/** Images are one file per page, so only these choose their pages. */
+const IMAGE_MODES: readonly SplitMode[] = ['all', 'selection']
+
 const MB = 1024 * 1024
 
 /** "1 page", "3 pages". */
@@ -49,9 +59,11 @@ const MODES: readonly { value: SplitMode; label: string }[] = [
 const progress = (exporting: ExportState) =>
   exporting.phase === 'ocr'
     ? `Reading text ${String(exporting.done + 1)}/${String(exporting.total)}…`
-    : (exporting.attempt ?? 1) > 1
-      ? `Shrinking, try ${String(exporting.attempt)} · ${String(exporting.done)}/${String(exporting.total)}…`
-      : `Building ${String(exporting.done)}/${String(exporting.total)}…`
+    : exporting.phase === 'images'
+      ? `Drawing ${String(exporting.done)}/${String(exporting.total)}…`
+      : (exporting.attempt ?? 1) > 1
+        ? `Shrinking, try ${String(exporting.attempt)} · ${String(exporting.done)}/${String(exporting.total)}…`
+        : `Building ${String(exporting.done)}/${String(exporting.total)}…`
 
 /**
  * Export, in one place (#49): the toolbar button says what will be exported
@@ -126,9 +138,15 @@ export const ExportOptions = ({
   const locked = password !== ''
   const planId = `${panelId}-plan`
   const planError = 'error' in plan ? plan.error : null
-  const summary = describePlan(plan, split.mode)
+  const format = split.format
+  const images = isImageFormat(format)
+  const summary = describePlan(plan, split.mode, format)
   const files = 'parts' in plan ? plan.parts.length : 1
   const [only] = 'parts' in plan && files === 1 ? plan.parts : []
+  /** How many images an image export makes. */
+  const imageCount = only?.pageIds.length ?? pageCount
+  /** Images can't be locked: a password typed for the PDF doesn't stop them. */
+  const blockedBy = images ? null : passwordError
   const splitting = split.mode === 'ranges' || split.mode === 'every'
   const watermark = settings.watermark
   const setWatermark = (patch: Partial<Watermark>, coalesce?: string) => {
@@ -157,7 +175,11 @@ export const ExportOptions = ({
           focus isn't dropped mid-export; the progress shows here, and the
           status line announces it. */}
       <Button variant="primary" popoverTarget={panelId} {...TOOLBAR_ITEM} className="anchor-export">
-        {locked ? <LockIcon width={16} height={16} /> : <DownloadIcon width={16} height={16} />}
+        {locked && !images ? (
+          <LockIcon width={16} height={16} />
+        ) : (
+          <DownloadIcon width={16} height={16} />
+        )}
         {/* The accessible name starts with the visible text (WCAG 2.5.3). */}
         {exporting.busy ? (
           <>
@@ -170,10 +192,16 @@ export const ExportOptions = ({
         ) : (
           <span>
             Export ·{' '}
-            {files > 1 ? `${String(files)} files` : pages(only?.pageIds.length ?? pageCount)}
+            {images
+              ? imagesWord(imageCount, format)
+              : files > 1
+                ? `${String(files)} files`
+                : pages(only?.pageIds.length ?? pageCount)}
           </span>
         )}
-        <span className="sr-only">{locked ? ', locked with a password' : ''}, options</span>
+        <span className="sr-only">
+          {locked && !images ? ', locked with a password' : ''}, options
+        </span>
       </Button>
       <div
         id={panelId}
@@ -213,10 +241,50 @@ export const ExportOptions = ({
               </p>
             </div>
 
+            <fieldset className="mt-4">
+              <legend className="label mb-2 text-ink-faint">Save as</legend>
+              {/* Big enough to hit with a thumb (44px), side by side. */}
+              <div className="grid grid-cols-3 gap-1">
+                {FORMATS.map((option) => (
+                  <label
+                    key={option.value}
+                    className={cx(
+                      'flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border px-3 text-sm',
+                      'has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent',
+                      format === option.value
+                        ? 'border-ink bg-ink/[0.04] font-medium'
+                        : 'border-rule hover:bg-ink/[0.03]',
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      id={`${id}-format-${option.value}`}
+                      name={`${id}-format`}
+                      className="accent-[var(--c-ink)]"
+                      value={option.value}
+                      checked={format === option.value}
+                      onChange={() => {
+                        // Images take all or the selected pages, never a split.
+                        const keep =
+                          !isImageFormat(option.value) || IMAGE_MODES.includes(split.mode)
+                        onSplit({ format: option.value, ...(keep ? {} : { mode: 'all' }) })
+                      }}
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+              <p className="mt-1.5 text-xs text-ink-muted">
+                {images
+                  ? `Each page as its own ${IMAGE_TYPES[format].label} image, as the PDF would show it${format === 'png' ? ' (PNG: sharp text, larger files)' : ''}. Several come in one ZIP.`
+                  : 'One document, the usual choice.'}
+              </p>
+            </fieldset>
+
             <fieldset className="mt-4" aria-describedby={summary ? planId : undefined}>
               <legend className="label mb-2 text-ink-faint">Pages</legend>
               <div className="flex flex-col gap-1">
-                {MODES.map((mode) => (
+                {MODES.filter((mode) => !images || IMAGE_MODES.includes(mode.value)).map((mode) => (
                   <label
                     key={mode.value}
                     className={cx(
@@ -327,90 +395,100 @@ export const ExportOptions = ({
                     />
                     <span>
                       <span className="block text-sm font-medium">{option.label}</span>
-                      <span className="block text-xs text-ink-muted">{option.hint}</span>
+                      <span className="block text-xs text-ink-muted">
+                        {images && option.value === 'original'
+                          ? '300 dpi — least compression, largest files'
+                          : option.hint}
+                      </span>
                     </span>
                   </label>
                 ))}
               </div>
               <p id={`${id}-quality-hint`} className="mt-1.5 text-xs text-ink-muted">
-                Photos, scans and the pictures inside PDF pages. Text in PDF pages stays sharp.
+                {images
+                  ? 'The resolution each page is drawn at, text included.'
+                  : 'Photos, scans and the pictures inside PDF pages. Text in PDF pages stays sharp.'}
               </p>
             </fieldset>
 
-            <div className="mt-4">
-              <label htmlFor={`${id}-max`} className="label mb-2 block text-ink-faint">
-                Keep the file under <span className="sr-only">(megabytes)</span>
-              </label>
-              <div className="flex items-center gap-3">
-                <NumberField
-                  id={`${id}-max`}
-                  className="w-28"
-                  value={
-                    settings.maxBytes === null
-                      ? null
-                      : Math.round((settings.maxBytes / MB) * 10) / 10
-                  }
-                  min={0}
-                  max={2000}
-                  step={0.5}
-                  suffix="MB"
-                  aria-describedby={`${id}-max-hint`}
-                  onCommit={(value) => {
-                    onSettings({ maxBytes: value > 0 ? Math.round(value * MB) : null })
-                  }}
-                  onClear={() => {
-                    onSettings({ maxBytes: null })
-                  }}
-                />
-                <p id={`${id}-max-hint`} className="text-xs text-ink-muted">
-                  Optional. Leave empty for no limit; lower quality is tried until it fits
-                  {splitting ? ' (each file on its own)' : ''}.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-5 border-t border-rule pt-4">
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 accent-[var(--c-ink)]"
-                  checked={settings.ocr}
-                  aria-describedby={`${id}-ocr-hint`}
-                  onChange={(event) => {
-                    onSettings({ ocr: event.target.checked })
-                  }}
-                />
-                Make text searchable (OCR)
-              </label>
-              <p id={`${id}-ocr-hint`} className="mt-1 ml-6 text-xs text-ink-muted">
-                Recognised on this device — nothing is uploaded. The text is added to the PDF
-                invisibly, so anyone with the file can search and copy it. The first time, it
-                downloads about {Math.round(1 + ocrLanguageInfo(settings.ocrLanguage).mb)} MB; then
-                a few seconds per page.
-              </p>
-              {settings.ocr && (
-                <div className="mt-3 ml-6">
-                  <label htmlFor={`${id}-ocrlang`} className="label mb-2 block text-ink-faint">
-                    Language of the text
-                  </label>
-                  <select
-                    id={`${id}-ocrlang`}
-                    className="field w-full"
-                    value={settings.ocrLanguage}
-                    onChange={(event) => {
-                      const { value } = event.target
-                      if (isOcrLanguage(value)) onSettings({ ocrLanguage: value })
+            {!images && (
+              <div className="mt-4">
+                <label htmlFor={`${id}-max`} className="label mb-2 block text-ink-faint">
+                  Keep the file under <span className="sr-only">(megabytes)</span>
+                </label>
+                <div className="flex items-center gap-3">
+                  <NumberField
+                    id={`${id}-max`}
+                    className="w-28"
+                    value={
+                      settings.maxBytes === null
+                        ? null
+                        : Math.round((settings.maxBytes / MB) * 10) / 10
+                    }
+                    min={0}
+                    max={2000}
+                    step={0.5}
+                    suffix="MB"
+                    aria-describedby={`${id}-max-hint`}
+                    onCommit={(value) => {
+                      onSettings({ maxBytes: value > 0 ? Math.round(value * MB) : null })
                     }}
-                  >
-                    {OCR_LANGUAGES.map((l) => (
-                      <option key={l.code} value={l.code}>
-                        {l.label}
-                      </option>
-                    ))}
-                  </select>
+                    onClear={() => {
+                      onSettings({ maxBytes: null })
+                    }}
+                  />
+                  <p id={`${id}-max-hint`} className="text-xs text-ink-muted">
+                    Optional. Leave empty for no limit; lower quality is tried until it fits
+                    {splitting ? ' (each file on its own)' : ''}.
+                  </p>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
+
+            {!images && (
+              <div className="mt-5 border-t border-rule pt-4">
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 accent-[var(--c-ink)]"
+                    checked={settings.ocr}
+                    aria-describedby={`${id}-ocr-hint`}
+                    onChange={(event) => {
+                      onSettings({ ocr: event.target.checked })
+                    }}
+                  />
+                  Make text searchable (OCR)
+                </label>
+                <p id={`${id}-ocr-hint`} className="mt-1 ml-6 text-xs text-ink-muted">
+                  Recognised on this device — nothing is uploaded. The text is added to the PDF
+                  invisibly, so anyone with the file can search and copy it. The first time, it
+                  downloads about {Math.round(1 + ocrLanguageInfo(settings.ocrLanguage).mb)} MB;
+                  then a few seconds per page.
+                </p>
+                {settings.ocr && (
+                  <div className="mt-3 ml-6">
+                    <label htmlFor={`${id}-ocrlang`} className="label mb-2 block text-ink-faint">
+                      Language of the text
+                    </label>
+                    <select
+                      id={`${id}-ocrlang`}
+                      className="field w-full"
+                      value={settings.ocrLanguage}
+                      onChange={(event) => {
+                        const { value } = event.target
+                        if (isOcrLanguage(value)) onSettings({ ocrLanguage: value })
+                      }}
+                    >
+                      {OCR_LANGUAGES.map((l) => (
+                        <option key={l.code} value={l.code}>
+                          {l.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="mt-4">
               <label className="flex items-center gap-2 text-sm">
@@ -492,25 +570,27 @@ export const ExportOptions = ({
               )}
             </div>
 
-            <div className="mt-4">
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 accent-[var(--c-ink)]"
-                  checked={settings.bookmarkFiles}
-                  aria-describedby={`${id}-bookmarks-hint`}
-                  onChange={(event) => {
-                    onSettings({ bookmarkFiles: event.target.checked })
-                  }}
-                />
-                Bookmark each imported file
-              </label>
-              <p id={`${id}-bookmarks-hint`} className="mt-1 ml-6 text-xs text-ink-muted">
-                Named after the file, at its first page. Sections you name in a page’s settings are
-                always bookmarked
-                {splitting ? ', and each file opens under the section it starts in' : ''}.
-              </p>
-            </div>
+            {!images && (
+              <div className="mt-4">
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 accent-[var(--c-ink)]"
+                    checked={settings.bookmarkFiles}
+                    aria-describedby={`${id}-bookmarks-hint`}
+                    onChange={(event) => {
+                      onSettings({ bookmarkFiles: event.target.checked })
+                    }}
+                  />
+                  Bookmark each imported file
+                </label>
+                <p id={`${id}-bookmarks-hint`} className="mt-1 ml-6 text-xs text-ink-muted">
+                  Named after the file, at its first page. Sections you name in a page’s settings
+                  are always bookmarked
+                  {splitting ? ', and each file opens under the section it starts in' : ''}.
+                </p>
+              </div>
+            )}
 
             <div className="mt-4">
               <label className="flex items-center gap-2 text-sm">
@@ -716,61 +796,66 @@ export const ExportOptions = ({
               )}
             </div>
 
-            <div className="mt-4">
-              <label htmlFor={passwordId} className="label mb-2 block text-ink-faint">
-                Password to open
-              </label>
-              <div className="flex gap-2">
-                <input
-                  id={passwordId}
-                  type={showPassword ? 'text' : 'password'}
-                  className="field min-w-0 flex-1"
-                  value={password}
-                  // Not saved anywhere, so don't invite a password manager to save
-                  // or generate one.
-                  autoComplete="off"
-                  data-1p-ignore
-                  data-lpignore="true"
-                  spellCheck={false}
-                  autoCapitalize="off"
-                  placeholder="None"
-                  aria-invalid={passwordError ? true : undefined}
-                  aria-describedby={cx(
-                    passwordError && `${passwordId}-error`,
-                    `${passwordId}-hint`,
-                  )}
-                  onChange={(event) => {
-                    onPassword(event.target.value)
-                  }}
-                />
-                <Button
-                  aria-pressed={showPassword}
-                  aria-controls={passwordId}
-                  onClick={() => {
-                    setShowPassword((shown) => !shown)
-                  }}
-                >
-                  Show <span className="sr-only">password</span>
-                </Button>
-              </div>
-              {passwordError && (
-                <p id={`${passwordId}-error`} className="mt-1.5 text-xs text-accent">
-                  {passwordError}
+            {!images && (
+              <div className="mt-4">
+                <label htmlFor={passwordId} className="label mb-2 block text-ink-faint">
+                  Password to open
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id={passwordId}
+                    type={showPassword ? 'text' : 'password'}
+                    className="field min-w-0 flex-1"
+                    value={password}
+                    // Not saved anywhere, so don't invite a password manager to save
+                    // or generate one.
+                    autoComplete="off"
+                    data-1p-ignore
+                    data-lpignore="true"
+                    spellCheck={false}
+                    autoCapitalize="off"
+                    placeholder="None"
+                    aria-invalid={passwordError ? true : undefined}
+                    aria-describedby={cx(
+                      passwordError && `${passwordId}-error`,
+                      `${passwordId}-hint`,
+                    )}
+                    onChange={(event) => {
+                      onPassword(event.target.value)
+                    }}
+                  />
+                  <Button
+                    aria-pressed={showPassword}
+                    aria-controls={passwordId}
+                    onClick={() => {
+                      setShowPassword((shown) => !shown)
+                    }}
+                  >
+                    Show <span className="sr-only">password</span>
+                  </Button>
+                </div>
+                {passwordError && (
+                  <p id={`${passwordId}-error`} className="mt-1.5 text-xs text-accent">
+                    {passwordError}
+                  </p>
+                )}
+                <p id={`${passwordId}-hint`} className="mt-1.5 text-xs text-ink-muted">
+                  Optional. Encrypts the PDF’s contents (AES-256); the file’s name (from the title)
+                  and its number of pages aren’t hidden. Not saved anywhere — if you lose it, the
+                  file can’t be opened.
                 </p>
-              )}
-              <p id={`${passwordId}-hint`} className="mt-1.5 text-xs text-ink-muted">
-                Optional. Encrypts the PDF’s contents (AES-256); the file’s name (from the title)
-                and its number of pages aren’t hidden. Not saved anywhere — if you lose it, the file
-                can’t be opened.
-              </p>
-            </div>
+              </div>
+            )}
           </div>
           <div className="border-t border-rule bg-paper px-5 pt-3 pb-4">
             <dl className="text-sm">
-              <div className="flex justify-between gap-4 py-0.5">
-                <dt className="text-ink-muted">Estimated size</dt>
-                <dd className="tabular-nums">≈ {formatBytes(estimate)}</dd>
-              </div>
+              {/* The estimate models the PDF; images are drawn afresh. */}
+              {!images && (
+                <div className="flex justify-between gap-4 py-0.5">
+                  <dt className="text-ink-muted">Estimated size</dt>
+                  <dd className="tabular-nums">≈ {formatBytes(estimate)}</dd>
+                </div>
+              )}
               {lastExport && (
                 <div className="flex justify-between gap-4 py-0.5">
                   <dt className="text-ink-muted">Last export</dt>
@@ -788,7 +873,7 @@ export const ExportOptions = ({
               inactive={!canExport}
               {...(planError
                 ? { 'aria-describedby': planId }
-                : passwordError
+                : blockedBy
                   ? { 'aria-describedby': `${passwordId}-error` }
                   : {})}
               onClick={(event) => {
@@ -796,7 +881,7 @@ export const ExportOptions = ({
                   planField()?.focus()
                   return
                 }
-                if (passwordError) {
+                if (blockedBy) {
                   document.getElementById(passwordId)?.focus()
                   return
                 }
@@ -804,16 +889,18 @@ export const ExportOptions = ({
                 onExport()
               }}
             >
-              {locked ? (
+              {locked && !images ? (
                 <LockIcon width={16} height={16} />
               ) : (
                 <DownloadIcon width={16} height={16} />
               )}
-              {files > 1
-                ? `Export ${String(files)} ${locked ? 'locked ' : ''}PDFs`
-                : locked
-                  ? 'Export locked PDF'
-                  : 'Export PDF'}
+              {images
+                ? `Export ${imageCount === 1 ? IMAGE_TYPES[format].label : imagesWord(imageCount, format)}`
+                : files > 1
+                  ? `Export ${String(files)} ${locked ? 'locked ' : ''}PDFs`
+                  : locked
+                    ? 'Export locked PDF'
+                    : 'Export PDF'}
             </Button>
           </div>
         </div>

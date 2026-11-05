@@ -1,3 +1,4 @@
+import { IMAGE_TYPES, imagesWord, isImageFormat, type ExportFormat } from './imageExport'
 import type { Page } from './model'
 
 /**
@@ -17,6 +18,11 @@ export interface SplitOptions {
    * on from where the previous file stopped.
    */
   numbering: 'restart' | 'continue'
+  /**
+   * A PDF, or each page as an image (#117). Images take all or the selected
+   * pages, one file each, so the split modes don't apply to them.
+   */
+  format: ExportFormat
 }
 
 export const DEFAULT_SPLIT: SplitOptions = {
@@ -24,6 +30,7 @@ export const DEFAULT_SPLIT: SplitOptions = {
   ranges: '',
   every: 1,
   numbering: 'restart',
+  format: 'pdf',
 }
 
 /** One output file: its pages in order, and the number printed on its first page. */
@@ -145,9 +152,21 @@ export const planExport = (
 }
 
 /** The plan in a sentence, for the export options (null for the plain one-file export). */
-export const describePlan = (plan: Plan, mode: SplitMode): string | null => {
+export const describePlan = (
+  plan: Plan,
+  mode: SplitMode,
+  format: ExportFormat = 'pdf',
+): string | null => {
   if ('error' in plan) return plan.error
   const [only] = plan.parts
+  if (isImageFormat(format)) {
+    const positions = [...new Set(plan.parts.flatMap((p) => p.positions))].sort((a, b) => a - b)
+    const n = positions.length
+    const what = n === 1 ? `a ${IMAGE_TYPES[format].label}` : `${imagesWord(n, format)} in one ZIP`
+    if (mode === 'all')
+      return n === 1 ? null : `${imagesWord(n, format)}, one per page, in one ZIP.`
+    return `${n === 1 ? 'Page' : 'Pages'} ${positionList(positions)}, as ${what}.`
+  }
   if (plan.parts.length === 1 && only) {
     if (mode === 'all') return null
     return `${only.positions.length === 1 ? 'Page' : 'Pages'} ${positionList(only.positions)}, as one PDF.`

@@ -4065,6 +4065,178 @@ await context.close()
   await phone.close()
 }
 
+// 41. Pages as images (#117). On a phone, by touch: JPG, two pages, Export,
+//     then the share sheet gets the images themselves. On a desktop: one page
+//     downloads as a PNG drawn exactly as the PDF shows it (page numbers
+//     included), and several JPGs come as one ZIP.
+{
+  const { context: phone, page: p } = await open({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  })
+  // The sandbox has no share sheet: record what would be shared.
+  await p.addInitScript(() => {
+    window.__shared = null
+    navigator.canShare = (data) => Array.isArray(data?.files)
+    navigator.share = async (data) => {
+      window.__shared = await Promise.all(
+        data.files.map(async (f) => {
+          const bitmap = await createImageBitmap(f)
+          return { name: f.name, type: f.type, width: bitmap.width, height: bitmap.height }
+        }),
+      )
+    }
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [
+    join(fixtures, 'doc-colour.jpg'),
+    join(fixtures, 'quad-portrait.jpg'),
+  ])
+  await p.waitForSelector('ol[aria-label="2 pages"]', { timeout: 20_000 })
+  await exportMenu(p).tap()
+  const panel = p.getByRole('dialog', { name: 'Export options' })
+  await panel.getByRole('radio', { name: 'JPG' }).tap()
+  await panel.getByRole('radio', { name: /^Small/ }).tap()
+  const targets = await panel
+    .locator('input[name$="-format"]')
+    .evaluateAll((els) => els.map((el) => el.closest('label').getBoundingClientRect().height))
+  check(
+    targets.length === 3 && targets.every((h) => h >= 44),
+    'PDF / JPG / PNG are 44px touch targets on a phone',
+    targets.join(', '),
+  )
+  check(
+    (await panel.getByLabel('Password to open').count()) === 0,
+    'images hide the PDF-only options (password)',
+  )
+  await p.screenshot({ path: join(shots, 'images-options-phone.png') })
+  await axe(p, 'export options set to JPG on a phone')
+  await panel.getByRole('button', { name: 'Export 2 JPGs' }).tap()
+  const ready = p.getByRole('dialog', { name: '2 JPGs ready' })
+  await ready.waitFor({ timeout: 30_000 })
+  await p.screenshot({ path: join(shots, 'images-share-phone.png') })
+  await axe(p, 'images ready to share on a phone')
+  await ready.getByRole('button', { name: 'Share…' }).tap()
+  await p.waitForFunction(() => window.__shared !== null, null, { timeout: 10_000 })
+  const shared = await p.evaluate(() => window.__shared)
+  // Small is 150 dpi: US Letter 1275 × 1650, A4 1240 × 1754.
+  check(
+    shared.length === 2 &&
+      shared.every(
+        (f, i) =>
+          f.name === `${/^scans-\d{4}-\d\d-\d\d/.exec(f.name)?.[0]}-page-${i + 1}.jpg` &&
+          f.type === 'image/jpeg' &&
+          ((f.width === 1275 && f.height === 1650) || (f.width === 1240 && f.height === 1754)),
+      ),
+    'the share sheet gets each page as a 150 dpi JPG',
+    JSON.stringify(shared),
+  )
+  await phone.close()
+
+  const { context: ctx, page: d } = await open({ viewport: { width: 1280, height: 900 } })
+  await d.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await d.setInputFiles('[data-testid="file-input"]', [
+    join(fixtures, 'doc-colour.jpg'),
+    join(fixtures, 'quad-portrait.jpg'),
+  ])
+  await d.waitForSelector('ol[aria-label="2 pages"]', { timeout: 20_000 })
+  const dir = mkdtempSync(join(tmpdir(), 'collated-verify-images-'))
+  await exportMenu(d).click()
+  const opts = d.getByRole('dialog', { name: 'Export options' })
+  await opts.getByRole('checkbox', { name: 'Page numbers' }).check()
+  await opts.getByRole('radio', { name: /^Small/ }).check()
+  // The PDF first, to compare against.
+  const [pdfDl] = await Promise.all([
+    d.waitForEvent('download'),
+    opts.getByRole('button', { name: 'Export PDF' }).click(),
+  ])
+  const pdfPath = join(dir, 'pages.pdf')
+  await pdfDl.saveAs(pdfPath)
+
+  await exportMenu(d).click()
+  await opts.getByRole('radio', { name: 'JPG' }).check()
+  const [zipDl] = await Promise.all([
+    d.waitForEvent('download'),
+    opts.getByRole('button', { name: 'Export 2 JPGs' }).click(),
+  ])
+  const zipped = unzipSync(readFileSync(await zipDl.path()))
+  const names = Object.keys(zipped)
+  check(
+    names.length === 2 &&
+      names.every((n, i) => n.endsWith(`-page-${i + 1}.jpg`)) &&
+      Object.values(zipped).every((b) => b[0] === 0xff && b[1] === 0xd8),
+    'several JPGs download as one ZIP, one per page, in order',
+    names.join(', '),
+  )
+
+  // One page as PNG: select page 2, Selected pages.
+  await d.locator('ol[aria-label="2 pages"] [data-page-select]').nth(1).click()
+  await exportMenu(d).click()
+  await opts.getByRole('radio', { name: 'PNG' }).check()
+  await opts.getByRole('radio', { name: /^Selected pages/ }).check()
+  const [pngDl] = await Promise.all([
+    d.waitForEvent('download'),
+    opts.getByRole('button', { name: 'Export PNG' }).click(),
+  ])
+  check(
+    /^scans-\d{4}-\d\d-\d\d\.png$/.test(pngDl.suggestedFilename()),
+    'one page downloads as a single PNG',
+    pngDl.suggestedFilename(),
+  )
+  const png = readFileSync(await pngDl.path())
+  if (hasPoppler) {
+    const prefix = join(dir, 'ref')
+    execFileSync('pdftoppm', [
+      '-png',
+      '-r',
+      '150',
+      '-f',
+      '2',
+      '-l',
+      '2',
+      '-singlefile',
+      pdfPath,
+      prefix,
+    ])
+    const ref = readFileSync(`${prefix}.png`)
+    const diff = await d.evaluate(
+      async ([a, b]) => {
+        // Not fetch(data:): the CSP allows connections to 'self' only.
+        const load = (b64) =>
+          createImageBitmap(
+            new Blob([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], { type: 'image/png' }),
+          )
+        const [x, y] = await Promise.all([load(a), load(b)])
+        if (x.width !== y.width || x.height !== y.height)
+          return { size: `${x.width}×${x.height} vs ${y.width}×${y.height}`, mean: 255 }
+        const px = (bm) => {
+          const c = new OffscreenCanvas(bm.width, bm.height)
+          const g = c.getContext('2d')
+          g.drawImage(bm, 0, 0)
+          return g.getImageData(0, 0, bm.width, bm.height).data
+        }
+        const [p1, p2] = [px(x), px(y)]
+        let sum = 0
+        for (let i = 0; i < p1.length; i += 4) {
+          sum +=
+            Math.abs(p1[i] - p2[i]) +
+            Math.abs(p1[i + 1] - p2[i + 1]) +
+            Math.abs(p1[i + 2] - p2[i + 2])
+        }
+        return { size: `${x.width}×${x.height}`, mean: sum / (p1.length / 4) / 3 }
+      },
+      [png.toString('base64'), ref.toString('base64')],
+    )
+    check(
+      diff.mean < 4,
+      'the PNG matches poppler’s drawing of the PDF page (page number included)',
+      JSON.stringify(diff),
+    )
+  }
+  await ctx.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()
