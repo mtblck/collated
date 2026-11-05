@@ -1,6 +1,8 @@
 import { applyFilter, filterEncoding } from '../core/filters'
+import { MAX_CANVAS_PIXELS } from '../core/limits'
 import type { Filter, Redaction } from '../core/model'
 import type { FlattenJob, ImageJob } from '../core/pdf'
+import type { ShrinkJob } from '../core/pdfImages'
 import { WATERMARK_FONT } from '../core/watermark'
 import { rotatedBounds, type Part } from '../core/geometry'
 import { redactionShapes } from '../core/redact'
@@ -11,10 +13,10 @@ import { toPixels, warp, warpSize, type Point, type Quad } from '../core/perspec
  * (OffscreenCanvas). Decoding with createImageBitmap applies EXIF orientation,
  * so the output is upright.
  *
- * iOS Safari refuses canvases over ~16.7 megapixels; larger images are scaled
- * to fit, which still leaves a US Letter page well above 300 dpi.
+ * Larger images than MAX_CANVAS_PIXELS are scaled to fit, which still leaves
+ * a US Letter page well above 300 dpi.
  */
-export const MAX_CANVAS_PIXELS = 16_000_000
+export { MAX_CANVAS_PIXELS }
 
 const context = (canvas: OffscreenCanvas, readBack: boolean) => {
   const ctx = canvas.getContext('2d', { willReadFrequently: readBack })
@@ -333,4 +335,84 @@ export const displayedToBlob = async (
   } finally {
     content.close()
   }
+}
+
+/**
+ * Raw grey or RGB pixels averaged down to `width` × `height` (a box filter:
+ * every source pixel counts once), as RGBA. Done here rather than on a
+ * canvas because the source can be far past the canvas limit.
+ */
+export const boxDownsample = (
+  data: Uint8Array,
+  channels: 1 | 3,
+  from: { width: number; height: number },
+  width: number,
+  height: number,
+) => {
+  const out = new Uint8ClampedArray(width * height * 4)
+  const column = new Int32Array(from.width)
+  for (let x = 0; x < from.width; x++)
+    column[x] = Math.min(width - 1, Math.floor((x * width) / from.width))
+  const sums = new Float64Array(width * 3)
+  const counts = new Float64Array(width)
+  const flush = (row: number) => {
+    for (let x = 0; x < width; x++) {
+      const n = Math.max(1, counts[x] ?? 0)
+      const o = (row * width + x) * 4
+      out[o] = (sums[x * 3] ?? 0) / n
+      out[o + 1] = (sums[x * 3 + 1] ?? 0) / n
+      out[o + 2] = (sums[x * 3 + 2] ?? 0) / n
+      out[o + 3] = 255
+    }
+    sums.fill(0)
+    counts.fill(0)
+  }
+  let current = 0
+  for (let y = 0; y < from.height; y++) {
+    const row = Math.min(height - 1, Math.floor((y * height) / from.height))
+    if (row !== current) {
+      flush(current)
+      current = row
+    }
+    const start = y * from.width * channels
+    for (let x = 0; x < from.width; x++) {
+      const c = column[x] ?? 0
+      const i = start + x * channels
+      const r = data[i] ?? 0
+      sums[c * 3] = (sums[c * 3] ?? 0) + r
+      sums[c * 3 + 1] = (sums[c * 3 + 1] ?? 0) + (channels === 3 ? (data[i + 1] ?? 0) : r)
+      sums[c * 3 + 2] = (sums[c * 3 + 2] ?? 0) + (channels === 3 ? (data[i + 2] ?? 0) : r)
+      counts[c] = (counts[c] ?? 0) + 1
+    }
+  }
+  flush(current)
+  return out
+}
+
+/**
+ * A picture from inside a PDF page, re-encoded as a JPEG of the job's size
+ * (#115). Its colour values are kept as stored (no colour management on
+ * decode), since the PDF says what colour space they're in.
+ */
+export const shrinkToJpeg = async (job: ShrinkJob): Promise<Uint8Array> => {
+  const canvas = new OffscreenCanvas(job.width, job.height)
+  const ctx = context(canvas, false)
+  const { source } = job
+  if (source.kind === 'jpeg') {
+    const bitmap = await createImageBitmap(
+      new Blob([source.data as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' }),
+      { colorSpaceConversion: 'none' },
+    )
+    try {
+      ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(bitmap, 0, 0, job.width, job.height)
+    } finally {
+      bitmap.close()
+    }
+  } else {
+    const rgba = boxDownsample(source.data, source.channels, source, job.width, job.height)
+    ctx.putImageData(new ImageData(rgba, job.width, job.height), 0, 0)
+  }
+  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: job.quality })
+  return new Uint8Array(await blob.arrayBuffer())
 }

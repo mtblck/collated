@@ -37,6 +37,7 @@ import { markBox } from './marks'
 import { redactionShapes, wordsClear } from './redact'
 import { FULL_IMAGE, apply, homography, type Quad } from './perspective'
 import { NeedsDrawing, embedSanitized, reachesHiddenLayer, sanitizedPage } from './pdfSanitize'
+import { shrinkPageImages, type ShrinkImage } from './pdfImages'
 import { stripJpegMetadata } from './jpegClean'
 import { headerSize } from './imageInfo'
 import { readGreyPng } from './png'
@@ -87,6 +88,12 @@ export interface BuildOptions {
    * Needs a canvas, so the worker provides it.
    */
   flattenPage?: (job: FlattenJob) => Promise<Uint8Array>
+  /**
+   * Re-encodes a picture inside a PDF page (see core/pdfImages.ts). Needs a
+   * canvas, so the worker provides it; without it, PDF pages' pictures are
+   * kept as they are whatever the compression.
+   */
+  shrinkImage?: ShrinkImage
   onProgress?: (done: number, total: number) => void
   /** Fixed for reproducible output in tests. */
   now?: Date
@@ -469,6 +476,31 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     return loaded
   }
   /**
+   * Per source PDF, the longest any of its pages is drawn (in points), which
+   * its pictures are shrunk for, and the pictures already shrunk.
+   */
+  const drawnLong = new Map<string, number>()
+  const shrunk = new Map<string, Set<string>>()
+  if (compression && options.shrinkImage) {
+    for (const [index, page] of pages.entries()) {
+      const pictures = picturesOf(page)
+      if (pictures.some((slot) => !assets[slot.assetId])) continue
+      const sheet = layoutSheet(
+        settings,
+        assets,
+        page,
+        page.blank ? sizeModel(pages, index) : undefined,
+      )
+      pictures.forEach((slot, i) => {
+        const asset = assets[slot.assetId]
+        const layout = sheet.pictures[i]
+        if (asset?.format !== 'pdf' || !layout) return
+        const long = Math.max(layout.image.width, layout.image.height)
+        drawnLong.set(asset.bytesId, Math.max(drawnLong.get(asset.bytesId) ?? 0, long))
+      })
+    }
+  }
+  /**
    * What a page embeds, and the turns its stored content still needs. A
    * re-encoded image was decoded upright, so it needs none. If compressing
    * without a filter made an image bigger, the original is kept instead.
@@ -485,6 +517,24 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
       const srcPage = sanitizedPage(src, src.getPage(asset.pdfPage ?? 0))
       // Fail closed: a page that could hide something is never copied.
       if (reachesHiddenLayer(src, srcPage)) throw new NeedsDrawing([asset.id])
+      // Its pictures follow the quality like photos do; its text and drawing stay (#115).
+      const long = drawnLong.get(asset.bytesId)
+      if (compression && options.shrinkImage && long) {
+        let done = shrunk.get(asset.bytesId)
+        if (!done) {
+          done = new Set()
+          shrunk.set(asset.bytesId, done)
+        }
+        // A picture may span the whole media box, of which only the visible box is drawn.
+        const box = visibleBox(srcPage)
+        const media = srcPage.getMediaBox()
+        const spread = Math.max(
+          1,
+          Math.max(media.width, media.height) /
+            Math.max(box.right - box.left, box.top - box.bottom),
+        )
+        await shrinkPageImages(srcPage, long * spread, compression, options.shrinkImage, done)
+      }
       content = {
         kind: 'page',
         page: await embedSanitized(doc, src, srcPage, visibleBox(srcPage)),

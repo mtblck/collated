@@ -6,7 +6,8 @@ import type { SplitPart } from '../core/splitBuild'
 import type { OcrWord } from '../core/textLayer'
 import { assetStore } from '../import/assetStore'
 import { layeredImage } from './layered'
-import type { ExportRequest, ExportResponse, UnlockRequest } from './protocol'
+import type { PdfImageInfo } from '../core/pdfImages'
+import type { ExportRequest, ExportResponse, InspectRequest, UnlockRequest } from './protocol'
 
 export type Progress = (done: number, total: number, attempt: number) => void
 
@@ -147,6 +148,36 @@ export const unlockPdf = (bytes: Uint8Array, password: string): Promise<Uint8Arr
       reject(new Error(event.message || START_FAILED))
     }
     const message: UnlockRequest = { unlock: { bytes, password } }
+    worker.postMessage(message)
+  })
+
+/** The last listing asked for (see `inspectPdf`). */
+let inspecting: Promise<unknown> = Promise.resolve()
+
+/**
+ * The pictures each page of a PDF draws that the export could shrink (#115),
+ * read by the export worker, for the size estimate.
+ */
+export const inspectPdf = (bytes: Uint8Array): Promise<PdfImageInfo[][]> => {
+  // One file at a time: several big PDFs dropped together would otherwise
+  // each start a worker holding its own copy.
+  const turn = inspecting.then(() => inspectNow(bytes))
+  inspecting = turn.catch(() => undefined)
+  return turn
+}
+const inspectNow = (bytes: Uint8Array): Promise<PdfImageInfo[][]> =>
+  new Promise((resolve, reject) => {
+    const worker = takeWorker()
+    worker.onmessage = ({ data }: MessageEvent<ExportResponse>) => {
+      giveBack(worker)
+      if (data.type === 'inspected') resolve(data.pages)
+      else reject(new Error(data.type === 'error' ? data.message : 'Unexpected answer.'))
+    }
+    worker.onerror = (event) => {
+      worker.terminate()
+      reject(new Error(event.message || START_FAILED))
+    }
+    const message: InspectRequest = { inspect: { bytes } }
     worker.postMessage(message)
   })
 

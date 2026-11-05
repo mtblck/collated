@@ -25,6 +25,8 @@ Under the choices, a line says what you'll get, or what's wrong with the ranges.
 - **Original:** images go in as they are, with no recompression. JPEG photos keep their exact image data. A page is re-encoded once only when it must be: a filter, a crop, a blacked-out area, or Fill / a scale above 100% hiding part of the image (so the hidden part isn't stored).
 - **High, Balanced, Small:** cap each image at 300, 200 or 150 dpi as printed, and compress it. Small is for email and uploads.
 
+Pages from a PDF follow the quality too: the pictures inside them, such as a scanned page or a photo on a page, are capped and compressed like your photos, so a heavy scanned PDF gets smaller. Everything else on the page stays as it was, so its text stays sharp and searchable (an invisible text layer from a scanner app included). A picture is only replaced when that makes it smaller. Black-and-white scans are usually small already and stay as they are, as do pictures in CMYK, JPEG 2000 or with a limited palette, which recompressing could change. At **Original**, PDF pages go in untouched.
+
 **Keep the file under** is optional: give a size in MB and Collated tries lower quality, step by step, until the file fits. If it can't, it says so and saves the smallest it made.
 
 ## Searchable text (OCR)
