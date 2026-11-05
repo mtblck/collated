@@ -134,6 +134,26 @@ for i, line in enumerate(
     fd.text((110, 160 + i * 70), line, font=font, fill=(25, 25, 30))
 fr_page.save(HERE / "text-page-fr.jpg", quality=90)
 
+# Pages in Russian and Polish (#94): letters outside Windows-1252, which the
+# text layer writes in its embedded glyphless font.
+for name, lines in {
+    "ru": [
+        "Счёт номер 4417, оплатить в августе",
+        "Съешь же ещё этих мягких булок.",
+        "Получено: чай и пирожные.",
+    ],
+    "pl": [
+        "Faktura numer 4417, płatna w sierpniu",
+        "Zażółć gęślą jaźń. Łódź i Kraków.",
+        "Otrzymano: herbata i ciastka.",
+    ],
+}.items():
+    page = Image.new("RGB", (1275, 1650), (250, 249, 245))
+    pd = ImageDraw.Draw(page)
+    for i, line in enumerate(lines):
+        pd.text((110, 160 + i * 70), line, font=font, fill=(25, 25, 30))
+    page.save(HERE / f"text-page-{name}.jpg", quality=90)
+
 # A full page of body text, for orientation detection (#70), saved turned
 # 0/90/180/270 degrees clockwise from upright. 1-bit, so four copies stay small.
 serif = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf", 26)

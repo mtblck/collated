@@ -13,6 +13,7 @@ version or date when it ships.
 
 ### Added
 
+- Searchable text in Polish, Czech, Slovak, Slovenian, Croatian, Hungarian, Romanian, Turkish, Greek, Bulgarian, Russian and Ukrainian (#94). Pick the language under **Make text searchable**; the text can be searched and copied with every letter intact.
 - Fill in forms that have no fields (#112): type text, add today's date, or tick and cross boxes anywhere on a page, in black, blue or red. Text is real, selectable text in the PDF. Works by touch on a phone, with the page still in view while the keyboard is up.
 - Install Collated as an app (#73). It opens and works with no connection after your first visit, and in Chrome and Edge (and on Android) it shows up in the share sheet, so photos from the gallery or a PDF from an email go into your document once you confirm them, and in "Open with" for PDFs and images on your computer.
 - **Enhance** filter (#71): whitens the paper and lifts shadows while keeping colour, for photos of forms with stamps, highlighted pages and receipts with logos. It sits between Greyscale and B&W.

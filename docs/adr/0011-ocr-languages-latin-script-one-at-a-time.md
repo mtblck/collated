@@ -4,7 +4,7 @@ public: true
 
 # 0011: OCR reads one Latin-script language at a time, self-hosted, chosen from the browser's language
 
-- **Status:** Accepted
+- **Status:** Accepted; the Windows-1252-only choice of scripts is superseded by [0025](0025-glyphless-font-for-non-latin-text.md)
 - **Date:** 2026-10-24
 - **PR:** (this PR, #79)
 
