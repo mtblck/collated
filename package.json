@@ -26,8 +26,8 @@
   },
   "dependencies": {
     "@cantoo/pdf-lib": "^2.11.1",
-    "@dnd-kit/dom": "0.5.1",
-    "@dnd-kit/react": "0.5.1",
+    "@dnd-kit/dom": "0.5.3",
+    "@dnd-kit/react": "0.5.3",
     "@tesseract.js-data/bul": "^1.0.0",
     "@tesseract.js-data/ces": "^1.0.0",
     "@tesseract.js-data/dan": "^1.0.0",
