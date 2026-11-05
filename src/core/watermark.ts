@@ -132,18 +132,24 @@ export const textWidth = (text: string, size: number) => {
 /** The characters beyond Latin-1 that the standard fonts' encoding (WinAnsi) has. */
 const WIN_ANSI_EXTRA = new Set('€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ')
 
+const inWinAnsi = (ch: string) => {
+  const code = ch.codePointAt(0) ?? 0
+  return (code >= 32 && code < 127) || (code >= 0xa0 && code <= 0xff) || WIN_ANSI_EXTRA.has(ch)
+}
+
+/** Whether the PDF's standard font can set every character of (NFC) `text`. */
+export const isWinAnsi = (text: string) => {
+  for (const ch of text) if (!inWinAnsi(ch)) return false
+  return true
+}
+
 /**
  * Characters the PDF's standard font can't set, in order, once each. Text
  * with any of them can only be drawn into the pictures (see `flatten`).
  */
 export const unsupportedCharacters = (text: string) => {
   const out: string[] = []
-  for (const ch of text.normalize('NFC')) {
-    const code = ch.codePointAt(0) ?? 0
-    const ok =
-      (code >= 32 && code < 127) || (code >= 0xa0 && code <= 0xff) || WIN_ANSI_EXTRA.has(ch)
-    if (!ok && !out.includes(ch)) out.push(ch)
-  }
+  for (const ch of text.normalize('NFC')) if (!inWinAnsi(ch) && !out.includes(ch)) out.push(ch)
   return out
 }
 

@@ -59,10 +59,13 @@ import { stripJpegMetadata } from './jpegClean'
 import { headerSize } from './imageInfo'
 import { readGreyPng } from './png'
 import { placeWord, type OcrWord } from './textLayer'
+import { GlyphlessFont } from './glyphless'
+import { ocrLanguageInfo } from './ocrLanguages'
 import { NUMBER_GREY, numberMark } from './pageNumbers'
 import {
   colourOf,
   textWidth,
+  isWinAnsi,
   unsupportedCharacters,
   watermarkMark,
   type WatermarkMark,
@@ -274,20 +277,40 @@ export const imageJob = (
 }
 
 /**
- * Invisible text (rendering mode 3) over each recognised word: selectable and
- * searchable, never drawn. Each word is squeezed horizontally to span the
- * printed word exactly. Words the standard font can't encode (outside
- * Windows-1252) are skipped rather than mangled.
+ * The text layer's fonts: Helvetica (standard, not embedded) for words it can
+ * write, and the embedded glyphless font for the rest (#94). Both are made on
+ * first use, so a file only carries the fonts its words need. `keys` holds the
+ * page's resource names for them, shared by every picture on the page.
  */
-/** Whether every code point (not UTF-16 unit) of `text` is in the font. */
-const encodable = (text: string, supported: Set<number>) => {
-  for (const ch of text) if (!supported.has(ch.codePointAt(0) ?? -1)) return false
-  return true
+interface TextFonts {
+  standard: () => Promise<PDFFont>
+  glyphless: () => GlyphlessFont
+  keys: Map<object, PDFName>
 }
 
-const drawTextLayer = (page: PDFPage, font: PDFFont, layout: Layout, words: readonly OcrWord[]) => {
-  const key = page.node.newFontDictionary(font.name, font.ref)
-  const supported = new Set(font.getCharacterSet())
+/**
+ * Invisible text (rendering mode 3) over each recognised word: selectable and
+ * searchable, never drawn. Each word is squeezed horizontally to span the
+ * printed word exactly. Words in Windows-1252 are set in the standard
+ * Helvetica, as before #94, so Western European files don't grow; any other
+ * script goes in the glyphless font. Returns how many words it wrote.
+ */
+const drawTextLayer = async (
+  page: PDFPage,
+  fonts: TextFonts,
+  layout: Layout,
+  words: readonly OcrWord[],
+) => {
+  const keyOf = (font: { name: string; ref: PDFRef }) => {
+    let key = fonts.keys.get(font)
+    if (!key) {
+      key = page.node.newFontDictionary(font.name, font.ref)
+      fonts.keys.set(font, key)
+    }
+    return key
+  }
+  let standard: PDFFont | undefined
+  let written = 0
   page.pushOperators(
     pushGraphicsState(),
     beginText(),
@@ -296,10 +319,9 @@ const drawTextLayer = (page: PDFPage, font: PDFFont, layout: Layout, words: read
   const box = layout.content
   for (const word of words) {
     // Ligatures and other compatibility forms ("ﬁ") become plain letters,
-    // which the font has and searches match.
+    // which searches match.
     const text = word.text.normalize('NFKC')
-    // pdf-lib substitutes "?" for characters the font lacks; skip instead.
-    if (!encodable(text, supported)) continue
+    if (!text.trim()) continue
     const at = placeWord(layout, word)
     // Words the page hides (cropped by Fill or scale, or in the margins)
     // aren't on the page, so they aren't in its text either.
@@ -310,17 +332,33 @@ const drawTextLayer = (page: PDFPage, font: PDFFont, layout: Layout, words: read
     }
     // A trailing space so copied text and screen readers see separate words;
     // the squeeze below spans the word itself.
-    const encoded = font.encodeText(`${text} `)
-    const natural = font.widthOfTextAtSize(text, at.size)
+    let font: { name: string; ref: PDFRef }
+    let encoded: PDFHexString
+    let natural: number
+    if (isWinAnsi(text)) {
+      standard ??= await fonts.standard()
+      font = standard
+      encoded = standard.encodeText(`${text} `)
+      natural = standard.widthOfTextAtSize(text, at.size)
+    } else {
+      const glyphless = fonts.glyphless()
+      // Only a page with over 65,000 different characters runs out.
+      if (!glyphless.canEncode(`${text} `)) continue
+      font = glyphless
+      encoded = glyphless.encodeText(`${text} `)
+      natural = glyphless.widthOfTextAtSize(text, at.size)
+    }
     if (natural <= 0) continue
     page.pushOperators(
-      setFontAndSize(key, at.size),
+      setFontAndSize(keyOf(font), at.size),
       setCharacterSqueeze((at.width / natural) * 100),
       setTextMatrix(1, 0, 0, 1, at.x, at.y),
       showText(encoded),
     )
+    written++
   }
   page.pushOperators(endText(), popGraphicsState())
+  return written
 }
 
 /** A point of a mark's box, from its middle (`dx`, `dy` along its own axes), in PDF space. */
@@ -545,8 +583,6 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
   const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
   doc.setCreationDate(day)
   doc.setModificationDate(day)
-  // Screen readers pick a voice by the document's language. OCR reads English.
-  doc.catalog.set(PDFName.of('Lang'), PDFString.of('en'))
 
   // A duplicated page shares its content: embed each asset once, and parse
   // each source PDF once however many of its pages are used.
@@ -556,8 +592,12 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     cropped: boolean
   }
   const embedded = new Map<string, Embedded>()
+  // One Helvetica for marks, the watermark, page numbers and the text layer.
+  let helvetica: Promise<PDFFont> | undefined
+  const standardFont = () => (helvetica ??= doc.embedFont(StandardFonts.Helvetica))
   let font: PDFFont | undefined
-  let textFont: PDFFont | undefined
+  let glyphless: GlyphlessFont | undefined
+  let wordsWritten = 0
   const sources = new Map<string, Promise<PDFDocument>>()
   const source = (bytesId: string) => {
     let loaded = sources.get(bytesId)
@@ -723,6 +763,11 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
       page.blank ? sizeModel(pages, index) : undefined,
     )
     const pdfPage = doc.addPage([sheet.page.width, sheet.page.height])
+    const textFonts: TextFonts = {
+      standard: standardFont,
+      glyphless: () => (glyphless ??= new GlyphlessFont(doc)),
+      keys: new Map(),
+    }
     const watermark = watermarkMark(
       settings.watermark,
       page.id,
@@ -836,7 +881,7 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
           continue
         }
         if (m.kind === 'text') {
-          font ??= await doc.embedFont(StandardFonts.Helvetica)
+          font ??= await standardFont()
           drawMarkText(pdfPage, font, m, sheet.page.height)
           continue
         }
@@ -855,8 +900,7 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
         layout.image,
       )
       if (words.length) {
-        textFont ??= await doc.embedFont(StandardFonts.Helvetica)
-        drawTextLayer(pdfPage, textFont, layout, words)
+        wordsWritten += await drawTextLayer(pdfPage, textFonts, layout, words)
       }
     }
 
@@ -869,13 +913,13 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
           : 'Use Latin letters, or burn it into the pages'
         throw new Error(`the watermark’s font has no ${missing.join(' ')}. ${fix}.`)
       }
-      font ??= await doc.embedFont(StandardFonts.Helvetica)
+      font ??= await standardFont()
       drawWatermark(pdfPage, font, watermark, sheet.page.height)
     }
 
     const mark = numberMark(settings.pageNumbers, index, sheet.page, sheet.content.x)
     if (mark) {
-      font ??= await doc.embedFont(StandardFonts.Helvetica)
+      font ??= await standardFont()
       const width = font.widthOfTextAtSize(mark.text, mark.size)
       pdfPage.drawText(mark.text, {
         x: mark.align === 'center' ? mark.x - width / 2 : mark.x - width,
@@ -892,6 +936,13 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     const refs = new Map(pages.map((page, i) => [page.id, doc.getPage(i).ref]))
     writeOutline(doc, input.outline, refs)
   }
+
+  // Its maps list the characters written, so only now are they complete.
+  glyphless?.finish()
+  // Screen readers pick a voice by the document's language: the language OCR
+  // read the text layer in, else English.
+  const lang = wordsWritten ? ocrLanguageInfo(settings.ocrLanguage).tags[0] : 'en'
+  doc.catalog.set(PDFName.of('Lang'), PDFString.of(lang))
 
   if (input.password) {
     const password = pdfPassword(input.password)

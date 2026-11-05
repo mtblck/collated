@@ -301,6 +301,14 @@
       padding-inline-end: 0.625rem;
     }
   }
+  /* On touch screens every field is a 44px target, and 16px text stops iOS
+     zooming the page when one is focused (#94 found the 36px selects). */
+  @media (pointer: coarse) {
+    .field {
+      height: 2.75rem;
+      font-size: 1rem;
+    }
+  }
   .field:hover:not(:disabled) {
     border-color: var(--c-ink-muted);
   }

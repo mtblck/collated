@@ -32,7 +32,8 @@ describe('settings storage', () => {
     expect(defaultSettings('en-US').ocrLanguage).toBe('eng')
     // Languages it can't read yet, and nonsense, fall back to English.
     expect(defaultSettings('ja-JP').ocrLanguage).toBe('eng')
-    expect(defaultSettings('pl').ocrLanguage).toBe('eng')
+    expect(defaultSettings('pl').ocrLanguage).toBe('pol')
+    expect(defaultSettings('ar-EG').ocrLanguage).toBe('eng')
     expect(defaultSettings('not a locale!').ocrLanguage).toBe('eng')
   })
 
