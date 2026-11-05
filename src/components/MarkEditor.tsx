@@ -592,7 +592,7 @@ export const MarkEditor = ({
               ref={textBox}
               id={`${id}-text`}
               data-mark-text
-              rows={current.text.includes('\n') ? 2 : 1}
+              rows={Math.min(4, current.text.split('\n').length)}
               maxLength={TEXT_MAX_LENGTH}
               placeholder="Type here"
               value={current.text}

@@ -364,19 +364,19 @@ const drawMarkText = (
 /** A tick or cross (#112) as round-ended strokes: its unit square mapped onto its box. */
 const drawStamp = (page: PDFPage, mark: Extract<VectorMark, { kind: 'stamp' }>, height: number) => {
   const { box } = mark
-  const side = box.width
-  const r = (box.rotation * Math.PI) / 180
-  const [cos, sin] = [Math.cos(r), Math.sin(r)]
-  // (u, v) in the square, y down → PDF space, y up.
-  const origin = fromMiddle(box, -side / 2, -side / 2, height)
+  const half = box.width / 2
+  // The unit square (y down) onto the box: its origin and where (1, 0) and (0, 1) land.
+  const origin = fromMiddle(box, -half, -half, height)
+  const u = fromMiddle(box, half, -half, height)
+  const v = fromMiddle(box, -half, half, height)
   const { r: red, g, b } = colourOf(mark.colour)
   page.pushOperators(
     pushGraphicsState(),
     concatTransformationMatrix(
-      side * cos,
-      -side * sin,
-      -side * sin,
-      -side * cos,
+      u.x - origin.x,
+      u.y - origin.y,
+      v.x - origin.x,
+      v.y - origin.y,
       origin.x,
       origin.y,
     ),

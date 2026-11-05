@@ -79,7 +79,10 @@ export const cleanMark = <M extends Mark>(mark: M): M => {
     return clean({
       ...mark,
       ...place,
-      text: mark.text.replace(/\r\n?/g, '\n').slice(0, TEXT_MAX_LENGTH),
+      // Composed (as the font and its widths count letters), whole characters only.
+      text: Array.from(mark.text.normalize('NFC').replace(/\r\n?/g, '\n'))
+        .slice(0, TEXT_MAX_LENGTH)
+        .join(''),
       size: clamp(mark.size, min, max),
       colour: cleanColour(mark.colour),
     })
@@ -189,15 +192,16 @@ export function markBox(
   page: { width: number; height: number },
   asset?: Pick<Asset, 'width' | 'height'>,
 ): Layout['image'] | null {
-  const at = { cx: mark.x * page.width, cy: mark.y * page.height, rotation: mark.angle }
-  if (mark.kind === 'text') {
-    const { width, height } = textLayout(mark, page.width)
-    return { ...at, width, height }
-  }
+  if (!isImageMark(mark)) return vectorMark(mark, page).box
   const width = mark.width * page.width
-  if (mark.kind !== 'signature') return { ...at, width, height: width }
   if (!asset) return null
-  return { ...at, width, height: (width * asset.height) / Math.max(1, asset.width) }
+  return {
+    cx: mark.x * page.width,
+    cy: mark.y * page.height,
+    rotation: mark.angle,
+    width,
+    height: (width * asset.height) / Math.max(1, asset.width),
+  }
 }
 
 /** A mark drawn as text or strokes rather than a picture: what the preview, export and burn-in all need. */
