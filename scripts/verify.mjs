@@ -19,6 +19,7 @@ import {
   mkdtempSync,
   readFileSync,
   renameSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { createServer } from 'node:http'
@@ -3569,6 +3570,92 @@ await context.close()
     'an owner-password-only PDF opens without asking',
   )
   await phone.close()
+}
+
+// 38. TIFF (#113), by touch on a phone: a two-page G4 fax, a standard-
+//     resolution G3 fax, LZW and JPEG colour scans come in page by page;
+//     fax pages stay 1-bit in the PDF, and "Match image" sizes each page to
+//     the paper its file says was scanned.
+{
+  const { context: phone, page: p } = await open({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  const tiffs = [
+    'fax-g4-2pages.tif',
+    'fax-g3-normal.tif',
+    'scan-lzw-300dpi.tif',
+    'scan-jpeg-150dpi.tif',
+  ]
+  const [chooser] = await Promise.all([
+    p.waitForEvent('filechooser'),
+    p.getByRole('button', { name: 'Choose files' }).tap(),
+  ])
+  await chooser.setFiles(tiffs.map((f) => join(fixtures, f)))
+  await p.waitForSelector('ol[aria-label="5 pages"]', { timeout: 30_000 })
+  const labels = await p
+    .locator('ol[aria-label="5 pages"] [data-page-select]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('aria-label') ?? ''))
+  check(
+    labels.join(' | ') ===
+      'Page 1: fax-g4-2pages · p1 | Page 2: fax-g4-2pages · p2 | Page 3: fax-g3-normal.tif | Page 4: scan-lzw-300dpi.tif | Page 5: scan-jpeg-150dpi.tif',
+    'a phone adds TIFFs by touch, one page per TIFF page, in order',
+    labels.join(' | '),
+  )
+  const overflow = await p.evaluate(() => document.documentElement.scrollWidth - 390)
+  check(overflow <= 0, 'TIFF pages fit the phone without sideways scrolling', `${overflow}px`)
+  await p.waitForTimeout(500) // thumbnails
+  await p.screenshot({ path: join(shots, 'tiff-phone.png') })
+  await axe(p, 'phone with TIFF pages')
+  await phone.close()
+
+  const { context: ctx, page: d } = await open({ viewport: { width: 1440, height: 1000 } })
+  await d.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await d.setInputFiles(
+    '[data-testid="file-input"]',
+    tiffs.map((f) => join(fixtures, f)),
+  )
+  await d.waitForSelector('ol[aria-label="5 pages"]', { timeout: 30_000 })
+  await pageSetup(d, async (panel) => {
+    await panel.getByLabel('Page size').selectOption('image')
+  })
+  const [download] = await Promise.all([d.waitForEvent('download'), exportNow(d)])
+  const path = join(mkdtempSync(join(tmpdir(), 'collated-verify-tiff-')), 'tiff.pdf')
+  await download.saveAs(path)
+  const pdf = await PDFDocument.load(readFileSync(path))
+  const sizes = pdf
+    .getPages()
+    .map((pg) => `${Math.round(pg.getWidth())}×${Math.round(pg.getHeight())}`)
+  // Faxes: 1728 dots at 204 dpi = 610 pt; G4 2200 rows at 196 dpi and G3
+  // 1100 at 98 both come to 808 pt. Scans: 600 × 400 at 300 dpi and 150 dpi.
+  check(
+    sizes.join(', ') === '610×808, 610×808, 610×808, 144×96, 288×192',
+    'match-image TIFF pages take the size the file was scanned at',
+    sizes.join(', '),
+  )
+  check(
+    statSync(path).size < 60_000,
+    'three fax pages and two small scans export small',
+    `${statSync(path).size} bytes`,
+  )
+  if (hasPoppler) {
+    const list = execFileSync('pdfimages', ['-list', path], { encoding: 'utf8' })
+    // page num type width height color comp bpc …
+    const bpc = list
+      .split('\n')
+      .slice(2)
+      .filter(Boolean)
+      .map((line) => line.trim().split(/\s+/))
+      .map((cols) => `${cols[0]}:${cols[5]}/${cols[7]}`)
+    check(
+      bpc.join(' ') === '1:gray/1 2:gray/1 3:gray/1 4:rgb/8 5:rgb/8',
+      'fax pages are 1-bit grey in the PDF, scans are colour',
+      bpc.join(' '),
+    )
+  }
+  await ctx.close()
 }
 
 checkSameOrigin()

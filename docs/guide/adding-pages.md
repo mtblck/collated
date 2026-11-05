@@ -27,6 +27,7 @@ Before shared files go in, Collated names them and asks **Add N files shared wit
 - **PDFs:** each page becomes a page you can move, rotate or remove. A PDF that needs a password to open (bank and payroll statements often do) asks for it: type it and choose **Open**, or **Skip this file** to leave it out. Collated opens it in your browser and keeps an unlocked copy, so the pages, their text and the exported PDF need no password; the password itself isn't kept. PDFs that only restrict editing or printing open without asking. Pages stay as sharp as the original at any size, except a page with a hidden layer, which goes into the PDF as an image of what you see (turn on **Make text searchable** to keep its text searchable).
 - **JPEG and PNG:** go into the PDF as they are, without recompressing (see [Exporting](exporting.md)).
 - **HEIC / HEIF** (iPhone photos): read in every browser, not only Safari.
+- **TIFF** (scanners, fax machines and copiers): each page of a multi-page TIFF becomes a page, in order. Black-and-white pages, such as faxes, stay black and white, so the PDF stays small. Colour TIFF pages are converted once. With **Match image** page size, each page comes out the size of the paper that was scanned, from the resolution saved in the file.
 - **WebP, AVIF, GIF and BMP:** converted once, because PDF can't hold them.
 
 Phone photos are turned the right way up from the orientation the camera recorded. The file type is read from the file itself, not its name, so a mislabelled file still opens.
@@ -34,6 +35,6 @@ Phone photos are turned the right way up from the orientation the camera recorde
 ## Limits
 
 - Images up to **100 megapixels** (for example 10,000 × 10,000 pixels). Larger ones are refused with a message, before your browser tries to load them.
-- PDFs up to **500 pages** each.
+- PDFs and TIFFs up to **500 pages** each.
 
 Anything Collated can't read is listed in a message at the bottom of the screen, by name; the rest still comes in.

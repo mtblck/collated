@@ -15,6 +15,7 @@ const build = [
   f('assets/heic.worker-c3.js'),
   f('assets/libheif-d4.js'),
   f('assets/libheif-e5.wasm'),
+  f('assets/tiff.worker-f6.js'),
   f('ocr/worker.min.js'),
   f('ocr/lang/eng.traineddata.gz'),
   f('docs/index.html'),
@@ -35,13 +36,16 @@ describe('service worker build (#73)', () => {
       '/docs/keyboard/',
       '/theme.js',
     ])
-    expect(plan.onDemand).toEqual([
-      '/assets/heic.worker-c3.js',
-      '/assets/libheif-d4.js',
-      '/assets/libheif-e5.wasm',
-      '/ocr/lang/eng.traineddata.gz',
-      '/ocr/worker.min.js',
-    ])
+    expect(plan.onDemand).toEqual(
+      [
+        '/assets/heic.worker-c3.js',
+        '/assets/libheif-d4.js',
+        '/assets/libheif-e5.wasm',
+        '/ocr/lang/eng.traineddata.gz',
+        '/ocr/worker.min.js',
+        '/assets/tiff.worker-f6.js',
+      ].sort(),
+    )
   })
 
   it('versions each cache by its contents', () => {

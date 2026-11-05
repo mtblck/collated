@@ -10,7 +10,10 @@ import { toPixels, warpSize, type Quad } from './perspective'
 
 export type Unit = 'mm' | 'in'
 
-/** `image`: each page is sized to its own content (images at `imageDpi`, PDF pages as they are). */
+/**
+ * `image`: each page is sized to its own content (images at their file's `Asset.dpi`, else
+ * `imageDpi`; PDF pages as they are).
+ */
 export type PageSizeId = 'a3' | 'a4' | 'a5' | 'letter' | 'legal' | 'tabloid' | 'custom' | 'image'
 
 /** `auto` picks portrait or landscape per page to match the (rotated) image. */
@@ -140,6 +143,18 @@ export interface Asset {
    * backs: images added together share one. PDF pages go by `bytesId`.
    */
   source?: string
+  /**
+   * Pixels per inch the file says it was scanned at (TIFF, #113), which
+   * "Match image" pages use instead of `Settings.imageDpi`. Unset when the
+   * file doesn't say, and for every other format.
+   */
+  dpi?: number
+  /**
+   * The file a page came from, when one file gave several pages with their
+   * own bytes (a multi-page TIFF): it gets one bookmark, like a PDF's pages
+   * sharing `bytesId`.
+   */
+  fileId?: string
 }
 
 /** PDF pages are vector: printed resolution doesn't apply. */

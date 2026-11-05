@@ -14,8 +14,8 @@ export interface ImportOptions {
 }
 
 /**
- * One file in, one or more pages out: an image becomes a page, a PDF becomes
- * one page per PDF page. The type comes from the file's bytes, not its name.
+ * One file in, one or more pages out: an image becomes a page, a PDF or a
+ * TIFF one page per page. The type comes from the file's bytes, not its name.
  */
 export const importFile = async (
   file: File,
@@ -30,6 +30,12 @@ export const importFile = async (
       ...(onPage ? { onPage } : {}),
       ...(askPassword ? { askPassword, unlock: unlockPdf } : {}),
     })
+  }
+  if (kind === 'tiff') {
+    // Always ours, even in Safari: its native decode gives only the first
+    // page, at no particular size.
+    const { importTiff } = await import('./importTiff')
+    return importTiff(file, bytes, newId, onPage)
   }
   return importImage(file, newId(), bytes, kind)
 }

@@ -27,7 +27,7 @@
       "files": [
         {
           "name": "files",
-          "accept": ["image/*", ".heic", ".heif", "application/pdf", ".pdf"]
+          "accept": ["image/*", ".heic", ".heif", ".tif", ".tiff", "application/pdf", ".pdf"]
         }
       ]
     }
@@ -44,7 +44,8 @@
         "image/gif": [".gif"],
         "image/bmp": [".bmp"],
         "image/heic": [".heic"],
-        "image/heif": [".heif"]
+        "image/heif": [".heif"],
+        "image/tiff": [".tif", ".tiff"]
       }
     }
   ],

@@ -6,7 +6,7 @@
  * The type comes from the file's magic bytes, never its name or MIME type.
  */
 
-export type SniffedType = 'jpeg' | 'png' | 'pdf' | 'heic' | 'other'
+export type SniffedType = 'jpeg' | 'png' | 'pdf' | 'heic' | 'tiff' | 'other'
 
 export const sniff = (bytes: Uint8Array): SniffedType => {
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'jpeg'
@@ -22,6 +22,10 @@ export const sniff = (bytes: Uint8Array): SniffedType => {
   )
     return 'png'
   if (ascii(bytes, 0, 5) === '%PDF-') return 'pdf'
+  // II*\0 or MM\0* (and BigTIFF's II+\0 / MM\0+, refused later with a reason).
+  const order = ascii(bytes, 0, 2)
+  const magic = order === 'II' ? bytes[2] : order === 'MM' ? bytes[3] : undefined
+  if ((magic === 42 || magic === 43) && bytes[order === 'II' ? 3 : 2] === 0) return 'tiff'
   // ISO-BMFF: ....ftyp<brand>. HEIC/HEIF brands; AVIF is decoded by browsers.
   if (ascii(bytes, 4, 8) === 'ftyp') {
     const brand = ascii(bytes, 8, 12)

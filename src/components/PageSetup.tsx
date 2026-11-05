@@ -102,7 +102,8 @@ export const PageSetup = ({
                 }}
               />
               <p id={`${id}-dpi-hint`} className="mt-1.5 text-xs text-ink-muted">
-                Each page is sized to its image at this resolution. PDF pages keep their own size.
+                Each page is sized to its image at this resolution, or at the one a TIFF scan was
+                saved at. PDF pages keep their own size.
               </p>
             </div>
           )}

@@ -1,8 +1,9 @@
-"""Regenerates the test images. Run: python3 tests/fixtures/make-fixtures.py (needs Pillow).
+"""Regenerates the test images. Run: python3 tests/fixtures/make-fixtures.py (needs Pillow, and ImageMagick for two TIFFs).
 
 Each image is split into four coloured quadrants (TL red, TR green, BL blue,
 BR yellow) so a rendered page reveals exactly how it was rotated and placed.
 """
+import subprocess
 import zlib
 from pathlib import Path
 from PIL import Image, ImageDraw
@@ -344,3 +345,51 @@ for y in range(1200):
         p, m = px[x, y], marks.getpixel((x, y))
         px[x, y] = tuple(p[k] * m[k] // 255 for k in range(3))
 colour_doc.save(HERE / "doc-colour.jpg", quality=88)
+
+
+# TIFF (#113). Fax pages are 1-bit, 1728 dots across (8.47 in at 204 dpi),
+# each marked so its order and orientation show: a black square at the top
+# left on page 1, bottom right on page 2, plus text-like bars.
+def fax_page(height, square_at_top):
+    im = Image.new("1", (1728, height), 1)
+    d = ImageDraw.Draw(im)
+    s = height // 8
+    if square_at_top:
+        d.rectangle([60, 60, 60 + s, 60 + s], fill=0)
+    else:
+        d.rectangle([1728 - 60 - s, height - 60 - s, 1728 - 60, height - 60], fill=0)
+    for i, y in enumerate(range(height // 4, height * 3 // 4, height // 24)):
+        d.rectangle([200, y, 200 + 600 + (i * 97) % 700, y + height // 80], fill=0)
+    return im
+
+
+fine = [fax_page(2200, True), fax_page(2200, False)]
+fine[0].save(
+    HERE / "fax-g4-2pages.tif",
+    compression="group4",
+    dpi=(204, 196),
+    save_all=True,
+    append_images=fine[1:],
+)
+# Standard fax resolution: 204 × 98 dpi, so each dot is twice as tall as wide.
+# Real faxes are WhiteIsZero, which Pillow can't write: ImageMagick re-saves it.
+fax_page(1100, True).save(HERE / "fax-g3-normal.tif", compression="group3", dpi=(204, 98))
+subprocess.run(
+    ["convert", HERE / "fax-g3-normal.tif", "-define", "quantum:polarity=min-is-white",
+     "-compress", "Fax", HERE / "fax-g3-normal.tif"],
+    check=True,
+)
+# LZW with the horizontal predictor, as scanners write it (also ImageMagick).
+quad(600, 400).save(HERE / "scan-lzw-300dpi.tif", dpi=(300, 300))
+subprocess.run(
+    ["convert", HERE / "scan-lzw-300dpi.tif", "-compress", "LZW", "-define", "tiff:predictor=2",
+     HERE / "scan-lzw-300dpi.tif"],
+    check=True,
+)
+# JPEG-in-TIFF, resolution in pixels per centimetre (59.055 = 150 dpi).
+quad(600, 400).save(
+    HERE / "scan-jpeg-150dpi.tif",
+    compression="jpeg",
+    quality=90,
+    tiffinfo={282: 59.055, 283: 59.055, 296: 3},
+)

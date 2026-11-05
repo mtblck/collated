@@ -13,7 +13,12 @@ const ENTRY = join(import.meta.dirname, 'src', 'sw', 'sw.ts')
 const PLACEHOLDER = '__SW_MANIFEST__'
 
 /** Fetched on first use rather than on install: megabytes most visits never need. */
-const ON_DEMAND = [/^ocr\//, /^assets\/heic\.worker-/, /^assets\/libheif-/]
+const ON_DEMAND = [
+  /^ocr\//,
+  /^assets\/heic\.worker-/,
+  /^assets\/libheif-/,
+  /^assets\/tiff\.worker-/,
+]
 /** Neither: source maps, licence texts (linked, never needed offline), robots.txt. */
 const SKIP = [/\.map$/, /^licenses\//, /^robots\.txt$/, /^sw\.js$/]
 

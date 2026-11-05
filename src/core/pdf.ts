@@ -21,10 +21,12 @@ import {
   PDFString,
   PDFHexString,
   PDFDict,
+  PDFImage,
+  PngEmbedder,
+  type PDFContext,
   type PDFRef,
   type PDFFont,
   type PDFEmbeddedPage,
-  type PDFImage,
   type PDFPage,
 } from '@cantoo/pdf-lib'
 import { layoutSheet, partLayout, snapPart, visiblePart, type Layout, type Part } from './geometry'
@@ -36,6 +38,7 @@ import { FULL_IMAGE, apply, homography, type Quad } from './perspective'
 import { NeedsDrawing, embedSanitized, reachesHiddenLayer, sanitizedPage } from './pdfSanitize'
 import { stripJpegMetadata } from './jpegClean'
 import { headerSize } from './imageInfo'
+import { readGreyPng } from './png'
 import { placeWord, type OcrWord } from './textLayer'
 import { NUMBER_GREY, numberMark } from './pageNumbers'
 import { textWidth, unsupportedCharacters, watermarkMark, type WatermarkMark } from './watermark'
@@ -62,7 +65,10 @@ export interface BuildInput {
   outline?: OutlineItem[]
   assets: Record<
     string,
-    Pick<Asset, 'id' | 'width' | 'height' | 'format' | 'storedTurns' | 'bytesId' | 'pdfPage'>
+    Pick<
+      Asset,
+      'id' | 'width' | 'height' | 'format' | 'storedTurns' | 'bytesId' | 'pdfPage' | 'dpi'
+    >
   >
 }
 
@@ -136,6 +142,48 @@ export interface FlattenJob {
 
 /** Flattened pages are drawn at least this sharp, so the watermark's edges are clean. */
 export const FLATTEN_MIN_SCALE = 150 / 72
+
+/**
+ * Embeds an opaque greyscale PNG (a 1-bit fax page, #113) as it is: its
+ * compressed data becomes the image stream, read with the same PNG
+ * predictors, so it stays 1-bit and keeps its size. pdf-lib's embedPng would
+ * expand it to 8-bit RGB first. Null for any other PNG.
+ *
+ * pdf-lib only accepts its own embedders, so this one is a PngEmbedder in
+ * type with its own `embedIntoContext`; embedded at once, it never reaches
+ * pdf-lib's PNG decoder.
+ */
+export const embedGreyPng = async (doc: PDFDocument, bytes: Uint8Array) => {
+  const png = readGreyPng(bytes)
+  if (!png) return null
+  const embedder = Object.assign(Object.create(PngEmbedder.prototype) as PngEmbedder, {
+    width: png.width,
+    height: png.height,
+    embedIntoContext: (context: PDFContext, ref?: PDFRef) => {
+      const stream = context.stream(png.data, {
+        Type: 'XObject',
+        Subtype: 'Image',
+        Width: png.width,
+        Height: png.height,
+        BitsPerComponent: png.bitDepth,
+        ColorSpace: 'DeviceGray',
+        Filter: 'FlateDecode',
+        DecodeParms: {
+          Predictor: 15,
+          Colors: 1,
+          BitsPerComponent: png.bitDepth,
+          Columns: png.width,
+        },
+      })
+      if (!ref) return Promise.resolve(context.register(stream))
+      context.assign(ref, stream)
+      return Promise.resolve(ref)
+    },
+  })
+  const image = PDFImage.of(doc.context.nextRef(), doc, embedder)
+  await image.embed()
+  return image
+}
 
 /**
  * How an image page is stored. Untouched unless it has a filter or the export
@@ -464,7 +512,9 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
       }
       // Camera, time and GPS stay out of the file; the picture is untouched.
       const image =
-        format === 'jpeg' ? await doc.embedJpg(stripJpegMetadata(bytes)) : await doc.embedPng(bytes)
+        format === 'jpeg'
+          ? await doc.embedJpg(stripJpegMetadata(bytes))
+          : ((await embedGreyPng(doc, bytes)) ?? (await doc.embedPng(bytes)))
       content = { kind: 'image', image, turns, cropped }
     }
     embedded.set(key, content)
