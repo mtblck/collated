@@ -21,7 +21,7 @@ import {
 } from './archiveFontData'
 
 /**
- * PDF/A-2b (ISO 19005-2, level B), for archiving (#116, ADR 0026): what a
+ * PDF/A-2b (ISO 19005-2, level B), for archiving (#116, ADR 0027): what a
  * plain export lacks is added here. The rest of the rules are kept by
  * `buildPdf` itself: every font embedded (this file's Arimo for visible text,
  * the glyphless font for OCR words), PDF pages drawn as pictures, no

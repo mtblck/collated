@@ -21,7 +21,14 @@ import { SECTION_MAX } from './outline'
 export { PAGE_MAX, PAGE_MIN }
 
 export type Action =
-  | { type: 'addPages'; assets: Asset[]; pageIds: string[]; at?: number }
+  /** `corners` crops pages as they come in, by asset id (the scan camera's outline, #118). */
+  | {
+      type: 'addPages'
+      assets: Asset[]
+      pageIds: string[]
+      at?: number
+      corners?: Readonly<Record<string, Quad>>
+    }
   | { type: 'removePage'; id: string }
   /** An empty page (#80) after the page `after`, or at the end. */
   | { type: 'insertBlank'; id: string; after?: string }
@@ -161,6 +168,7 @@ export const docReducer = (state: DocState, action: Action): DocState => {
         id: action.pageIds[i] ?? `${asset.id}-page`,
         assetId: asset.id,
         ...DEFAULT_TRANSFORM,
+        corners: action.corners?.[asset.id] ?? DEFAULT_TRANSFORM.corners,
       }))
       const at = clamp(action.at ?? state.pages.length, 0, state.pages.length)
       return { ...state, assets, pages: state.pages.toSpliced(at, 0, ...added) }

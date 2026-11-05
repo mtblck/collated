@@ -740,7 +740,7 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
   const mustDraw: string[] = []
   for (const asset of toDraw) {
     // PDF/A: a copied page brings its own fonts and colours, which may not
-    // conform, so every PDF page goes as it's drawn (ADR 0026).
+    // conform, so every PDF page goes as it's drawn (ADR 0027).
     if (pdfa || shown(asset).some(isRedacted)) {
       mustDraw.push(asset.id)
       continue

@@ -1,4 +1,5 @@
 import type { Asset } from '../core/model'
+import type { PaperGuess } from '../core/paper'
 import type { Quad } from '../core/perspective'
 import { assetStore } from '../import/assetStore'
 import { withTimeout } from './timeout'
@@ -17,6 +18,8 @@ const waiting = new Map<number, (response: PaperResponse) => void>()
 
 /** A page's search takes well under a second; this one is stuck. */
 export const PAPER_TIMEOUT_MS = 10_000
+/** A camera frame's takes tens of milliseconds; a stuck one mustn't freeze the outline. */
+export const FRAME_TIMEOUT_MS = 2000
 
 const getWorker = () => {
   if (worker) return worker
@@ -45,28 +48,36 @@ const discard = (w: Worker) => {
   waiting.clear()
 }
 
-export const paperOf = async (asset: Pick<Asset, 'thumbUrl' | 'format'>): Promise<Quad | null> => {
-  if (asset.format === 'pdf') return null
-  const thumb = assetStore.thumbBlob(asset.thumbUrl)
-  if (!thumb) return null
+/** Asks the worker; null when it fails, stalls or finds nothing clear. */
+const ask = async (thumb: Blob | ImageBitmap, timeout: number): Promise<PaperGuess | null> => {
   const w = getWorker()
   const id = (nextId += 1)
   const response = new Promise<PaperResponse>((resolve) => {
     waiting.set(id, resolve)
     const request: PaperRequest = { id, thumb }
-    w.postMessage(request)
+    w.postMessage(request, thumb instanceof Blob ? [] : [thumb])
   })
   try {
-    const result = await withTimeout(
-      response,
-      PAPER_TIMEOUT_MS,
-      'Finding the paper timed out',
-      () => {
-        discard(w)
-      },
-    )
-    return result.ok ? (result.guess?.corners ?? null) : null
+    const result = await withTimeout(response, timeout, 'Finding the paper timed out', () => {
+      discard(w)
+    })
+    return result.ok ? result.guess : null
   } catch {
     return null
   }
 }
+
+export const paperOf = async (asset: Pick<Asset, 'thumbUrl' | 'format'>): Promise<Quad | null> => {
+  if (asset.format === 'pdf') return null
+  const thumb = assetStore.thumbBlob(asset.thumbUrl)
+  if (!thumb) return null
+  return (await ask(thumb, PAPER_TIMEOUT_MS))?.corners ?? null
+}
+
+/**
+ * The paper in a camera frame (#118), already downscaled (the detector works
+ * at 320 px anyway, and a small bitmap is cheap to hand over). The bitmap is
+ * transferred to the worker, which closes it; it can't be used after the call.
+ */
+export const paperInFrame = (frame: ImageBitmap): Promise<PaperGuess | null> =>
+  ask(frame, FRAME_TIMEOUT_MS)

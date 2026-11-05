@@ -19,6 +19,22 @@ describe('docReducer', () => {
     expect(ids(inserted)).toEqual(['p0', 'pn', 'p1'])
   })
 
+  it('crops pages as they come in when given corners (the scan camera)', () => {
+    const corners = [
+      { x: 0.1, y: 0.1 },
+      { x: 0.9, y: 0.12 },
+      { x: 0.88, y: 0.9 },
+      { x: 0.12, y: 0.92 },
+    ] as const
+    const added = docReducer(doc(0), {
+      type: 'addPages',
+      assets: [asset('a'), asset('b')],
+      pageIds: ['pa', 'pb'],
+      corners: { b: corners },
+    })
+    expect(added.pages.map((p) => p.corners)).toEqual([null, corners])
+  })
+
   it('moves a page forwards and backwards and ignores out-of-range moves', () => {
     const start = doc(4)
     expect(ids(docReducer(start, { type: 'movePage', from: 0, to: 2 }))).toEqual([

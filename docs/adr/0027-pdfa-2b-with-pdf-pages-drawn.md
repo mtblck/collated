@@ -2,7 +2,7 @@
 public: true
 ---
 
-# 0026: PDF/A exports are PDF/A-2b, with PDF pages drawn and Arimo embedded
+# 0027: PDF/A exports are PDF/A-2b, with PDF pages drawn and Arimo embedded
 
 - **Status:** Accepted
 - **Date:** 2026-11-05

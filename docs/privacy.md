@@ -13,6 +13,10 @@ Collated is a free, open-source tool. It is built so that your documents never l
 
 The files you add, the pages you arrange and the PDFs you export are processed only in your web browser. They are never uploaded, and nobody, including the author, can see them. While the page is open they're kept in its memory, including pages you removed, so Undo can bring them back. So that a reload or a closed tab doesn't lose your work, a copy is also kept on your device (see below) until you start over, discard it or turn that off. **Start over** (in the toolbar's **More** menu) clears all of it, the copy on your device included, straight away. A PDF you saved stays where you saved it.
 
+## The camera
+
+**Take photo** hands over to your phone's own camera app, so Collated never has camera access for it. **Scan pages** asks your browser for the camera, and only when you choose it. While the scanner is open, Collated looks at the picture several times a second to find the page's edges, in your browser; the pages you take become part of your document like any other file. Nothing from the camera is uploaded, recorded or kept apart from those pages. The camera stops when you close the scanner or switch away from the page. Whether **Auto** is on is remembered as `collated:scan-auto`. You can withdraw camera access in your browser's site settings at any time.
+
 ## What is stored on your device
 
 - **Your settings** (page setup, image dpi for Match image, export quality and size limit, the searchable-text choice and its language, the page-number, file-bookmark and PDF/A choices, and how a watermark looks) are saved in your browser's local storage under `collated:settings`, so they're there next time. Your title, your watermark's text and your password are never saved there.

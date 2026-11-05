@@ -2,6 +2,10 @@
  * Kept apart from pdf.ts so the UI can name the file without pulling pdf-lib
  * into the main bundle; pdf-lib loads only in the export worker.
  */
+/** "14.03.22": a camera shot's time, for its name (Take photo #72, Scan pages #118). */
+export const timeLabel = (at: Date) =>
+  [at.getHours(), at.getMinutes(), at.getSeconds()].map((n) => String(n).padStart(2, '0')).join('.')
+
 /** A filesystem-safe filename from the document title. */
 export const pdfFilename = (title: string, now = new Date()): string => {
   const slug = title

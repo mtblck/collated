@@ -117,7 +117,12 @@ describe('hosting:check', () => {
     ],
     ['HSTS is removed', setHeader('Strict-Transport-Security', null), 'Strict-Transport-Security'],
     [
-      'camera is allowed',
+      'camera is allowed to every frame',
+      setHeader('Permissions-Policy', 'camera=*, microphone=(), geolocation=()'),
+      'camera',
+    ],
+    [
+      'camera is allowed by default',
       setHeader('Permissions-Policy', 'microphone=(), geolocation=()'),
       'camera',
     ],

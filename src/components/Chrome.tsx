@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react'
 import { Button, IconButton } from './controls'
 import { cx } from './cx'
-import { CameraIcon, CloseIcon, MoonIcon, SunIcon } from './Icons'
+import { CameraIcon, CloseIcon, MoonIcon, ScanIcon, SunIcon } from './Icons'
 import { APP_URL, DOCS_URL, FOOTER, SOURCE_URL, SPONSORS_URL, SUPPORT_URL } from './links'
 import { savedWhen } from './format'
 import { useTheme } from './theme'
@@ -188,11 +188,14 @@ export const RestoreOffer = ({ pages, savedAt, busy, onRestore, onDiscard }: Res
 export const EmptyState = ({
   onChoose,
   onTakePhoto,
+  onScan,
   restore,
 }: {
   onChoose: () => void
   /** Opens the camera; only on touch devices (#72). */
   onTakePhoto?: () => void
+  /** Opens the scan camera; touch devices that allow the camera (#118). */
+  onScan?: () => void
   restore?: RestoreOfferProps | null
 }) => (
   <div className="mx-auto flex max-w-6xl flex-col gap-14 px-4 pt-10 pb-20 sm:px-6 sm:pt-16">
@@ -229,6 +232,12 @@ export const EmptyState = ({
             <Button size="lg" onClick={onTakePhoto}>
               <CameraIcon />
               Take photo
+            </Button>
+          )}
+          {onScan && (
+            <Button size="lg" onClick={onScan}>
+              <ScanIcon />
+              Scan pages
             </Button>
           )}
         </div>
