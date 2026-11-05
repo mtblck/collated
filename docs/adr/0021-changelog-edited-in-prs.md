@@ -2,7 +2,7 @@
 public: false
 ---
 
-# 0020: PRs add their changelog line to CHANGELOG.md, like seedkin and tinkerkit
+# 0021: PRs add their changelog line to CHANGELOG.md, like seedkin and tinkerkit
 
 - **Status:** Accepted
 - **Date:** 2026-11-05

@@ -38,6 +38,6 @@ one means a new ADR that supersedes it, in the same PR.
 
 **Changelog:** like seedkin and tinkerkit, a PR people using Collated would notice adds its line under
 **Unreleased** in `CHANGELOG.md` (`### Added` + `- line for people using Collated (#123).`), in the
-same PR. If it conflicts after another merge, rebase and keep both lines. No `changelog.d/` (ADR 0020).
+same PR. If it conflicts after another merge, rebase and keep both lines. No `changelog.d/` (ADR 0021).
 
 Tickets: GitHub Issues here (shown at mattblack.space/boards/collated). Commit as `mtblck <105079242+mtblck@users.noreply.github.com>`.
