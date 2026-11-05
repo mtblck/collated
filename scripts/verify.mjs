@@ -4424,6 +4424,224 @@ await context.close()
   await ctx.close()
 }
 
+// 44. Scan pages (#118), by touch on a phone, with a fake camera: the paper
+//     is outlined live and taken once steady, cropped to the outline; the
+//     same page isn't taken twice; turning the page takes the next; Auto off
+//     leaves the shutter; denied access offers Take photo. Then Chromium's
+//     own fake camera under the real Permissions-Policy, stopped on close.
+{
+  const truth = JSON.parse(readFileSync(join(fixtures, 'paper-corners.json'), 'utf8'))
+  const paper = readFileSync(join(fixtures, 'paper-dark-table.jpg')).toString('base64')
+  /**
+   * getUserMedia answered by a canvas stream: `window.__scene` picks what the
+   * "camera" sees, the paper photo or the bare table (no paper). `deny`
+   * answers as a person refusing access would.
+   */
+  const fakeCamera = ([b64, deny]) => {
+    const md = navigator.mediaDevices
+    md.getUserMedia = async () => {
+      if (deny) throw new DOMException('Permission denied', 'NotAllowedError')
+      const blob = new Blob([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], {
+        type: 'image/jpeg',
+      })
+      const photo = await createImageBitmap(blob)
+      const canvas = document.createElement('canvas')
+      canvas.width = photo.width
+      canvas.height = photo.height
+      const g = canvas.getContext('2d')
+      window.__scene = window.__scene ?? 'paper'
+      const draw = () => {
+        if (window.__scene === 'paper') g.drawImage(photo, 0, 0)
+        else {
+          g.fillStyle = '#3a2a20'
+          g.fillRect(0, 0, canvas.width, canvas.height)
+        }
+        // A changing pixel, so the stream keeps sending frames.
+        g.fillStyle = `rgb(${Date.now() % 255},0,0)`
+        g.fillRect(0, 0, 1, 1)
+      }
+      draw()
+      setInterval(draw, 33)
+      return canvas.captureStream(30)
+    }
+  }
+  const phone = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }
+  const { context: ctx, page: p } = await open(phone)
+  await p.addInitScript(fakeCamera, [paper, false])
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.getByRole('button', { name: 'Scan pages' }).tap()
+  const scanner = p.getByRole('dialog', { name: 'Scan pages' })
+  await scanner.waitFor()
+  const count = scanner.getByRole('status')
+  await p.waitForSelector('[data-testid="scan-outline"]', { timeout: 15_000 })
+  const outline = await p.locator('[data-testid="scan-outline"] polygon').evaluate((el) => {
+    const box = el.ownerSVGElement.viewBox.baseVal
+    return el
+      .getAttribute('points')
+      .split(' ')
+      .map((pair) => pair.split(',').map(Number))
+      .map(([x, y]) => [x / box.width, y / box.height])
+  })
+  const worst = (found, expected) =>
+    Math.max(
+      ...found.map(([x, y], i) =>
+        Math.max(Math.abs(x - expected[i][0]), Math.abs(y - expected[i][1])),
+      ),
+    )
+  const live = worst(outline, truth['paper-dark-table.jpg'])
+  check(live <= 0.03, `the paper is outlined live (worst corner ${(live * 100).toFixed(1)}% off)`)
+  await p.screenshot({ path: join(shots, 'scan-outline-phone.png') })
+  await axe(p, 'scan camera')
+  await count.filter({ hasText: '1 page taken' }).waitFor({ timeout: 10_000 })
+  ok('a steady page is taken by itself')
+  await p.waitForTimeout(3000)
+  check(
+    (await count.textContent()) === '1 page taken',
+    'a page left under the camera is taken once',
+    (await count.textContent()) ?? '',
+  )
+  // Turning the page: the hand covers it, then the next one lies there.
+  await p.evaluate(() => {
+    window.__scene = 'table'
+  })
+  await p.waitForTimeout(700)
+  await p.evaluate(() => {
+    window.__scene = 'paper'
+  })
+  await count.filter({ hasText: '2 pages taken' }).waitFor({ timeout: 10_000 })
+  ok('turning to the next page takes it too')
+  // Auto off: only the shutter takes a page.
+  const autoButton = scanner.getByRole('button', { name: 'Auto' })
+  await autoButton.tap()
+  check((await autoButton.getAttribute('aria-pressed')) === 'false', 'Auto can be turned off')
+  await p.evaluate(() => {
+    window.__scene = 'table'
+  })
+  await p.waitForTimeout(500)
+  await p.evaluate(() => {
+    window.__scene = 'paper'
+  })
+  await p.waitForTimeout(2000)
+  check(
+    (await count.textContent()) === '2 pages taken',
+    'with Auto off, a steady page waits for the shutter',
+    (await count.textContent()) ?? '',
+  )
+  await scanner.getByRole('button', { name: 'Take the page' }).tap()
+  await count.filter({ hasText: '3 pages taken' }).waitFor()
+  ok('the shutter takes the page')
+  const minSize = await scanner.getByRole('button', { name: 'Take the page' }).boundingBox()
+  check((minSize?.width ?? 0) >= 44, 'the shutter is big enough for a thumb')
+  check(
+    (await p.evaluate(() => localStorage.getItem('collated:scan-auto'))) === 'off',
+    'the Auto choice is remembered',
+  )
+  await scanner.getByRole('button', { name: 'Done' }).tap()
+  await scanner.waitFor({ state: 'hidden' })
+  await p.waitForSelector('ol[aria-label="3 pages"]', { timeout: 20_000 })
+  check(
+    await p.evaluate(() => {
+      const v = document.querySelector('[data-testid="scan-video"]')
+      return !v
+    }),
+    'Done closes the camera',
+  )
+  const labels = await p
+    .locator('ol[aria-label="3 pages"] [data-page-select]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('aria-label') ?? ''))
+  check(
+    labels.every((l, i) =>
+      new RegExp(`^Page ${i + 1}: Scan \\d\\d\\.\\d\\d\\.\\d\\d( \\(\\d\\))?\\.jpg$`).test(l),
+    ),
+    'each page is named by when it was taken',
+    labels.join(' | '),
+  )
+  // Each arrives cropped to the outline it was taken with.
+  await p.getByRole('button', { name: labels[0] }).tap()
+  const adjust = p.getByRole('button', { name: 'Adjust corners…' })
+  await adjust.waitFor()
+  await adjust.tap()
+  const crop = p.getByRole('dialog', { name: 'Crop to the page' })
+  await crop.waitFor()
+  const found = []
+  for (const name of ['Top-left', 'Top-right', 'Bottom-right', 'Bottom-left']) {
+    const at = await crop
+      .getByRole('button', { name: `${name} corner`, exact: true })
+      .evaluate(
+        (el) =>
+          document.getElementById(el.getAttribute('aria-describedby') ?? '')?.textContent ?? '',
+      )
+    const [x, y] = (at.match(/[\d.]+/g) ?? []).map((n) => Number(n) / 100)
+    found.push([x, y])
+  }
+  const off = worst(found, truth['paper-dark-table.jpg'])
+  check(
+    off <= 0.03,
+    `a scanned page arrives cropped to the paper (worst corner ${(off * 100).toFixed(1)}% off)`,
+  )
+  await p.keyboard.press('Escape')
+  await crop.waitFor({ state: 'hidden' })
+  const overflow = await p.evaluate(() => document.documentElement.scrollWidth - 390)
+  check(overflow <= 0, 'Scan pages fits the phone toolbar', `${overflow}px`)
+  await ctx.close()
+
+  // Refused: Take photo is offered, and opens the system camera.
+  const { context: denied, page: d } = await open(phone)
+  await d.addInitScript(fakeCamera, [paper, true])
+  await d.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await d.getByRole('button', { name: 'Scan pages' }).tap()
+  const refused = d.getByRole('dialog', { name: 'Scan pages' })
+  await refused.getByText('Collated wasn’t allowed to use the camera.').waitFor()
+  await axe(d, 'scan camera refused')
+  const [chooser] = await Promise.all([
+    d.waitForEvent('filechooser'),
+    refused.getByRole('button', { name: 'Take photo instead' }).tap(),
+  ])
+  check(
+    (await chooser.element().getAttribute('capture')) === 'environment',
+    'refused camera access offers Take photo instead',
+  )
+  await refused.waitFor({ state: 'hidden' })
+  await denied.close()
+
+  // Not offered with a mouse.
+  const { context: desk, page: m } = await open({ viewport: { width: 1440, height: 1000 } })
+  await m.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  check(
+    (await m.getByRole('button', { name: 'Scan pages' }).count()) === 0,
+    'Scan pages is not offered with a mouse',
+  )
+  await desk.close()
+
+  // Chromium's fake camera, through the real browser path and headers.
+  const camBrowser = await chromium.launch({
+    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}),
+    args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+  })
+  const cam = await camBrowser.newContext({ ...phone, permissions: ['camera'] })
+  const c = await watch(cam, await cam.newPage())
+  await c.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await c.getByRole('button', { name: 'Scan pages' }).tap()
+  await c.waitForFunction(
+    () => (document.querySelector('[data-testid="scan-video"]')?.videoWidth ?? 0) > 0,
+    undefined,
+    { timeout: 15_000 },
+  )
+  ok('the browser camera opens under Permissions-Policy camera=(self)')
+  const track = await c.evaluate(() => {
+    const v = document.querySelector('[data-testid="scan-video"]')
+    window.__track = v.srcObject.getVideoTracks()[0]
+    return window.__track.readyState
+  })
+  check(track === 'live', 'the camera track is live while scanning', track)
+  await c.getByRole('button', { name: 'Close the camera' }).tap()
+  await c.getByRole('dialog', { name: 'Scan pages' }).waitFor({ state: 'hidden' })
+  const after = await c.evaluate(() => window.__track.readyState)
+  check(after === 'ended', 'closing the scanner stops the camera', after)
+  await cam.close()
+  await camBrowser.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()

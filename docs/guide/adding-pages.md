@@ -13,6 +13,14 @@ On a phone or tablet, **Take photo** (the camera button in the toolbar once you'
 
 Your phone's own camera app takes the picture, so Collated never asks for camera access and never sees the camera except for the photos you confirm. iPhone photos in HEIC work like any other. For the straightest result, lay the page on a darker surface: **Crop to the page…** then finds the paper's corners for you (see [Arranging pages](arranging-pages.md)).
 
+## Scanning a stack of pages
+
+For more than a few pages, **Scan pages** (next to **Take photo**) keeps the camera open inside Collated. Hold the phone over a page: Collated outlines the paper, and once the outline holds still for a moment it takes the page by itself, already cropped to the outline. Turn to the next page (your hand covering the page tells it a new one is coming) and it takes that one too. The count at the bottom says how many you have; choose **Done** when you're finished. Each page is named by when it was taken, such as "Scan 14.03.22.jpg", and goes after the last page, so you can check and fix any of them afterwards.
+
+- **Auto** turns taking pages by themselves off and on (Collated remembers your choice). With it off, or when the page fills the screen and has no outline, tap the round shutter button.
+- **Light** turns on your phone's light, where the browser allows it (Chrome on Android does; iPhones don't).
+- The first time, your browser asks whether Collated may use the camera. If you say no, or the camera is busy, Collated offers **Take photo** instead. The camera stops as soon as you close the scanner or switch away from Collated, and nothing it sees leaves your phone.
+
 ## From other apps
 
 Install Collated as an app (the install button in Chrome or Edge's address bar, or **Add to Home screen** on a phone) and it opens like any other app, with or without a connection. On Android, ChromeOS and in desktop Chrome and Edge it also appears:

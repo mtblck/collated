@@ -145,6 +145,25 @@ export const saveKeepWork = (storage: Pick<Storage, 'setItem'> | undefined, keep
   }
 }
 
+const SCAN_AUTO_KEY = 'collated:scan-auto'
+
+/** Whether the scan camera takes a steady page by itself (#118). On unless turned off. */
+export const loadScanAuto = (storage: Pick<Storage, 'getItem'> | undefined): boolean => {
+  try {
+    return storage?.getItem(SCAN_AUTO_KEY) !== 'off'
+  } catch {
+    return true
+  }
+}
+
+export const saveScanAuto = (storage: Pick<Storage, 'setItem'> | undefined, auto: boolean) => {
+  try {
+    storage?.setItem(SCAN_AUTO_KEY, auto ? 'on' : 'off')
+  } catch {
+    /* storage blocked: the choice lasts until the tab closes */
+  }
+}
+
 const SUPPORT_PROMPT_KEY = 'collated:support-prompt'
 
 /** The support note after an export comes back at most this often. */

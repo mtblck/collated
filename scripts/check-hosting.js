@@ -152,7 +152,9 @@ if (!hsts || Number(hsts[1]) < 31_536_000) {
   problems.push('Strict-Transport-Security must be set with max-age of at least a year.')
 }
 const permissions = header('Permissions-Policy') ?? ''
-for (const feature of ['camera=()', 'microphone=()', 'geolocation=()']) {
+// The scan camera (#118) needs the camera on Collated's own pages, never in
+// a frame from elsewhere; nothing needs the microphone or location.
+for (const feature of ['camera=(self)', 'microphone=()', 'geolocation=()']) {
   if (!permissions.includes(feature)) problems.push(`Permissions-Policy must include ${feature}.`)
 }
 

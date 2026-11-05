@@ -13,6 +13,7 @@ version or date when it ships.
 
 ### Added
 
+- **Scan pages** on phones and tablets (#118): the camera stays open inside Collated, outlines the page live and takes it by itself once it's steady, already cropped. Turn the page and it takes the next one. Shutter button, **Auto** on or off, a count of pages taken, and the phone's light where the browser allows it. Asks for camera access; **Take photo** stays for one shot without it.
 - Fill in forms that have no fields (#112): type text, add today's date, or tick and cross boxes anywhere on a page, in black, blue or red. Text is real, selectable text in the PDF. Works by touch on a phone, with the page still in view while the keyboard is up.
 - Install Collated as an app (#73). It opens and works with no connection after your first visit, and in Chrome and Edge (and on Android) it shows up in the share sheet, so photos from the gallery or a PDF from an email go into your document once you confirm them, and in "Open with" for PDFs and images on your computer.
 - **Enhance** filter (#71): whitens the paper and lifts shadows while keeping colour, for photos of forms with stamps, highlighted pages and receipts with logos. It sits between Greyscale and B&W.

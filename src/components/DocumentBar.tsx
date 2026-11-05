@@ -4,7 +4,7 @@ import type { DuplexGroups } from '../core/order'
 import type { Plan, SplitOptions } from '../core/split'
 import { Button, IconButton } from './controls'
 import { ExportOptions } from './ExportOptions'
-import { CameraIcon, PlusIcon, RedoIcon, UndoIcon } from './Icons'
+import { CameraIcon, PlusIcon, RedoIcon, ScanIcon, UndoIcon } from './Icons'
 import { MoreMenu, type Arrange } from './MoreMenu'
 import { PageSetup } from './PageSetup'
 import { Toolbar } from './Toolbar'
@@ -48,6 +48,7 @@ export const DocumentBar = ({
   busy = false,
   onAdd,
   onTakePhoto,
+  onScan,
   onExport,
   estimate,
   lastExport,
@@ -88,6 +89,8 @@ export const DocumentBar = ({
   onAdd: () => void
   /** Opens the camera; only on touch devices (#72). */
   onTakePhoto?: () => void
+  /** Opens the scan camera; touch devices that allow the camera (#118). */
+  onScan?: () => void
   onExport: () => void
   estimate: number
   lastExport: { size: string; used: string; fits: boolean } | null
@@ -147,6 +150,11 @@ export const DocumentBar = ({
       {onTakePhoto && (
         <IconButton label="Take photo" onClick={onTakePhoto} {...TOOLBAR_ITEM}>
           <CameraIcon />
+        </IconButton>
+      )}
+      {onScan && (
+        <IconButton label="Scan pages" onClick={onScan} {...TOOLBAR_ITEM}>
+          <ScanIcon />
         </IconButton>
       )}
       <ExportOptions

@@ -92,6 +92,20 @@ export const CameraIcon = (p: P) => (
   </Icon>
 )
 
+/** A page inside viewfinder corners: the scan camera (#118). */
+export const ScanIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M3 6.5V4a1 1 0 0 1 1-1h2.5M13.5 3H16a1 1 0 0 1 1 1v2.5M17 13.5V16a1 1 0 0 1-1 1h-2.5M6.5 17H4a1 1 0 0 1-1-1v-2.5" />
+    <path d="M7 6.5h6v7H7zM8.75 9h2.5M8.75 11h2.5" />
+  </Icon>
+)
+
+export const TorchIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M11 2.5 5.5 11H10l-1 6.5L14.5 9H10z" />
+  </Icon>
+)
+
 export const DownloadIcon = (p: P) => (
   <Icon {...p}>
     <path d="M10 3.5v9M6 9l4 4 4-4M4 16.5h12" />
