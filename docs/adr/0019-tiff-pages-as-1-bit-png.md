@@ -2,7 +2,7 @@
 public: false
 ---
 
-# 0018: TIFF pages become 1-bit PNGs, embedded as their own compressed data
+# 0019: TIFF pages become 1-bit PNGs, embedded as their own compressed data
 
 - **Status:** Accepted
 - **Date:** 2026-11-05
