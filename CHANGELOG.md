@@ -31,6 +31,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A quiet note after a successful export says Collated is free and links to Ko-fi and GitHub Sponsors. It shows at most once a month and never again once you choose Don’t ask again. The repository has a Sponsor button too (#99).
 - The Collated name at the top left of the workspace goes back to the home page (#100). Your document is saved first and offered back there; if it can't be kept on this device, Collated asks before leaving.
 - Add PDFs that need a password to open, such as bank and payroll statements (#114). Collated asks for the password, unlocks the file in your browser and forgets the password; the pages stay sharp and searchable.
+- Add TIFF scans, including multi-page TIFFs from fax machines and office scanners (#113). Each page of the file becomes a page, in order; black-and-white pages stay black and white, so a faxed document stays small, and "Match image" sizes each page to the paper that was scanned.
 
 ### Changed
 
