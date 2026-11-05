@@ -4653,11 +4653,15 @@ await context.close()
   await scanner.getByRole('button', { name: 'Done' }).tap()
   await scanner.waitFor({ state: 'hidden' })
   await p.waitForSelector('ol[aria-label="3 pages"]', { timeout: 20_000 })
+  // The dialog hides at once; its close event (which unmounts the camera)
+  // comes a task later, so wait for the video to go rather than look once.
   check(
-    await p.evaluate(() => {
-      const v = document.querySelector('[data-testid="scan-video"]')
-      return !v
-    }),
+    await p
+      .waitForSelector('[data-testid="scan-video"]', { state: 'detached', timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      ),
     'Done closes the camera',
   )
   const labels = await p
