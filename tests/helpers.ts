@@ -22,6 +22,7 @@ export const settings = (patch: Partial<Settings> = {}): Settings => ({
   ocr: false,
   ocrLanguage: 'eng',
   bookmarkFiles: false,
+  pdfa: false,
   ...patch,
 })
 

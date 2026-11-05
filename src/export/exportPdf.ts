@@ -21,7 +21,8 @@ export interface Exported {
 
 /**
  * Drawn JPEGs for the PDF pages that hide something, and those with
- * something blacked out (#77), by asset id (see layered.ts).
+ * something blacked out (#77), by asset id (see layered.ts). For PDF/A
+ * (#116), every PDF page.
  */
 const drawLayered = async (state: DocState) => {
   const drawn: Record<string, Uint8Array> = {}
@@ -35,7 +36,7 @@ const drawLayered = async (state: DocState) => {
   )
   for (const asset of Object.values(state.assets)) {
     if (asset.format !== 'pdf' || !used.has(asset.id)) continue
-    const jpeg = await layeredImage(asset, redacted.has(asset.id))
+    const jpeg = await layeredImage(asset, state.settings.pdfa || redacted.has(asset.id))
     if (jpeg) drawn[asset.id] = jpeg
   }
   return drawn

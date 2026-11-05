@@ -102,6 +102,7 @@ export const ExportOptions = ({
     | 'ocr'
     | 'ocrLanguage'
     | 'bookmarkFiles'
+    | 'pdfa'
   >
   pageCount: number
   exporting: ExportState
@@ -135,7 +136,9 @@ export const ExportOptions = ({
   const panel = useRef<HTMLDivElement>(null)
 
   useCloseOnFocusOut(panel, panelId)
-  const locked = password !== ''
+  /** PDF/A can't be locked (#116): a typed password is kept but not used. */
+  const archive = settings.pdfa
+  const locked = password !== '' && !archive
   const planId = `${panelId}-plan`
   const planError = 'error' in plan ? plan.error : null
   const format = split.format
@@ -146,7 +149,7 @@ export const ExportOptions = ({
   /** How many images an image export makes. */
   const imageCount = only?.pageIds.length ?? pageCount
   /** Images can't be locked: a password typed for the PDF doesn't stop them. */
-  const blockedBy = images ? null : passwordError
+  const blockedBy = images || archive ? null : passwordError
   const splitting = split.mode === 'ranges' || split.mode === 'every'
   const watermark = settings.watermark
   const setWatermark = (patch: Partial<Watermark>, coalesce?: string) => {
@@ -797,6 +800,41 @@ export const ExportOptions = ({
             </div>
 
             {!images && (
+              <div className="mt-5 border-t border-rule pt-4">
+                {/* The row is the target: 44px tall on touch screens. */}
+                <label className="flex items-start gap-2 text-sm pointer-coarse:min-h-11 pointer-coarse:items-center">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 accent-[var(--c-ink)] pointer-coarse:mt-0 pointer-coarse:size-5"
+                    checked={archive}
+                    aria-describedby={`${id}-pdfa-hint`}
+                    onChange={(event) => {
+                      onSettings({ pdfa: event.target.checked })
+                    }}
+                  />
+                  PDF/A, for archiving
+                </label>
+                <p id={`${id}-pdfa-hint`} className="mt-1 ml-6 text-xs text-ink-muted">
+                  The kind courts, governments and records offices ask for (PDF/A-2b): fonts and
+                  colours are kept in the file, so it opens the same for decades. PDF pages you
+                  added become pictures of themselves
+                  {settings.ocr ? ', read by OCR' : '; turn on OCR to keep their text searchable'}.
+                </p>
+              </div>
+            )}
+
+            {!images && archive && (
+              <div className="mt-4">
+                <p className="label mb-2 text-ink-faint">Password to open</p>
+                <p id={`${passwordId}-hint`} className="text-xs text-ink-muted">
+                  None: a PDF/A file can’t have a password, because an archive must open without
+                  one. {password ? 'The password you typed isn’t used. ' : ''}Turn off PDF/A to lock
+                  the file.
+                </p>
+              </div>
+            )}
+
+            {!images && !archive && (
               <div className="mt-4">
                 <label htmlFor={passwordId} className="label mb-2 block text-ink-faint">
                   Password to open
@@ -900,7 +938,9 @@ export const ExportOptions = ({
                   ? `Export ${String(files)} ${locked ? 'locked ' : ''}PDFs`
                   : locked
                     ? 'Export locked PDF'
-                    : 'Export PDF'}
+                    : archive
+                      ? 'Export PDF/A'
+                      : 'Export PDF'}
             </Button>
           </div>
         </div>

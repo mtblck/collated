@@ -28,6 +28,7 @@ export const defaultSettings = (locale: string): Settings => {
     ocr: false,
     ocrLanguage: defaultOcrLanguage(locale),
     bookmarkFiles: false,
+    pdfa: false,
   }
 }
 
@@ -83,6 +84,7 @@ export const loadSettings = (
       ocr: raw.ocr === true,
       ocrLanguage: isOcrLanguage(raw.ocrLanguage) ? raw.ocrLanguage : fallback.ocrLanguage,
       bookmarkFiles: raw.bookmarkFiles === true,
+      pdfa: raw.pdfa === true,
       imageDpi: Math.min(1200, Math.max(36, finite(raw.imageDpi, fallback.imageDpi))),
       pageNumbers: {
         show: isRecord(raw.pageNumbers) && raw.pageNumbers.show === true,
