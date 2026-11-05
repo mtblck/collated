@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react'
 import { Button, IconButton } from './controls'
+import { HEADER_ROW, WORDMARK } from './brand'
 import { cx } from './cx'
 import { CameraIcon, CloseIcon, MoonIcon, ScanIcon, SunIcon } from './Icons'
 import { APP_URL, DOCS_URL, FOOTER, SOURCE_URL, SPONSORS_URL, SUPPORT_URL } from './links'
@@ -19,9 +20,6 @@ const ThemeToggle = () => {
 
 const NAV_LINK =
   'rounded-full px-3 py-1.5 text-sm text-ink-muted hover:bg-ink/[0.06] hover:text-ink'
-
-/** The name, set in the UI's own face: semibold, tight, lower case. */
-const WORDMARK = 'text-xl leading-none font-semibold tracking-[-0.03em] text-ink lowercase'
 
 const TrustNote = ({ className }: { className?: string }) => (
   <p className={cx('label items-center gap-2 text-ink-faint', className)}>
@@ -43,7 +41,12 @@ const TrustNote = ({ className }: { className?: string }) => (
 export const Header = ({ children, onHome }: { children?: ReactNode; onHome?: () => void }) => (
   <header className="relative z-20 shrink-0">
     {children !== undefined ? (
-      <div className="mx-auto flex min-h-16 max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:grid sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:px-6">
+      <div
+        className={cx(
+          HEADER_ROW,
+          'mx-auto flex max-w-[1600px] flex-wrap sm:grid sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]',
+        )}
+      >
         {/* While working on a phone the toolbar needs the room: there the
             name is only for screen readers, and isn't a link. */}
         <span className="sr-only sm:hidden">Collated</span>
@@ -65,7 +68,7 @@ export const Header = ({ children, onHome }: { children?: ReactNode; onHome?: ()
         <TrustNote className="hidden justify-self-end xl:flex" />
       </div>
     ) : (
-      <div className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-6">
+      <div className={cx(HEADER_ROW, 'mx-auto flex max-w-6xl flex-wrap')}>
         <span className={WORDMARK}>Collated</span>
         <TrustNote className="ml-auto hidden md:flex" />
         <nav aria-label="About Collated" className="ml-auto flex items-center gap-1 md:ml-4">

@@ -50,3 +50,7 @@ version or date when it ships.
 - Page views are now also counted as daily totals on mattblack.space, alongside exports, with no cookies or identifiers; the privacy page says what is kept.
 - The home page asks for support with a small Support button in the corner, which steps aside when the footer is in view, instead of a link in the header.
 - High, Balanced and Small now shrink the pictures inside PDF pages too, so a heavy scanned PDF gets smaller (#115). Text in PDF pages, including a scanner app's invisible text layer, stays sharp and searchable, and the size estimate counts the savings.
+
+### Fixed
+
+- The header is the same height on the home page, the docs, the task pages and while you work, and the name at its left is the same size and weight on every one: it no longer comes up wider and bolder on some pages while the font loads (#PR).
