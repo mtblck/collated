@@ -935,7 +935,7 @@ export const ExportOptions = ({
               {images
                 ? `Export ${imageCount === 1 ? IMAGE_TYPES[format].label : imagesWord(imageCount, format)}`
                 : files > 1
-                  ? `Export ${String(files)} ${locked ? 'locked ' : ''}PDFs`
+                  ? `Export ${String(files)} ${locked ? 'locked PDFs' : archive ? 'PDF/A files' : 'PDFs'}`
                   : locked
                     ? 'Export locked PDF'
                     : archive

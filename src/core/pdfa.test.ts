@@ -168,6 +168,18 @@ describe('PDF/A-2b export (#116)', () => {
   )
 
   it(
+    'writes the same title in the XMP and the Info dictionary, control characters and all',
+    async () => {
+      const bytes = await build({ ...archival, title: 'Lease\u0001 2026\u000B' })
+      expectConforming(bytes, 'control-title')
+      const { doc, xmp } = await metadataOf(bytes)
+      expect(doc.getTitle()).toBe('Lease 2026')
+      expect(xmp).toContain('>Lease 2026<')
+    },
+    VERA_TIMEOUT,
+  )
+
+  it(
     'conforms with OCR text, Latin and not',
     async () => {
       const bytes = await build(archival, { text: true })
@@ -223,6 +235,39 @@ describe('PDF/A-2b export (#116)', () => {
     )
     await expect(attempt).rejects.toBeInstanceOf(NeedsDrawing)
   })
+
+  it(
+    'conforms with a PDF page drawn, OCR words on it and a burned-in watermark',
+    async () => {
+      const pdf = fixture('quad-3pages.pdf')
+      const drawing = fixture('quad-portrait.jpg')
+      const meta = asset('doc#0', {
+        format: 'pdf',
+        bytesId: 'doc',
+        pdfPage: 0,
+        width: 612,
+        height: 792,
+      })
+      const s = { ...archival, watermark: { ...archival.watermark, flatten: true } }
+      const bytes = await buildPdf(
+        {
+          settings: s,
+          pages: [page('p0', meta.id)],
+          assets: { [meta.id]: meta },
+          rendered: { [meta.id]: 'drawn' },
+          text: { p0: words },
+        },
+        {
+          getBytes: (id) => (id === 'drawn' ? drawing : pdf),
+          // The flattened page: any opaque RGB JPEG will do.
+          flattenPage: () => Promise.resolve(drawing),
+          now: NOW,
+        },
+      )
+      expectConforming(bytes, 'drawn')
+    },
+    VERA_TIMEOUT,
+  )
 
   it('writes the Arimo widths the font has, Helvetica’s for plain text', () => {
     // A–Z, a–z, 0–9: the widths layout measures with.

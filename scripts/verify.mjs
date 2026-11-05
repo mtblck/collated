@@ -4560,7 +4560,7 @@ await context.close()
   await panel.getByLabel('Password to open').fill('hunter2')
   const archive = panel.getByRole('checkbox', { name: 'PDF/A, for archiving' })
   await archive.scrollIntoViewIfNeeded()
-  const row = panel.locator('label', { has: archive })
+  const row = archive.locator('xpath=..')
   const rowHeight = (await row.boundingBox())?.height ?? 0
   check(rowHeight >= 44, 'the PDF/A row is a 44px touch target', String(rowHeight))
   await archive.tap()

@@ -66,8 +66,11 @@ export const embedArchiveFont = async (doc: PDFDocument): Promise<PDFFont> => {
   return font
 }
 
+/** Decoded once per worker; every build (and size-limit retry) reuses it. */
+let fontBytes: Uint8Array | undefined
+
 const archiveFontDict = (context: PDFContext) => {
-  const bytes = Uint8Array.from(atob(ARCHIVE_TTF_BASE64), (c) => c.charCodeAt(0))
+  const bytes = (fontBytes ??= Uint8Array.from(atob(ARCHIVE_TTF_BASE64), (c) => c.charCodeAt(0)))
   const fontFile = context.register(context.flateStream(bytes, { Length1: bytes.length }))
   const descriptor = context.register(
     context.obj({
@@ -105,7 +108,10 @@ const s15Fixed16 = (view: DataView, at: number, value: number) => {
  * primaries adapted to D50 (Bradford) and its tone curve, sampled. Ours,
  * computed from IEC 61966-2-1, so there's no profile file to licence.
  */
-export const srgbProfile = (): Uint8Array => {
+export const srgbProfile = (): Uint8Array => (profile ??= makeSrgbProfile())
+let profile: Uint8Array | undefined
+
+const makeSrgbProfile = (): Uint8Array => {
   const text = (sig: string, value: string) => {
     if (sig === 'desc') {
       // textDescriptionType: ASCII, then empty Unicode and ScriptCode parts.
@@ -193,15 +199,21 @@ export const srgbProfile = (): Uint8Array => {
   return out
 }
 
+/**
+ * Without the characters XML 1.0 can't hold at all. The title goes through
+ * this before it's written anywhere, so the Info dictionary and the XMP,
+ * which veraPDF compares, say the same.
+ */
+export const xmlSafe = (value: string) =>
+  // eslint-disable-next-line no-control-regex
+  value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, '')
+
 const escapeXml = (value: string) =>
-  value
+  xmlSafe(value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    // Characters XML 1.0 can't hold at all.
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, '')
 
 /** The date as XMP writes it, to the second, in UTC, matching the Info dictionary's. */
 const xmpDate = (date: Date) => date.toISOString().replace(/\.\d{3}Z$/, 'Z')

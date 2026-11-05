@@ -60,7 +60,7 @@ import { headerSize } from './imageInfo'
 import { readGreyPng } from './png'
 import { placeWord, type OcrWord } from './textLayer'
 import { GlyphlessFont } from './glyphless'
-import { embedArchiveFont, makeArchival } from './pdfa'
+import { embedArchiveFont, makeArchival, xmlSafe } from './pdfa'
 import { ocrLanguageInfo } from './ocrLanguages'
 import { NUMBER_GREY, numberMark } from './pageNumbers'
 import {
@@ -577,8 +577,8 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
   const now = options.now ?? new Date()
   const doc = await PDFDocument.create()
   // Only what the user chose to say: no default title, no tool URL, and the
-  // date without the time of day.
-  const title = settings.title.trim()
+  // date without the time of day. For PDF/A, only what its XMP can hold too.
+  const title = (settings.pdfa ? xmlSafe(settings.title) : settings.title).trim()
   if (title) doc.setTitle(title, { showInWindowTitleBar: true })
   doc.setCreator(PRODUCER)
   doc.setProducer(PRODUCER)

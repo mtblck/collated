@@ -96,7 +96,8 @@ export interface AppDeps {
   importFile: (file: File, newId: () => string, options?: ImportOptions) => Promise<Imported>
   exportPdf: (
     doc: DocState,
-    onProgress: (done: number, total: number, attempt: number) => void,
+    /** `drawing`: PDF pages being drawn first (PDF/A draws them all, #116). */
+    onProgress: (done: number, total: number, attempt: number, drawing?: boolean) => void,
     options?: {
       password?: string
       text?: Record<string, OcrWord[]>
@@ -877,6 +878,12 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         text = {}
         // Each picture of a combined page is read on its own (#76).
         const readable: { key: string; slot: Slot; asset: Asset; drawn?: Uint8Array }[] = []
+        // PDF/A draws every PDF page first (#116): count them, so the wait shows.
+        const pdfSlots = settings.pdfa
+          ? exportPages.flatMap(picturesOf).filter((s) => assets[s.assetId]?.format === 'pdf')
+              .length
+          : 0
+        let drawnCount = 0
         for (const page of exportPages) {
           for (const [i, slot] of picturesOf(page).entries()) {
             const asset = assets[slot.assetId]
@@ -884,6 +891,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             const key = pictureKey(page, i)
             if (asset.format !== 'pdf') readable.push({ key, slot, asset })
             else {
+              if (pdfSlots) {
+                setExporting({ busy: true, done: drawnCount++, total: pdfSlots, phase: 'images' })
+              }
               // One with something blacked out goes as a drawing whatever it hides (#77).
               // PDF/A draws every PDF page (#116).
               const drawn = await deps.drawnPage(asset, settings.pdfa || isRedacted(slot))
@@ -922,8 +932,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       setStatus('Building PDF…')
       const result = await deps.exportPdf(
         exportDoc,
-        (done, total, attempt) => {
-          setExporting({ busy: true, done, total, attempt })
+        (done, total, attempt, drawing) => {
+          setExporting({ busy: true, done, total, attempt, ...(drawing && { phase: 'images' }) })
         },
         {
           ...(lockPassword ? { password: lockPassword } : {}),
@@ -1500,6 +1510,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           })
         }),
         compressionFor(settings.quality),
+        { drawPdfPages: settings.pdfa },
       ),
     [assets, exportPages, settings],
   )
