@@ -6,7 +6,7 @@ public: true
 
 - **Status:** Accepted
 - **Date:** 2026-11-05
-- **PR:** #118's PR
+- **PR:** #141
 
 ## Context
 
