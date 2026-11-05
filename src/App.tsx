@@ -9,7 +9,14 @@ import {
   picturesOf,
   sizeModel,
 } from './core/model'
-import { partFilename, pdfFilename, zipFilename } from './core/filename'
+import { imageFilename, partFilename, pdfFilename, zipFilename } from './core/filename'
+import {
+  IMAGE_TYPES,
+  imageCompression,
+  imagesWord,
+  isImageFormat,
+  type ImageFormat,
+} from './core/imageExport'
 import { compressionFor, estimateBytes } from './core/compression'
 import type { Skew } from './core/deskew'
 import { skewOf } from './lib/skew'
@@ -50,6 +57,7 @@ import { GroupInspector, type GroupActions } from './components/GroupInspector'
 import { SelectionBar } from './components/SelectionBar'
 import { BlankPagesBar } from './components/BlankPagesBar'
 import { PdfPasswordPrompt } from './components/PdfPasswordPrompt'
+import { SaveImages } from './components/SaveImages'
 import { ShareConfirm } from './components/ShareConfirm'
 import { APP_URL } from './components/links'
 import { SheetInspector, type SheetActions } from './components/SheetInspector'
@@ -65,6 +73,7 @@ import {
 } from './core/selection'
 import { DEFAULT_TRANSFORM } from './core/model'
 import { DEFAULT_SPLIT, pagesUsed, planExport, type SplitOptions } from './core/split'
+import { pdfToImages, zipImages, type ImageOptions } from './export/exportImages'
 import { download as saveFile, exportPdf, prepareExport, type Exported } from './export/exportPdf'
 import { track } from './lib/track'
 import { STALE_BUILD_MESSAGE, isStaleBuild } from './lib/staleBuild'
@@ -99,6 +108,17 @@ export interface AppDeps {
     },
   ) => Promise<Exported>
   download: (blob: Blob, filename: string) => void
+  /** Each page of an exported PDF as an image (#117). */
+  pdfToImages: (
+    pdf: Blob,
+    options: ImageOptions,
+    onProgress: (done: number, total: number) => void,
+  ) => Promise<Blob[]>
+  zipImages: (files: readonly { name: string; blob: Blob }[]) => Promise<Blob>
+  /** Whether the share sheet takes these files (Web Share Level 2). */
+  canShare: (files: File[]) => boolean
+  /** Opens the share sheet; rejects with AbortError when it's closed unshared. */
+  share: (files: File[]) => Promise<void>
   newId: () => string
   estimateSkew: (asset: Asset) => Promise<Skew | null>
   /** Whether a page looks blank (#68); null if it can't tell. */
@@ -148,6 +168,13 @@ const defaultDeps = (): AppDeps => ({
   importFile,
   exportPdf,
   download: saveFile,
+  pdfToImages,
+  zipImages,
+  canShare: (files) =>
+    typeof navigator.canShare === 'function' &&
+    typeof navigator.share === 'function' &&
+    navigator.canShare({ files }),
+  share: (files) => navigator.share({ files }),
   newId: () => crypto.randomUUID(),
   estimateSkew: skewOf,
   detectBlank: looksBlank,
@@ -258,6 +285,25 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   } | null>(null)
   /** Which pages to export, and into how many files (#66). Per document, so not saved. */
   const [split, setSplit] = useState<SplitOptions>(DEFAULT_SPLIT)
+  /** Images exported on a phone, waiting for a tap to share or download them (#117). */
+  const [savedImages, setSavedImages] = useState<{
+    files: File[]
+    format: ImageFormat
+    /** The ZIP to download instead, when there are several. */
+    zip: { blob: Blob; name: string } | null
+    /** Sharing failed once: offer Download, with a fresh tap (a late download may be blocked). */
+    shareFailed?: boolean
+  } | null>(null)
+  /** Downloads exported images: the ZIP when there are several, else the one image. */
+  const saveImages = useCallback(
+    ({ files, zip }: { files: readonly File[]; zip: { blob: Blob; name: string } | null }) => {
+      const [one] = files
+      const saved = zip ?? (one ? { blob: one, name: one.name } : null)
+      if (saved) deps.download(saved.blob, saved.name)
+      return saved?.name ?? null
+    },
+    [deps],
+  )
   const [lastExport, setLastExport] = useState<{
     size: string
     used: string
@@ -688,7 +734,94 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       ? `Too long: a PDF password can use at most ${PASSWORD_MAX_BYTES} bytes (about ${PASSWORD_MAX_BYTES} plain letters, fewer with accents or other scripts), and anything after that would be silently ignored.`
       : null
 
+  /**
+   * Pages as images (#117): the PDF is built as usual from the chosen pages
+   * (no OCR, password, size limit or bookmarks, which images can't carry;
+   * pictures kept as they are, so they're compressed once, as images), then
+   * each page drawn at the quality's resolution.
+   */
+  const onExportImages = useCallback(
+    async (format: ImageFormat) => {
+      if ('error' in plan) return
+      const [part] = plan.parts
+      if (!part) return
+      const byId = new Map(pages.map((p) => [p.id, p]))
+      const chosen = part.pageIds.flatMap((id) => byId.get(id) ?? [])
+      const { label, ext, mime } = IMAGE_TYPES[format]
+      const compression = imageCompression(settings.quality)
+      const total = chosen.length
+      const started = generation.current
+      setExporting({ busy: true, done: 0, total })
+      setStatus(`Building ${label} images…`)
+      setSupportNote(false)
+      try {
+        const pdf = await deps.exportPdf(
+          {
+            ...doc,
+            pages: chosen,
+            settings: {
+              ...settings,
+              quality: 'original',
+              maxBytes: null,
+              pageNumbers: { ...settings.pageNumbers, start: part.start },
+            },
+          },
+          (done, total) => {
+            setExporting({ busy: true, done, total })
+          },
+        )
+        const blobs = await deps.pdfToImages(
+          pdf.blob,
+          { format, dpi: compression.dpi, quality: compression.quality },
+          (done, total) => {
+            setExporting({ busy: true, done, total, phase: 'images' })
+          },
+        )
+        const files = blobs.map(
+          (blob, i) =>
+            new File([blob], imageFilename(settings.title, i, blobs.length, ext), { type: mime }),
+        )
+        const zip =
+          files.length > 1
+            ? {
+                blob: await deps.zipImages(files.map((file) => ({ name: file.name, blob: file }))),
+                name: zipFilename(settings.title),
+              }
+            : null
+        // Started over meanwhile: these pages are gone, so are their images.
+        if (generation.current !== started) return
+        const what = imagesWord(files.length, format)
+        const size = formatBytes((zip?.blob ?? files[0])?.size ?? 0)
+        const used = `${String(compression.dpi)} dpi`
+        setLastExport({ size, used, fits: true })
+        if (touch && deps.canShare(files)) {
+          // The share sheet needs a fresh tap: ask for one. Counted once saved.
+          setSavedImages({ files, format, zip })
+          setStatus(`${what} ready to share or download.`)
+        } else {
+          const name = saveImages({ files, zip })
+          track('exported')
+          setStatus(`Saved ${name ?? what} (${zip ? `${what}, ` : ''}${size}, ${used}).`)
+        }
+      } catch (error) {
+        notify(
+          isStaleBuild(error)
+            ? STALE_BUILD_MESSAGE
+            : `The images couldn’t be made: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        setStatus('Export failed.')
+      } finally {
+        setExporting({ busy: false, done: 0, total: 0 })
+      }
+    },
+    [deps, doc, notify, pages, plan, saveImages, settings, touch],
+  )
+
   const onExport = useCallback(async () => {
+    if (isImageFormat(split.format)) {
+      await onExportImages(split.format)
+      return
+    }
     if (passwordError || 'error' in plan) return
     const total = plan.parts.reduce((n, part) => n + part.pageIds.length, 0)
     const byId = new Map(pages.map((p) => [p.id, p]))
@@ -831,7 +964,20 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     } finally {
       setExporting({ busy: false, done: 0, total: 0 })
     }
-  }, [deps, doc, notify, pages, assets, settings, plan, exportPages, lockPassword, passwordError])
+  }, [
+    deps,
+    doc,
+    notify,
+    pages,
+    assets,
+    settings,
+    plan,
+    exportPages,
+    lockPassword,
+    passwordError,
+    split.format,
+    onExportImages,
+  ])
 
   const onRotate = useCallback(
     (id: string, by: -1 | 1) => {
@@ -1374,6 +1520,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     setSelecting(false)
     setPassword('')
     setSplit(DEFAULT_SPLIT)
+    setSavedImages(null)
     setLastExport(null)
     setNotices([])
     setSupportNote(false)
@@ -1795,6 +1942,40 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           onDismiss={() => {
             setShared([])
             announce('The shared files were not added.')
+          }}
+        />
+      )}
+      {savedImages && (
+        <SaveImages
+          key={savedImages.shareFailed ? 'retry' : 'first'}
+          what={imagesWord(savedImages.files.length, savedImages.format)}
+          downloadLabel={savedImages.zip ? 'Download ZIP' : 'Download'}
+          shareFailed={savedImages.shareFailed ?? false}
+          onShare={() => {
+            const ready = savedImages
+            setSavedImages(null)
+            deps.share(ready.files).then(
+              () => {
+                track('exported')
+                announce('Shared.')
+              },
+              (error: unknown) => {
+                // Closed without sharing: nothing to do.
+                if (error instanceof DOMException && error.name === 'AbortError') return
+                // A download now, long after the tap, may be blocked: ask again.
+                setSavedImages({ ...ready, shareFailed: true })
+              },
+            )
+          }}
+          onDownload={() => {
+            const name = saveImages(savedImages)
+            setSavedImages(null)
+            track('exported')
+            announce(`Saved ${name ?? 'the images'}.`)
+          }}
+          onDismiss={() => {
+            setSavedImages(null)
+            announce('The images were not saved.')
           }}
         />
       )}

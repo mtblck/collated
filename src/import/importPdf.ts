@@ -11,7 +11,7 @@ import { ImportError, THUMB_EDGE, fit, type Imported } from './importImage'
  * (Map.prototype.getOrInsertComputed) that current Chromium and Safari
  * releases don't all have; the legacy build polyfills them.
  */
-const loadPdfJs = async () => {
+export const loadPdfJs = async () => {
   const [pdfjs, worker] = await Promise.all([
     import('pdfjs-dist/legacy/build/pdf.mjs'),
     import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'),

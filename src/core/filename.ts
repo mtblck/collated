@@ -20,12 +20,37 @@ export const pdfFilename = (title: string, now = new Date()): string => {
   return `scans-${date}.pdf`
 }
 
+const baseName = (title: string, now: Date) => pdfFilename(title, now).replace(/\.pdf$/, '')
+
+/** "Lease-part-03.pdf": the title's name, a label and a number padded to sort. */
+const numbered = (
+  title: string,
+  label: string,
+  index: number,
+  total: number,
+  ext: string,
+  now: Date,
+) =>
+  `${baseName(title, now)}-${label}-${String(index + 1).padStart(String(total).length, '0')}.${ext}`
+
 /** One part of a split export: "Lease-part-1.pdf", zero-padded so the files sort. */
-export const partFilename = (title: string, index: number, total: number, now = new Date()) => {
-  const base = pdfFilename(title, now).replace(/\.pdf$/, '')
-  return `${base}-part-${String(index + 1).padStart(String(total).length, '0')}.pdf`
-}
+export const partFilename = (title: string, index: number, total: number, now = new Date()) =>
+  numbered(title, 'part', index, total, 'pdf', now)
 
 /** The ZIP a split export downloads as. */
 export const zipFilename = (title: string, now = new Date()) =>
   pdfFilename(title, now).replace(/\.pdf$/, '.zip')
+
+/**
+ * One page saved as an image (#117): "Lease.jpg" when it's the only one,
+ * else "Lease-page-03.jpg" by its place in the export, zero-padded so the
+ * files sort.
+ */
+export const imageFilename = (
+  title: string,
+  index: number,
+  total: number,
+  ext: string,
+  now = new Date(),
+) =>
+  total === 1 ? `${baseName(title, now)}.${ext}` : numbered(title, 'page', index, total, ext, now)
