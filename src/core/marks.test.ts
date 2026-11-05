@@ -163,6 +163,8 @@ describe('text and stamps (#112)', () => {
   })
 
   it('finds characters the font can’t write, but not line breaks', () => {
+    // Accents typed as a letter and a combining mark are written as one letter.
+    expect(cleanMark(text({ text: 'Rene\u0301' })).text).toBe('René')
     expect(markTextProblems(text({ text: 'Zoë\nCafé €5' }))).toEqual([])
     expect(markTextProblems(text({ text: 'Ωmega 日本' }))).toEqual(['Ω', '日', '本'])
   })
