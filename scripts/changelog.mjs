@@ -1,9 +1,9 @@
 /**
  * Checks CHANGELOG.md (part of `npm run check`). PRs add their line under
- * **Unreleased** in CHANGELOG.md itself, like seedkin and tinkerkit (ADR 0021), so
+ * **Unreleased** in CHANGELOG.md itself, like seedkin and tinkerkit (ADR 0022), so
  * this fails on what a PR can get wrong there: no Unreleased section, a heading that
  * isn't one of Keep a Changelog's, an empty heading, or a leftover changelog.d/
- * fragment from before ADR 0021 (move its lines into CHANGELOG.md).
+ * fragment from before ADR 0022 (move its lines into CHANGELOG.md).
  *
  * The path can be overridden for the tests: --file <changelog>.
  */
@@ -43,7 +43,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (existsSync(leftovers))
     for (const name of readdirSync(leftovers))
       found.push(
-        `changelog.d/${name}: move its lines under Unreleased in CHANGELOG.md and delete it (ADR 0021).`,
+        `changelog.d/${name}: move its lines under Unreleased in CHANGELOG.md and delete it (ADR 0022).`,
       )
   if (found.length) {
     for (const p of found) console.error(p)

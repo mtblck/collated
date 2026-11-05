@@ -1,5 +1,6 @@
 import type { Compression } from '../core/compression'
 import type { BuildInput } from '../core/pdf'
+import type { PdfImageInfo } from '../core/pdfImages'
 import type { SplitPart } from '../core/splitBuild'
 
 export interface ExportRequest {
@@ -21,6 +22,11 @@ export interface UnlockRequest {
   unlock: { bytes: Uint8Array; password: string }
 }
 
+/** Lists the pictures each page of a PDF draws that the export could shrink (#115). */
+export interface InspectRequest {
+  inspect: { bytes: Uint8Array }
+}
+
 export type ExportResponse =
   | { type: 'progress'; done: number; total: number; attempt: number }
   /** `file` is the PDF, or the ZIP when the request had parts; `compression` is the smallest step any part needed. */
@@ -30,3 +36,5 @@ export type ExportResponse =
   | { type: 'draw'; assetIds: string[] }
   /** The unlocked copy, for an `UnlockRequest`. */
   | { type: 'unlocked'; file: Uint8Array }
+  /** Per page, for an `InspectRequest`. */
+  | { type: 'inspected'; pages: PdfImageInfo[][] }

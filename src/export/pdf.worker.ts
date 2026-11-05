@@ -3,9 +3,10 @@ import { buildWithin, compressionFor } from '../core/compression'
 import { buildPdf, type BuildInput } from '../core/pdf'
 import { NeedsDrawing } from '../core/pdfSanitize'
 import { unlockedCopy } from '../core/pdfUnlock'
+import { listPdfImages } from '../core/pdfImages'
 import { buildSplit } from '../core/splitBuild'
-import { flattenToBlob, processToBlob } from '../lib/filterCanvas'
-import type { ExportRequest, ExportResponse, UnlockRequest } from './protocol'
+import { flattenToBlob, processToBlob, shrinkToJpeg } from '../lib/filterCanvas'
+import type { ExportRequest, ExportResponse, InspectRequest, UnlockRequest } from './protocol'
 
 /*
  * Builds the PDF off the main thread. Embedding passthrough JPEGs is cheap,
@@ -18,11 +19,15 @@ const post = (message: ExportResponse, transfer: Transferable[] = []) => {
   self.postMessage(message, transfer)
 }
 
-self.onmessage = async ({ data }: MessageEvent<ExportRequest | UnlockRequest>) => {
+self.onmessage = async ({ data }: MessageEvent<ExportRequest | UnlockRequest | InspectRequest>) => {
   try {
     if ('unlock' in data) {
       const file = await unlockedCopy(data.unlock.bytes, data.unlock.password)
       post({ type: 'unlocked', file }, [file.buffer])
+      return
+    }
+    if ('inspect' in data) {
+      post({ type: 'inspected', pages: await listPdfImages(data.inspect.bytes) })
       return
     }
     const { settings } = data.input
@@ -45,6 +50,7 @@ self.onmessage = async ({ data }: MessageEvent<ExportRequest | UnlockRequest>) =
               },
               flattenPage: async (job) =>
                 new Uint8Array(await (await flattenToBlob(job)).arrayBuffer()),
+              shrinkImage: shrinkToJpeg,
               onProgress,
             },
           ),

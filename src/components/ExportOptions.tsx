@@ -301,7 +301,7 @@ export const ExportOptions = ({
               </p>
             </fieldset>
 
-            <fieldset className="mt-4">
+            <fieldset className="mt-4" aria-describedby={`${id}-quality-hint`}>
               <legend className="label mb-2 text-ink-faint">Image quality</legend>
               <div className="flex flex-col gap-1">
                 {OPTIONS.map((option) => (
@@ -332,6 +332,9 @@ export const ExportOptions = ({
                   </label>
                 ))}
               </div>
+              <p id={`${id}-quality-hint`} className="mt-1.5 text-xs text-ink-muted">
+                Photos, scans and the pictures inside PDF pages. Text in PDF pages stays sharp.
+              </p>
             </fieldset>
 
             <div className="mt-4">

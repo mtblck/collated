@@ -1,6 +1,7 @@
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { MAX_PDF_PAGES } from '../core/limits'
 import type { Asset, QuarterTurns } from '../core/model'
+import type { PdfImageInfo } from '../core/pdfImages'
 import { assetStore } from './assetStore'
 import { ImportError, THUMB_EDGE, fit, type Imported } from './importImage'
 
@@ -201,6 +202,8 @@ export interface ImportPdfOptions {
   askPassword?: AskPassword
   /** A copy of the PDF that opens without the password (see `unlockPdf`). */
   unlock?: (bytes: Uint8Array, password: string) => Promise<Uint8Array>
+  /** The pictures each page draws that the export can shrink, for the size estimate (#115). */
+  inspect?: (bytes: Uint8Array) => Promise<PdfImageInfo[][]>
 }
 
 /** Turned down in the password prompt: the file isn't added. */
@@ -251,7 +254,7 @@ export const importPdf = async (
   file: File,
   bytes: Uint8Array,
   newId: () => string,
-  { onPage, askPassword, unlock }: ImportPdfOptions = {},
+  { onPage, askPassword, unlock, inspect }: ImportPdfOptions = {},
 ): Promise<Imported> => {
   const pdfjs = await loadPdfJs()
   const bytesId = newId()
@@ -311,6 +314,8 @@ export const importPdf = async (
       asked.password = null
     }
     if (kept) files.push({ id: bytesId, bytes: kept })
+    // Read alongside the thumbnails; without it the estimate counts the whole file.
+    const listing = kept && inspect ? inspect(kept).catch(() => null) : Promise.resolve(null)
     const base = file.name.replace(/\.pdf$/i, '') || 'PDF'
     for (let index = 0; index < pdf.numPages; index++) {
       const page = await pdf.getPage(index + 1)
@@ -353,6 +358,13 @@ export const importPdf = async (
       }
       page.cleanup()
       onPage?.(index + 1, pdf.numPages)
+    }
+    const images = await listing
+    if (images?.length === pdf.numPages) {
+      for (const asset of assets) {
+        const found = asset.pdfPage === undefined ? undefined : images[asset.pdfPage]
+        if (found) asset.images = found
+      }
     }
   } finally {
     await task.destroy()

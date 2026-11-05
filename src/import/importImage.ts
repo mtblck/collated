@@ -1,5 +1,6 @@
 import type { Asset } from '../core/model'
 import { headerSize, passthrough, readExifDate, type SniffedType } from '../core/imageInfo'
+import { MAX_CANVAS_PIXELS } from '../core/limits'
 import { assetStore } from './assetStore'
 import { ImportError, assertImportPixels } from './errors'
 
@@ -12,11 +13,9 @@ export interface Imported {
 }
 
 export const THUMB_EDGE = 720
-/**
- * iOS Safari refuses canvases over ~16.7 megapixels. Re-encoded images are
- * scaled down to fit; passthrough JPEGs and PNGs never touch a canvas.
- */
-export const MAX_CANVAS_PIXELS = 16_000_000
+// Re-encoded images are scaled down to fit MAX_CANVAS_PIXELS; passthrough
+// JPEGs and PNGs never touch a canvas.
+export { MAX_CANVAS_PIXELS }
 
 type AnyCanvas = OffscreenCanvas | HTMLCanvasElement
 

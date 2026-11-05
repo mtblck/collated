@@ -19,3 +19,9 @@ export const MAX_PDF_PAGES = 500
 
 /** The page-number field's range. */
 export const PAGE_NUMBER_START_MAX = 9999
+
+/**
+ * The largest canvas drawn on, in pixels: iOS Safari refuses canvases over
+ * ~16.7 megapixels.
+ */
+export const MAX_CANVAS_PIXELS = 16_000_000
