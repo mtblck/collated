@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { asset, fixture, page, settings } from '../../tests/helpers'
 import { ARCHIVE_WIDTHS } from './archiveFontData'
 import type { Asset, Mark, Page, Settings } from './model'
+import type { Imposition } from './impose'
 import { buildPdf } from './pdf'
 import { NeedsDrawing } from './pdfSanitize'
 import { srgbProfile, xmpPacket } from './pdfa'
@@ -108,7 +109,12 @@ const marks: Mark[] = [
 
 const build = async (
   s: Settings,
-  options: { text?: boolean; extra?: Partial<Page>; password?: string } = {},
+  options: {
+    text?: boolean
+    extra?: Partial<Page>
+    password?: string
+    print?: Imposition
+  } = {},
 ) => {
   const photo = fixture('quad-landscape.jpg')
   const assets: Record<string, Asset> = {
@@ -129,6 +135,7 @@ const build = async (
       assets,
       ...(options.text ? { text: { p0: words, p1: words } } : {}),
       ...(options.password ? { password: options.password } : {}),
+      ...(options.print ? { print: options.print } : {}),
       outline: [{ pageId: 'p1', title: 'Grey «page»', children: [] }],
     },
     { getBytes: (id) => bytes[id] ?? new Uint8Array(), now: NOW },
@@ -175,6 +182,21 @@ describe('PDF/A-2b export (#116)', () => {
       const { doc, xmp } = await metadataOf(bytes)
       expect(doc.getTitle()).toBe('Lease 2026')
       expect(xmp).toContain('>Lease 2026<')
+    },
+    VERA_TIMEOUT,
+  )
+
+  it(
+    'conforms as a booklet and as a poster with cut marks and labels (#119)',
+    async () => {
+      const paper = { width: 595.28, height: 841.89 }
+      const booklet = await build(archival, { text: true, print: { kind: 'booklet', paper } })
+      expectConforming(booklet, 'booklet')
+      const poster = await build(archival, {
+        print: { kind: 'poster', paper, across: 2, down: 2, overlap: 28, cutMarks: true },
+      })
+      expectConforming(poster, 'poster')
+      expect((await PDFDocument.load(poster)).getPageCount()).toBe(12)
     },
     VERA_TIMEOUT,
   )

@@ -72,6 +72,8 @@ import {
   type WatermarkMark,
 } from './watermark'
 import type { OutlineItem } from './outline'
+import type { Imposition } from './impose'
+import { imposePdf } from './imposePdf'
 
 export interface BuildInput {
   settings: Settings
@@ -92,6 +94,11 @@ export interface BuildInput {
   rendered?: Record<string, string>
   /** Bookmarks, by page id (see core/outline.ts). Items for pages not in this file are left out. */
   outline?: OutlineItem[]
+  /**
+   * Prints the built pages as a booklet or a poster (#119): they become
+   * sheets that hold them (see core/impose.ts). Bookmarks are left out.
+   */
+  print?: Imposition
   assets: Record<
     string,
     Pick<
@@ -941,7 +948,9 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
     options.onProgress?.(index + 1, pages.length)
   }
 
-  if (input.outline?.length) {
+  if (input.print) {
+    await imposePdf(doc, input.print, standardFont)
+  } else if (input.outline?.length) {
     const refs = new Map(pages.map((page, i) => [page.id, doc.getPage(i).ref]))
     writeOutline(doc, input.outline, refs)
   }
