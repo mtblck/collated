@@ -10,6 +10,7 @@ import {
   SOURCE_URL,
   TERMS_URL,
 } from './src/components/links'
+import { HEADER_ROW, HEADER_RULE, WORDMARK } from './src/components/brand'
 import { TASKS, taskAppUrl, taskUrl, type Task } from './src/components/tasks'
 
 /**
@@ -105,8 +106,26 @@ export interface RenderedPage {
   html: string
 }
 
-/** Renders one page's HTML; `css` is the app stylesheet's URL. */
-export const renderPage = (spec: PageSpec, css: string): RenderedPage => {
+/**
+ * Geist and Geist Mono are `font-display: optional`: a face that isn't there
+ * within ~100 ms is skipped for that page load, so the wordmark could come up
+ * in the wider, bolder fallback on one page and in Geist on the next.
+ * Preloading them makes them arrive in time. Matches the hashed asset names.
+ */
+const PRELOAD_FONT = /\/geist(-mono)?-latin-wght-normal-[\w-]+\.woff2$/
+
+/** `<link rel="preload">` tags for the faces every page sets text in. */
+export const fontPreloads = (fonts: readonly string[]) =>
+  fonts
+    .map((href) => `<link rel="preload" href="${href}" as="font" type="font/woff2" crossorigin />`)
+    .join('\n    ')
+
+/** Renders one page's HTML; `css` is the app stylesheet's URL, `fonts` the faces to preload. */
+export const renderPage = (
+  spec: PageSpec,
+  css: string,
+  fonts: readonly string[] = [],
+): RenderedPage => {
   const markdown = stripFrontmatter(readFileSync(join(ROOT, 'docs', spec.source), 'utf8'))
   const title = /^# (.+)$/m.exec(markdown)?.[1]?.trim() ?? spec.label
   const description =
@@ -161,13 +180,14 @@ export const renderPage = (spec: PageSpec, css: string): RenderedPage => {
     <link rel="icon" href="${APP_URL}favicon.svg" type="image/svg+xml" />
     <link rel="canonical" href="${ORIGIN}${spec.url}" />
     <script src="${APP_URL}theme.js"></script>
+    ${fontPreloads(fonts)}
     <link rel="stylesheet" href="${css}" />
   </head>
   <body>
     <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-paper focus:px-3 focus:py-2">Skip to content</a>
-    <header class="border-b border-rule">
-      <div class="mx-auto flex min-h-14 max-w-6xl items-center gap-4 px-4 py-2.5 sm:px-6">
-        <a href="${APP_URL}" class="text-xl leading-none font-semibold tracking-[-0.03em] text-ink lowercase">Collated</a>
+    <header class="relative z-10 ${HEADER_RULE}">
+      <div class="mx-auto flex max-w-6xl ${HEADER_ROW}">
+        <a href="${APP_URL}" class="${WORDMARK}">Collated</a>
         <span class="label text-ink-faint">Docs</span>
         <a href="${APP_URL}" class="ml-auto h-9 px-4 text-sm ${BUTTON}">Open Collated</a>
       </div>
@@ -190,7 +210,11 @@ export const renderPage = (spec: PageSpec, css: string): RenderedPage => {
  * ready, how to, the privacy promise, and the other tasks. Plain HTML, so it
  * reads without JavaScript and is indexed as it stands.
  */
-export const renderTaskPage = (task: Task, css: string): RenderedPage => {
+export const renderTaskPage = (
+  task: Task,
+  css: string,
+  fonts: readonly string[] = [],
+): RenderedPage => {
   const url = taskUrl(task)
   const app = taskAppUrl(task)
   const list = (items: readonly string[]) =>
@@ -216,13 +240,14 @@ export const renderTaskPage = (task: Task, css: string): RenderedPage => {
     <meta property="og:type" content="website" />
     <script src="${APP_URL}theme.js"></script>
     <script src="${APP_URL}analytics.js" defer></script>
+    ${fontPreloads(fonts)}
     <link rel="stylesheet" href="${css}" />
   </head>
   <body>
     <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-paper focus:px-3 focus:py-2">Skip to content</a>
-    <header class="border-b border-rule">
-      <div class="mx-auto flex min-h-14 max-w-6xl items-center gap-4 px-4 py-2.5 sm:px-6">
-        <a href="${APP_URL}" class="text-xl leading-none font-semibold tracking-[-0.03em] text-ink lowercase">Collated</a>
+    <header class="relative z-10 ${HEADER_RULE}">
+      <div class="mx-auto flex max-w-6xl ${HEADER_ROW}">
+        <a href="${APP_URL}" class="${WORDMARK}">Collated</a>
         <a href="${DOCS_URL}" class="ml-auto inline-flex min-h-11 items-center rounded-full px-3 text-sm text-ink-muted hover:bg-ink/[0.06] hover:text-ink">Docs</a>
       </div>
     </header>
@@ -275,6 +300,10 @@ const fileFor = (base: string, url: string) => `${url.slice(base.length)}index.h
 
 export const docsSite = (base: string): Plugin => {
   let cssUrl = `${base}src/index.css`
+  const fontsIn = (bundle: Record<string, { fileName: string }>) =>
+    Object.values(bundle)
+      .map((file) => `${base}${file.fileName}`)
+      .filter((url) => PRELOAD_FONT.test(url))
   return {
     name: 'collated-docs-site',
     // Rebuild when a doc changes in dev.
@@ -297,24 +326,39 @@ export const docsSite = (base: string): Plugin => {
         res.end(page ? renderPage(page, cssUrl).html : task && renderTaskPage(task, cssUrl).html)
       })
     },
+    // The app's own page preloads them too (only built pages: dev has no hashes).
+    transformIndexHtml: {
+      order: 'post',
+      handler: (_html, { bundle }) =>
+        bundle
+          ? fontsIn(bundle).map((href) => ({
+              tag: 'link',
+              attrs: { rel: 'preload', href, as: 'font', type: 'font/woff2', crossorigin: true },
+              injectTo: 'head' as const,
+            }))
+          : [],
+    },
     generateBundle(_options, bundle) {
       const css = Object.values(bundle).find(
         (file) => file.type === 'asset' && file.fileName.endsWith('.css'),
       )
       if (!css) this.error('docs-site: no stylesheet in the bundle')
       cssUrl = `${base}${css.fileName}`
+      const fonts = fontsIn(bundle)
+      if (fonts.length !== 2)
+        this.error(`docs-site: expected Geist and Geist Mono, found ${fonts.length}`)
       for (const page of PAGES) {
         this.emitFile({
           type: 'asset',
           fileName: fileFor(base, page.url),
-          source: renderPage(page, cssUrl).html,
+          source: renderPage(page, cssUrl, fonts).html,
         })
       }
       for (const task of TASKS) {
         this.emitFile({
           type: 'asset',
           fileName: fileFor(base, taskUrl(task)),
-          source: renderTaskPage(task, cssUrl).html,
+          source: renderTaskPage(task, cssUrl, fonts).html,
         })
       }
       this.emitFile({ type: 'asset', fileName: 'sitemap.xml', source: sitemap() })

@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { PAGES, renderPage, renderTaskPage, sitemap } from '../docs-site'
+import { HEADER_ROW, WORDMARK } from '../src/components/brand'
 import { FOOTER, SOURCE_URL } from '../src/components/links'
 import { TASKS, taskAppUrl, taskFrom, taskUrl } from '../src/components/tasks'
 
@@ -32,6 +33,28 @@ describe('docs site', () => {
       for (const [, href = ''] of main.matchAll(/href="([^"]+)"/g)) {
         expect(href, `${page.source} links to ${href}`).not.toMatch(/\.md(#|$)/)
         if (href.startsWith(SOURCE_URL)) expect(href).not.toContain('/docs/')
+      }
+    }
+  })
+
+  it('shares the app header and preloads its fonts, so the name never shifts between pages', () => {
+    const fonts = [
+      '/assets/geist-latin-wght-normal-a1.woff2',
+      '/assets/geist-mono-latin-wght-normal-b2.woff2',
+    ]
+    const pages = [
+      ...PAGES.slice(0, 1).map((page) => renderPage(page, '/assets/x.css', fonts)),
+      ...TASKS.slice(0, 1).map((task) => renderTaskPage(task, '/assets/x.css', fonts)),
+    ]
+    expect(pages).toHaveLength(2)
+    for (const { html } of pages) {
+      const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'))
+      expect(header).toContain(`class="mx-auto flex max-w-6xl ${HEADER_ROW}"`)
+      expect(header).toContain(`class="${WORDMARK}">Collated</a>`)
+      for (const href of fonts) {
+        expect(html).toContain(
+          `<link rel="preload" href="${href}" as="font" type="font/woff2" crossorigin />`,
+        )
       }
     }
   })

@@ -5059,6 +5059,47 @@ await context.close()
   await phone2.close()
 }
 
+// 48. One header everywhere: on a desktop and a 390px phone, the home page,
+//     a docs page, a task page and (on the desktop) the workspace have a
+//     64px header with the wordmark at the same height, in the same size and
+//     weight, set in Geist itself (preloaded, so `optional` never drops it).
+for (const [label, viewport] of [
+  ['desktop', { width: 1280, height: 800 }],
+  ['phone', { width: 390, height: 844 }],
+]) {
+  const { context, page: p } = await open({ viewport })
+  const header = () =>
+    p.evaluate(() => {
+      const bar = document.querySelector('header')
+      const name = bar?.querySelector('a:not(.sr-only), span:not(.sr-only)')
+      if (!bar || !name) return 'missing'
+      const box = name.getBoundingClientRect()
+      const style = getComputedStyle(name)
+      const geist = document.fonts.check(`${style.fontWeight} ${style.fontSize} 'Geist Variable'`)
+      return `${String(bar.getBoundingClientRect().height)}px, name at ${String(box.top)} ${String(Math.round(box.width))}×${String(box.height)} ${style.fontSize} ${style.fontWeight} geist=${String(geist)}`
+    })
+  const seen = []
+  for (const path of ['', 'docs/', 'jpg-to-pdf/']) {
+    await p.goto(`${URL_ROOT}${path}`, { waitUntil: 'networkidle' })
+    seen.push(`/${path} ${await header()}`)
+  }
+  if (label === 'desktop') {
+    await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+    await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'quad-3pages.pdf')])
+    await p.waitForSelector('ol[aria-label="3 pages"]', { timeout: 20_000 })
+    seen.push(`workspace ${await header()}`)
+  }
+  const values = seen.map((line) => line.slice(line.indexOf(' ') + 1))
+  check(
+    values.every((v) => v === values[0]) &&
+      values[0]?.startsWith('64px') &&
+      values[0].endsWith('geist=true'),
+    `the header is 64px with the same wordmark on every page (${label})`,
+    seen.join('\n      '),
+  )
+  await context.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()
