@@ -1,6 +1,9 @@
 export type TiffRequest =
   /** Reads the file's pages; their pixels are decoded one `page` request at a time. */
-  { type: 'open'; bytes: ArrayBuffer } | { type: 'page'; index: number }
+  | { type: 'open'; bytes: ArrayBuffer }
+  | { type: 'page'; index: number }
+  /** Done with the file: the worker lets go of it. */
+  | { type: 'close' }
 
 export type TiffPage =
   /** Black and white, as a 1-bit PNG: kept that way into the PDF. */
@@ -23,6 +26,7 @@ export type TiffPage =
 export type TiffResponse =
   | { ok: true; type: 'open'; pages: number }
   | { ok: true; type: 'page'; page: TiffPage }
+  | { ok: true; type: 'close' }
   /**
    * `reason` picks the message the person sees; `tooLarge` is a page over
    * the import cap, refused before anything was decoded.

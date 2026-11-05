@@ -26,7 +26,8 @@ const discard = (w: Worker) => {
 
 /** The message for a failure the worker explained, or null for an unexpected one. */
 const explain = (data: Extract<TiffResponse, { ok: false }>): ImportError | null => {
-  if (data.tooLarge) return tooManyPixels(data.tooLarge.width, data.tooLarge.height)
+  const tooLarge = data.tooLarge && tooManyPixels(data.tooLarge.width, data.tooLarge.height)
+  if (tooLarge) return tooLarge
   switch (data.reason) {
     case 'bigtiff':
       return new ImportError(
@@ -43,6 +44,8 @@ const explain = (data: Extract<TiffResponse, { ok: false }>): ImportError | null
         'This TIFF stores colour in a way Collated can’t read. Save it as PNG or JPEG.',
       )
     case 'damaged':
+    case undefined:
+      // Also a page whose size is zero or nonsense (tooLarge within the cap).
       return new ImportError('This TIFF couldn’t be read; it may be damaged.')
     default:
       return null
@@ -93,10 +96,18 @@ export const withTiff = async <R>(
       { type: 'open', bytes: copy },
       [copy],
     )
-    return withPages(pages, async (index) => {
-      const answer = await ask<Extract<TiffResponse, { type: 'page' }>>(w, { type: 'page', index })
-      return answer.page
-    })
+    try {
+      return await withPages(pages, async (index) => {
+        const answer = await ask<Extract<TiffResponse, { type: 'page' }>>(w, {
+          type: 'page',
+          index,
+        })
+        return answer.page
+      })
+    } finally {
+      // Not awaited: a worker discarded after a failure never answers.
+      if (worker === w) w.postMessage({ type: 'close' } satisfies TiffRequest)
+    }
   }
   const result = queue.then(run)
   queue = result.catch(() => undefined)

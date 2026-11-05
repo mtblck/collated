@@ -12,6 +12,7 @@ import * as UTIF from 'utif2'
 import { MAX_IMPORT_PIXELS } from '../core/limits'
 import { encodePng1 } from '../core/png'
 import {
+  MAX_TIFF_PAGES,
   isPage,
   planPage,
   readTiffHeader,
@@ -66,8 +67,17 @@ export const openTiff = (buffer: ArrayBuffer): TiffResponse => {
   }
   const pages = ifds.filter(isPage)
   if (pages.length === 0) return { ok: false, message: 'TIFF has no pages', reason: 'no-pages' }
+  if (pages.length > MAX_TIFF_PAGES) {
+    return { ok: false, message: 'TIFF has too many pages', reason: 'too-many-pages' }
+  }
   file = { buffer, ifds: pages }
   return { ok: true, type: 'open', pages: pages.length }
+}
+
+/** Lets go of the open file, so a big scan isn't held for the rest of the session. */
+export const closeTiff = (): TiffResponse => {
+  file = undefined
+  return { ok: true, type: 'close' }
 }
 
 export const decodeTiffPage = (index: number): TiffResponse => {
@@ -94,10 +104,11 @@ export const decodeTiffPage = (index: number): TiffResponse => {
   const samples = tag(ifd, 277, 1)
   const bits = tag(ifd, 258, 1)
   const compression = tag(ifd, 259, 1)
-  // Fax compressions are always one bit; a missing photometric means fax's WhiteIsZero.
-  const photometric = tag(ifd, 262, compression === 3 || compression === 4 ? 0 : 2)
+  // A 1-bit page without a photometric is read as fax's WhiteIsZero, as UTIF does.
+  const onebit = bits === 1 || compression === 3 || compression === 4
+  const photometric = tag(ifd, 262, onebit ? 0 : 2)
   let page: TiffPage
-  if (bits === 1 && samples === 1 && (photometric === 0 || photometric === 1)) {
+  if (onebit && samples === 1 && (photometric === 0 || photometric === 1)) {
     const pixels = unpackBits(data, width, height, photometric === 0)
     const upright = reshape(pixels, width, height, orientation, plan, (n) => new Uint8Array(n))
     const bytes = encodePng1(upright, plan.width, plan.height) as Uint8Array<ArrayBuffer>

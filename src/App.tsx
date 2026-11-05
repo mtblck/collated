@@ -478,8 +478,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         // Images added together are one pile for Interleave (a PDF is its
         // own); the first one's id names the batch.
         const batch = added.find((a) => a.format !== 'pdf')?.id
+        // A multi-page TIFF is its own pile, like a PDF.
         const tagged = added.map((a) =>
-          a.format === 'pdf' || !batch ? a : { ...a, source: batch },
+          a.format === 'pdf' || !batch ? a : { ...a, source: a.fileId ?? batch },
         )
         act({ type: 'addPages', assets: tagged, pageIds })
         setSelection((current) => {

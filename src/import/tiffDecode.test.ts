@@ -89,6 +89,28 @@ describe('decoding TIFF pages (#113)', () => {
     expect(openTiff(empty.buffer)).toMatchObject({ ok: false, reason: 'no-pages' })
   })
 
+  it('refuses more than 500 pages', () => {
+    // 501 IFDs, each a 1 × 1 page (ImageWidth, ImageLength), chained.
+    const pages = 501
+    const bytes = new Uint8Array(8 + pages * 30)
+    const view = new DataView(bytes.buffer)
+    bytes.set([0x49, 0x49, 42, 0])
+    view.setUint32(4, 8, true)
+    for (let i = 0; i < pages; i++) {
+      const at = 8 + i * 30
+      view.setUint16(at, 2, true)
+      for (const [k, id] of [256, 257].entries()) {
+        const entry = at + 2 + k * 12
+        view.setUint16(entry, id, true)
+        view.setUint16(entry + 2, 3, true) // SHORT
+        view.setUint32(entry + 4, 1, true)
+        view.setUint16(entry + 8, 1, true)
+      }
+      view.setUint32(at + 26, i === pages - 1 ? 0 : at + 30, true)
+    }
+    expect(openTiff(bytes.buffer)).toMatchObject({ ok: false, reason: 'too-many-pages' })
+  })
+
   it('refuses a page over the pixel cap from its tags, before decoding', () => {
     const bytes = fixture('fax-g3-normal.tif').slice()
     // Rewrite ImageWidth (tag 256, SHORT or LONG) to something huge.

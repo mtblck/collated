@@ -54,11 +54,25 @@ describe('TIFF files', () => {
 
 describe('TIFF resolution', () => {
   it('reads inches and centimetres, and ignores nonsense', () => {
-    expect(tiffResolution({ t282: [[204, 1]], t283: [[98, 1]] })).toEqual({ x: 204, y: 98 })
-    expect(tiffResolution({ t282: [[300, 1]], t296: [2] })).toEqual({ x: 300, y: 300 })
+    expect(tiffResolution({ t282: [[204, 1]], t283: [[98, 1]] })).toEqual({
+      x: 204,
+      y: 98,
+      absolute: true,
+    })
+    expect(tiffResolution({ t282: [[300, 1]], t296: [2] })).toEqual({
+      x: 300,
+      y: 300,
+      absolute: true,
+    })
     const cm = tiffResolution({ t282: [[11811, 100]], t283: [[11811, 100]], t296: [3] })
     expect(cm?.x).toBeCloseTo(300, 0)
-    expect(tiffResolution({ t282: [[300, 1]], t296: [1] })).toBeNull() // no unit
+    // No unit: only the shape of the pixels.
+    expect(tiffResolution({ t282: [[2, 1]], t283: [[1, 1]], t296: [1] })).toEqual({
+      x: 2,
+      y: 1,
+      absolute: false,
+    })
+    expect(tiffResolution({ t282: [[9, 1]], t283: [[1, 1]], t296: [1] })).toBeNull()
     expect(tiffResolution({ t282: [[1, 1]] })).toBeNull()
     expect(tiffResolution({ t282: [[300, 0]] })).toBeNull()
     expect(tiffResolution({})).toBeNull()
@@ -67,15 +81,21 @@ describe('TIFF resolution', () => {
 
 describe('planning a page', () => {
   it('repeats the rows of a standard-resolution fax so its pixels are square', () => {
-    expect(planPage(1728, 1100, 1, { x: 204, y: 98 })).toEqual({
+    expect(planPage(1728, 1100, 1, { x: 204, y: 98, absolute: true })).toEqual({
       width: 1728,
       height: 2290,
       dpi: 204,
     })
+    // The same shape with no unit: square pixels, but no size to print at.
+    expect(planPage(1728, 1100, 1, { x: 2.04, y: 0.98, absolute: false })).toEqual({
+      width: 1728,
+      height: 2290,
+      dpi: null,
+    })
   })
 
   it('swaps size and resolution for a page stored on its side', () => {
-    expect(planPage(1100, 1728, 6, { x: 98, y: 204 })).toEqual({
+    expect(planPage(1100, 1728, 6, { x: 98, y: 204, absolute: true })).toEqual({
       width: 1728,
       height: 2290,
       dpi: 204,

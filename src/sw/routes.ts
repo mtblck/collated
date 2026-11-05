@@ -9,7 +9,7 @@ export interface SwManifest {
   version: string
   /** Fetched on install: the app, its lazy chunks (pdf.js, export), docs pages. */
   shell: string[]
-  /** Cached the first time something asks for them: HEIC decoding and OCR. */
+  /** Cached the first time something asks for them: HEIC and TIFF decoding, and OCR. */
   onDemand: string[]
   /** A hash of the on-demand files' contents: unchanged across most deploys. */
   onDemandVersion: string

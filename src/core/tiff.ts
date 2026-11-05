@@ -68,19 +68,31 @@ export const isPage = (ifd: Ifd) =>
 const DPI_MIN = 36
 const DPI_MAX = 4800
 
+export interface Resolution {
+  /** Pixels per inch across and down; with `absolute` false, only their ratio means anything. */
+  x: number
+  y: number
+  absolute: boolean
+}
+
 /**
- * Pixels per inch across and down, from XResolution, YResolution and
- * ResolutionUnit (2 inch, the default; 3 centimetre; 1 none). Null when the
- * file doesn't say or says something no scanner would.
+ * Resolution from XResolution, YResolution and ResolutionUnit (2 inch, the
+ * default; 3 centimetre; 1 none, which still gives the pixels' shape). Null
+ * when the file doesn't say or says something no scanner would.
  */
-export const tiffResolution = (ifd: Ifd): { x: number; y: number } | null => {
+export const tiffResolution = (ifd: Ifd): Resolution | null => {
   const unit = tag(ifd, 296, 2)
-  if (unit !== 2 && unit !== 3) return null
+  if (unit !== 1 && unit !== 2 && unit !== 3) return null
   const perInch = unit === 3 ? 2.54 : 1
   const x = (rational(ifd, 282) ?? 0) * perInch
   const y = (rational(ifd, 283) ?? x / perInch) * perInch
+  if (unit === 1) {
+    const ok = (n: number) => Number.isFinite(n) && n > 0
+    // Shape only: anything past 1:4 is a broken tag, not a fax.
+    return ok(x) && ok(y) && Math.max(x / y, y / x) <= 4 ? { x, y, absolute: false } : null
+  }
   const ok = (n: number) => Number.isFinite(n) && n >= DPI_MIN && n <= DPI_MAX
-  return ok(x) && ok(y) ? { x, y } : null
+  return ok(x) && ok(y) ? { x, y, absolute: true } : null
 }
 
 /** TIFF Orientation 5–8 store the picture transposed: its rows are the upright columns. */
@@ -104,7 +116,7 @@ export const planPage = (
   width: number,
   height: number,
   orientation: number,
-  resolution: { x: number; y: number } | null,
+  resolution: Resolution | null,
 ): PagePlan => {
   const swap = transposed(orientation)
   // Resolution belongs to the stored axes; after a transpose they trade places.
@@ -116,7 +128,7 @@ export const planPage = (
   return {
     width: Math.max(1, Math.round((uprightW * dpi) / across)),
     height: Math.max(1, Math.round((uprightH * dpi) / down)),
-    dpi: resolution ? dpi : null,
+    dpi: resolution?.absolute ? dpi : null,
   }
 }
 
