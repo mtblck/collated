@@ -101,7 +101,7 @@ describe('task pages (#120)', () => {
       ...TASKS.map(taskAppUrl),
     ])
     for (const { task, html } of tasks) {
-      const scripts = (html.match(/<script\b[^>]*>/g) ?? []).map(
+      const scripts = (html.match(/<script\b[^>]*>/gi) ?? []).map(
         (tag) => /src="([^"]+)"/.exec(tag)?.[1],
       )
       expect(scripts, task.slug).toEqual(['/theme.js', '/analytics.js'])
