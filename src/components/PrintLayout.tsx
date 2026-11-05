@@ -69,30 +69,33 @@ export const PrintLayout = ({
   id,
   print,
   onPrint,
-  pageCount,
-  files,
+  pageCounts,
   unit,
-  bookmarks,
 }: {
   id: string
   print: PrintOptions
   onPrint: (patch: Partial<PrintOptions>) => void
-  /** Pages in the file (the first, when there are several). */
-  pageCount: number
-  files: number
+  /** Pages in each file the export makes. */
+  pageCounts: readonly number[]
   unit: Unit
-  /** Bookmarks would be written: say they're left out. */
-  bookmarks: boolean
 }) => {
-  const { sheets } = printCount(print, pageCount)
+  const pageCount = pageCounts.reduce((a, b) => a + b, 0)
+  const sheets = pageCounts.reduce((n, pages) => n + printCount(print, pages).sheets, 0)
   const blanks = print.kind === 'booklet' ? sheets * 4 - pageCount : 0
-  const each = files > 1 ? ' in each file' : ''
+  const each =
+    pageCounts.length > 1 ? `, each of the ${String(pageCounts.length)} files on its own` : ''
   const step = unit === 'in' ? 0.05 : 1
   const hint =
     print.kind === 'booklet'
-      ? `${plural(pageCount, 'page')}${each} on ${plural(sheets, 'sheet')}, two a side${blanks ? `, ${plural(blanks, 'blank page')} at the end` : ''}. Print on both sides, flipping on the short edge, then fold in half and staple.`
+      ? `${plural(pageCount, 'page')} on ${plural(sheets, 'sheet')}${each}, two a side${blanks ? `, with ${plural(blanks, 'blank page')} at the end` : ''}. Print on both sides, flipping on the short edge, then fold in half and staple.`
       : print.kind === 'poster'
-        ? `${pageCount === 1 ? 'The page' : 'Each page'} across ${String(print.across)} × ${String(print.down)} sheets${pageCount === 1 ? '' : `: ${plural(sheets, 'sheet')}${each}`}. Cut the marked strips off and lay each sheet over its neighbour, matching the labels.`
+        ? `${pageCount === 1 ? 'The page' : 'Each page'} across up to ${String(print.across)} × ${String(print.down)} sheets${each}.${
+            print.cutMarks && print.overlap > 0
+              ? ' Cut the marked strips off and lay each sheet over its neighbour, matching the labels.'
+              : print.cutMarks
+                ? ' With no overlap there’s nothing to cut, so no marks or labels.'
+                : ''
+          }`
         : 'Each page on its own sheet, the usual choice.'
 
   return (
@@ -149,7 +152,7 @@ export const PrintLayout = ({
                 ))}
               </select>
             </div>
-            <Sketch print={print} pageCount={pageCount} />
+            <Sketch print={print} pageCount={pageCounts[0] ?? 0} />
           </div>
 
           {print.kind === 'poster' && (
@@ -219,7 +222,7 @@ export const PrintLayout = ({
 
       <p id={`${id}-print-hint`} role="status" className="mt-1.5 text-xs text-ink-muted">
         {hint}
-        {print.kind !== 'pages' && bookmarks ? ' Bookmarks are left out.' : ''}
+        {print.kind !== 'pages' ? ' No bookmarks: the pages are on sheets now.' : ''}
       </p>
     </fieldset>
   )

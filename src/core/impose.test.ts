@@ -145,6 +145,13 @@ describe('posterSheets', () => {
     expect(first?.label?.x).toBeCloseTo((first?.size.width ?? 0) - 10, 5)
   })
 
+  it('leaves out sheets that would hold none of the page', () => {
+    // A portrait A4 across 4 × 1 A4 sheets stays one sheet high: the two
+    // outer sheets fall in the margin.
+    const sheets = posterSheets([A4], { ...poster, across: 4, down: 1 })
+    expect(sheets.map((s) => s.label?.text)).toEqual(['A2', 'A3'])
+  })
+
   it('leaves marks and labels off when asked, or when there is nothing to join', () => {
     expect(
       posterSheets([A4], { ...poster, cutMarks: false }).every((s) => !s.cuts.length && !s.label),
@@ -182,6 +189,13 @@ describe('imposition', () => {
       'a4',
     )
     expect(got).toMatchObject({ across: 8, down: 1 })
+    // Never more than a quarter of the paper, however small it is.
+    const tiny = imposition(
+      { ...DEFAULT_PRINT, kind: 'poster', paper: 'document', overlap: 80 },
+      { size: 'custom', custom: { width: 72, height: 100 } },
+      'a4',
+    )
+    expect(tiny?.kind === 'poster' && tiny.overlap).toBe(18)
     expect(got?.kind === 'poster' && got.overlap).toBeCloseTo(85.04, 1)
   })
 

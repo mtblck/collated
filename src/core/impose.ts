@@ -1,5 +1,5 @@
 import type { PageSizeId, Settings } from './model'
-import { PAGE_SIZES, baseSize } from './pageSizes'
+import { baseSize } from './pageSizes'
 import { toPoints } from './units'
 
 /**
@@ -70,15 +70,11 @@ export const printPaper = (
   settings: Pick<Settings, 'size' | 'custom'>,
   local: Exclude<PageSizeId, 'custom' | 'image'>,
 ): Size => {
-  const id = paper !== 'document' ? paper : settings.size === 'image' ? local : settings.size
-  const size = id === 'custom' ? baseSize({ size: id, custom: settings.custom }) : presetSize(id)
+  const size = baseSize({
+    size: paper !== 'document' ? paper : settings.size === 'image' ? local : settings.size,
+    custom: settings.custom,
+  })
   return { width: Math.min(size.width, size.height), height: Math.max(size.width, size.height) }
-}
-
-const presetSize = (id: Exclude<PageSizeId, 'custom' | 'image'>): Size => {
-  const preset = PAGE_SIZES.find((p) => p.id === id)
-  if (!preset) throw new Error(`Unknown paper: ${id}`)
-  return preset
 }
 
 const clampSheets = (n: number) =>
@@ -98,7 +94,8 @@ export const imposition = (
     paper,
     across: clampSheets(options.across),
     down: clampSheets(options.down),
-    overlap: Math.min(OVERLAP_MAX, Math.max(0, options.overlap)),
+    // A quarter of the paper at most, so small custom paper still steps forward.
+    overlap: Math.min(OVERLAP_MAX, paper.width / 4, Math.max(0, options.overlap)),
     cutMarks: options.cutMarks,
   }
 }
@@ -155,8 +152,12 @@ export interface PrintSheet {
   size: Size
   pages: Placement[]
   cuts: Cut[]
-  /** A poster sheet's place in the grid, "B2" (row B, column 2), and where it's written. */
-  label?: { text: string; x: number; y: number }
+  /**
+   * A poster sheet's place in the grid, "B2" (row B, column 2): its middle,
+   * in a strip `strip` wide that runs down the sheet (`across`: the strip's
+   * width limits the label's) or along it (its height does).
+   */
+  label?: { text: string; x: number; y: number; strip: number; across: boolean }
 }
 
 /**
@@ -204,49 +205,64 @@ export const posterSheets = (
   imposition: Extract<Imposition, { kind: 'poster' }>,
 ): PrintSheet[] => {
   const { paper, across, down, overlap, cutMarks } = imposition
+  const marked = cutMarks && overlap > 0
+  const span = (sheet: Size) => ({
+    width: across * sheet.width - (across - 1) * overlap,
+    height: down * sheet.height - (down - 1) * overlap,
+  })
+  const turned = { width: paper.height, height: paper.width }
   const sheets: PrintSheet[] = []
   pages.forEach((page, index) => {
-    const fit = (sheet: Size) => {
-      const width = across * sheet.width - (across - 1) * overlap
-      const height = down * sheet.height - (down - 1) * overlap
-      return { sheet, width, height, scale: Math.min(width / page.width, height / page.height) }
+    const scaleOn = (sheet: Size) => {
+      const { width, height } = span(sheet)
+      return Math.min(width / page.width, height / page.height)
     }
-    const portrait = fit(paper)
-    const landscape = fit({ width: paper.height, height: paper.width })
-    const best = landscape.scale > portrait.scale + 1e-9 ? landscape : portrait
-    const { sheet, scale } = best
-    const ox = (best.width - page.width * scale) / 2
-    const oy = (best.height - page.height * scale) / 2
+    const sheet = scaleOn(turned) > scaleOn(paper) + 1e-9 ? turned : paper
+    const scale = scaleOn(sheet)
+    const { width, height } = span(sheet)
+    const w = page.width * scale
+    const h = page.height * scale
+    const ox = (width - w) / 2
+    const oy = (height - h) / 2
     for (let row = 0; row < down; row++) {
       for (let col = 0; col < across; col++) {
         const tx = col * (sheet.width - overlap)
         const ty = row * (sheet.height - overlap)
+        // A sheet in the margin round a page of another shape would print blank.
+        if (ox >= tx + sheet.width || ox + w <= tx || oy >= ty + sheet.height || oy + h <= ty) {
+          continue
+        }
         const left = col > 0
         const top = row > 0
-        const cuts: Cut[] =
-          cutMarks && overlap > 0
-            ? [
-                ...(left ? [{ axis: 'x' as const, at: overlap }] : []),
-                ...(top ? [{ axis: 'y' as const, at: overlap }] : []),
-              ]
-            : []
-        const strip = Math.max(overlap, 0)
-        const text = `${ROWS[row] ?? String(row + 1)}${String(col + 1)}`
-        const label =
-          cutMarks && across * down > 1 && strip > 0
-            ? left
-              ? { x: strip / 2, y: sheet.height / 2 }
-              : top
-                ? { x: sheet.width / 2, y: strip / 2 }
-                : col < across - 1
-                  ? { x: sheet.width - strip / 2, y: sheet.height / 2 }
-                  : { x: sheet.width / 2, y: sheet.height - strip / 2 }
-            : null
+        const cuts: Cut[] = marked
+          ? [
+              ...(left ? [{ axis: 'x' as const, at: overlap }] : []),
+              ...(top ? [{ axis: 'y' as const, at: overlap }] : []),
+            ]
+          : []
+        // In a strip that is cut off (left, top) or covered (right, bottom).
+        const at = left
+          ? { x: overlap / 2, y: sheet.height / 2, room: overlap }
+          : top
+            ? { x: sheet.width / 2, y: overlap / 2, room: Infinity }
+            : col < across - 1
+              ? { x: sheet.width - overlap / 2, y: sheet.height / 2, room: overlap }
+              : { x: sheet.width / 2, y: sheet.height - overlap / 2, room: Infinity }
         sheets.push({
           size: sheet,
           pages: [{ page: index, x: ox - tx, y: oy - ty, scale }],
           cuts,
-          ...(label ? { label: { text, ...label } } : {}),
+          ...(marked && across * down > 1
+            ? {
+                label: {
+                  text: `${ROWS[row] ?? ''}${String(col + 1)}`,
+                  x: at.x,
+                  y: at.y,
+                  strip: overlap,
+                  across: at.room !== Infinity,
+                },
+              }
+            : {}),
         })
       }
     }

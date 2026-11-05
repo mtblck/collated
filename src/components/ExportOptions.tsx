@@ -378,10 +378,10 @@ export const ExportOptions = ({
                 onPrint={(patch) => {
                   onSplit({ print: { ...split.print, ...patch } })
                 }}
-                pageCount={'parts' in plan ? (plan.parts[0]?.pageIds.length ?? 0) : pageCount}
-                files={files}
+                pageCounts={
+                  'parts' in plan ? plan.parts.map((part) => part.pageIds.length) : [pageCount]
+                }
                 unit={settings.unit}
-                bookmarks={settings.bookmarkFiles}
               />
             )}
 

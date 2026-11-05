@@ -73,7 +73,7 @@ const request = (
       ...(password ? { password } : {}),
       ...(text ? { text } : {}),
       ...(Object.keys(rendered).length ? { rendered } : {}),
-      ...(outline?.length && !print ? { outline } : {}),
+      ...(outline?.length ? { outline } : {}),
       ...(print ? { print } : {}),
     },
     bytes,

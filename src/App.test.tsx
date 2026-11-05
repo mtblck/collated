@@ -1879,7 +1879,7 @@ describe('App', () => {
       expect(
         screen.getByRole('group', { name: 'Print as', hidden: true }),
       ).toHaveAccessibleDescription(
-        /5 pages on 2 sheets, two a side, 3 blank pages at the end\. Print on both sides, flipping on the short edge/,
+        /5 pages on 2 sheets, two a side, with 3 blank pages at the end\. Print on both sides, flipping on the short edge/,
       )
       await user.selectOptions(screen.getByLabelText('Paper'), 'A3')
       await user.click(exportButton())
@@ -1905,7 +1905,7 @@ describe('App', () => {
       )
       expect(
         screen.getByRole('group', { name: 'Print as', hidden: true }),
-      ).toHaveAccessibleDescription(/The page across 3 × 2 sheets\. Cut the marked strips off/)
+      ).toHaveAccessibleDescription(/The page across up to 3 × 2 sheets\. No bookmarks/)
       await user.click(exportButton())
       await waitFor(() => {
         expect(exportPdf).toHaveBeenCalled()

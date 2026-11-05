@@ -12,6 +12,8 @@ import { toPoints } from './units'
 /** How far a cut mark runs in from the sheet's edge. */
 const CUT_LENGTH = toPoints(14, 'mm')
 const LABEL_SIZE = 7
+const CUT_HALO = 1.6
+const CUT_LINE = 0.5
 
 /**
  * Replaces the document's pages with the sheets of a booklet or poster
@@ -60,35 +62,37 @@ export const imposePdf = async (
       })
     }
     for (const cut of sheet.cuts) {
-      // A tick in from each edge: white under black, so it shows on any picture.
-      const ends =
-        cut.axis === 'x'
-          ? [
-              [cut.at, 0, cut.at, CUT_LENGTH],
-              [cut.at, height - CUT_LENGTH, cut.at, height],
-            ]
-          : [
-              [0, cut.at, CUT_LENGTH, cut.at],
-              [sheet.size.width - CUT_LENGTH, cut.at, sheet.size.width, cut.at],
-            ]
-      for (const [x0 = 0, y0 = 0, x1 = 0, y1 = 0] of ends) {
-        for (const [thickness, grey] of [
-          [1.6, 1],
-          [0.5, 0],
+      // A tick in from each edge, on the strip's side of the cut so nothing
+      // of it is left on the part that shows: white under black, so it
+      // shows on any picture.
+      const x = cut.axis === 'x'
+      const run = x ? height : sheet.size.width
+      for (const from of [0, run - CUT_LENGTH]) {
+        for (const [thick, grey] of [
+          [CUT_HALO, 1],
+          [CUT_LINE, 0],
         ] as const) {
-          out.drawLine({
-            start: { x: x0, y: height - y0 },
-            end: { x: x1, y: height - y1 },
-            thickness,
+          // Sheet coordinates run down; PDF ones up.
+          out.drawRectangle({
+            ...(x
+              ? {
+                  x: cut.at - thick,
+                  y: height - from - CUT_LENGTH,
+                  width: thick,
+                  height: CUT_LENGTH,
+                }
+              : { x: from, y: height - cut.at, width: CUT_LENGTH, height: thick }),
             color: grayscale(grey),
           })
         }
       }
     }
-    if (sheet.label) {
-      const f = await font()
-      const { text, x, y } = sheet.label
-      const w = f.widthOfTextAtSize(text, LABEL_SIZE)
+    const { label } = sheet
+    const f = label ? await font() : null
+    const w = label && f ? f.widthOfTextAtSize(label.text, LABEL_SIZE) : 0
+    // Only where it fits inside its strip, so none of it is left in view.
+    if (label && f && (label.across ? w + 4 : LABEL_SIZE + 4) <= label.strip) {
+      const { text, x, y } = label
       out.drawRectangle({
         x: x - w / 2 - 2,
         y: height - y - LABEL_SIZE / 2 - 2,
