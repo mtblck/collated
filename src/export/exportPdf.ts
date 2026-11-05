@@ -6,11 +6,12 @@ import type { OutlineItem } from '../core/outline'
 import type { SplitPart } from '../core/splitBuild'
 import type { OcrWord } from '../core/textLayer'
 import { assetStore } from '../import/assetStore'
-import { layeredImage } from './layered'
+import { forgetForced, layeredImage } from './layered'
 import type { PdfImageInfo } from '../core/pdfImages'
 import type { ExportRequest, ExportResponse, InspectRequest, UnlockRequest } from './protocol'
 
-export type Progress = (done: number, total: number, attempt: number) => void
+/** `drawing`: PDF pages being drawn before the build (PDF/A draws them all). */
+export type Progress = (done: number, total: number, attempt: number, drawing?: boolean) => void
 
 export interface Exported {
   blob: Blob
@@ -22,9 +23,10 @@ export interface Exported {
 
 /**
  * Drawn JPEGs for the PDF pages that hide something, and those with
- * something blacked out (#77), by asset id (see layered.ts).
+ * something blacked out (#77), by asset id (see layered.ts). For PDF/A
+ * (#116), every PDF page.
  */
-const drawLayered = async (state: DocState) => {
+const drawLayered = async (state: DocState, onProgress?: Progress) => {
   const drawn: Record<string, Uint8Array> = {}
   const used = usedAssetIds(state)
   const redacted = new Set(
@@ -34,9 +36,13 @@ const drawLayered = async (state: DocState) => {
         .map((slot) => slot.assetId),
     ),
   )
-  for (const asset of Object.values(state.assets)) {
-    if (asset.format !== 'pdf' || !used.has(asset.id)) continue
-    const jpeg = await layeredImage(asset, redacted.has(asset.id))
+  const pdfPages = Object.values(state.assets).filter(
+    (asset) => asset.format === 'pdf' && used.has(asset.id),
+  )
+  for (const [i, asset] of pdfPages.entries()) {
+    // Only PDF/A draws enough pages to need a count.
+    if (state.settings.pdfa) onProgress?.(i, pdfPages.length, 1, true)
+    const jpeg = await layeredImage(asset, state.settings.pdfa || redacted.has(asset.id))
     if (jpeg) drawn[asset.id] = jpeg
   }
   return drawn
@@ -222,8 +228,8 @@ export const exportPdf = (
       onProgress,
     ).then(finish)
   }
-  return (async () => {
-    const drawn = await drawLayered(state)
+  const buildDrawn = async () => {
+    const drawn = await drawLayered(state, onProgress)
     const first = await send(
       request(state, options.password, options.text, drawn, parts, outline, print),
       type,
@@ -253,7 +259,11 @@ export const exportPdf = (
         onProgress,
       ),
     )
-  })()
+  }
+  // PDF/A's drawings (every PDF page, ~1 MB each) aren't kept for later exports.
+  return buildDrawn().finally(() => {
+    if (state.settings.pdfa) forgetForced()
+  })
 }
 
 const send = (

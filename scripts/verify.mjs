@@ -4653,11 +4653,15 @@ await context.close()
   await scanner.getByRole('button', { name: 'Done' }).tap()
   await scanner.waitFor({ state: 'hidden' })
   await p.waitForSelector('ol[aria-label="3 pages"]', { timeout: 20_000 })
+  // The dialog hides at once; its close event (which unmounts the camera)
+  // comes a task later, so wait for the video to go rather than look once.
   check(
-    await p.evaluate(() => {
-      const v = document.querySelector('[data-testid="scan-video"]')
-      return !v
-    }),
+    await p
+      .waitForSelector('[data-testid="scan-video"]', { state: 'detached', timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      ),
     'Done closes the camera',
   )
   const labels = await p
@@ -4761,7 +4765,101 @@ await context.close()
   await camBrowser.close()
 }
 
-// 45. Booklets and posters (#119), by touch on a 390px phone: five pages
+// 45. PDF/A (#116), by touch on a 390px phone: a typed password is set aside
+//     with a reason, a photo with Polish text and a three-page PDF export as
+//     PDF/A-2b with OCR: veraPDF passes it (when VERAPDF is set), every font
+//     is embedded, the PDF pages are drawn and their neighbour's text reads back.
+{
+  const { context: phone, page: p } = await open({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+    locale: 'pl-PL',
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles('[data-testid="file-input"]', [
+    join(fixtures, 'text-page-pl.jpg'),
+    join(fixtures, 'quad-3pages.pdf'),
+  ])
+  await p.waitForSelector('ol[aria-label="4 pages"]', { timeout: 20_000 })
+  await exportMenu(p).tap()
+  const panel = p.getByRole('dialog', { name: 'Export options' })
+  await panel.getByLabel('Password to open').fill('hunter2')
+  const archive = panel.getByRole('checkbox', { name: 'PDF/A, for archiving' })
+  await archive.scrollIntoViewIfNeeded()
+  const row = archive.locator('xpath=..')
+  const rowHeight = (await row.boundingBox())?.height ?? 0
+  check(rowHeight >= 44, 'the PDF/A row is a 44px touch target', String(rowHeight))
+  await archive.tap()
+  check(await archive.isChecked(), 'tapping PDF/A ticks it')
+  check(
+    (await panel.getByLabel('Password to open').count()) === 0 &&
+      (await panel.getByText('a PDF/A file can’t have a password').count()) === 1,
+    'PDF/A sets the typed password aside and says why',
+  )
+  const ocr = panel.getByRole('checkbox', { name: 'Make text searchable (OCR)' })
+  if (!(await ocr.isChecked())) await ocr.tap()
+  await archive.scrollIntoViewIfNeeded()
+  await p.screenshot({ path: join(shots, 'pdfa-phone.png') })
+  await axe(p, 'PDF/A option on a phone')
+  const [d] = await Promise.all([
+    p.waitForEvent('download', { timeout: 180_000 }),
+    panel.getByRole('button', { name: 'Export PDF/A' }).tap(),
+  ])
+  const path = join(mkdtempSync(join(tmpdir(), 'collated-verify-pdfa-')), 'archive.pdf')
+  await d.saveAs(path)
+  const run = (tool, args) => {
+    try {
+      return execFileSync(tool, args, { stdio: ['ignore', 'pipe', 'ignore'] }).toString()
+    } catch (error) {
+      return error.stdout ? String(error.stdout) : null
+    }
+  }
+  if (process.env.VERAPDF) {
+    const report = run(process.env.VERAPDF, ['-f', '2b', '--format', 'text', '-v', path]) ?? ''
+    check(/^PASS /m.test(report), 'veraPDF passes the export as PDF/A-2b', report)
+  } else {
+    console.log('  (veraPDF not run: set VERAPDF=scripts/verapdf.sh)')
+  }
+  const fonts = run('pdffonts', [path])
+  if (fonts !== null) {
+    const rows = fonts
+      .split('\n')
+      .slice(2)
+      .filter((r) => r.trim())
+    check(
+      rows.length > 0 && rows.every((r) => /\s+yes\s+(yes|no)\s+(yes|no)\s+\d+\s+\d+\s*$/.test(r)),
+      'every font in the PDF/A is embedded',
+      fonts,
+    )
+  }
+  const images = run('pdfimages', ['-list', path])
+  if (images !== null) {
+    const pagesWithImages = new Set(
+      images
+        .split('\n')
+        .slice(2)
+        .filter((r) => r.trim())
+        .map((r) => r.trim().split(/\s+/)[0]),
+    )
+    check(
+      ['2', '3', '4'].every((n) => pagesWithImages.has(n)),
+      'the PDF’s pages are drawn as pictures',
+      images,
+    )
+  }
+  const text = run('pdftotext', ['-f', '1', '-l', '1', path, '-'])
+  if (text !== null) {
+    check(
+      text.replace(/\s+/g, ' ').includes('Zażółć gęślą jaźń'),
+      'the photo’s Polish text reads back from the PDF/A',
+      text.slice(0, 200),
+    )
+  }
+  await phone.close()
+}
+
+// 46. Booklets and posters (#119), by touch on a 390px phone: five pages
 //     with page numbers print as a booklet of two sheets, the numbers in
 //     folding order; one page as a 2 × 2 poster gets four labelled sheets.
 {

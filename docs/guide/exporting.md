@@ -5,7 +5,7 @@ order: 6
 
 # Exporting
 
-**Export** in the toolbar (it says how many pages, or files, it will make) opens the export options: everything below. At the foot, always in view, are the estimated file size and **Export PDF**, which builds the file and saves it to your downloads (or **Export JPG**, **Export 3 PNGs** and so on, when saving [as images](#save-as)). When a password is set, it says **Export locked PDF**. While a file is being built, the toolbar button shows its progress.
+**Export** in the toolbar (it says how many pages, or files, it will make) opens the export options: everything below. At the foot, always in view, are the estimated file size and **Export PDF**, which builds the file and saves it to your downloads (or **Export JPG**, **Export 3 PNGs** and so on, when saving [as images](#save-as)). When a password is set, it says **Export locked PDF**, and with [PDF/A](#pdf-a-for-archiving) on, **Export PDF/A**. While a file is being built, the toolbar button shows its progress.
 
 ## Save as
 
@@ -71,6 +71,10 @@ Stamps text across your pages, such as "Copy for Acme Bank only", so a copy of a
 The PDF's built-in font covers Latin letters, including accents (é, ß, å). Other letters, such as Ł or Cyrillic, can only be burned into image pages; Collated says so under the text.
 
 Like the title, the watermark's text and the pages it's on aren't remembered for next time; how it looks is.
+
+## PDF/A for archiving
+
+**PDF/A, for archiving** saves the kind of PDF that courts, governments and records offices ask for (PDF/A-2b, which they accept wherever they ask for PDF/A). Its fonts and colours are kept inside the file, so it opens and prints the same in any reader, for decades. Photos and scans look as they do in any export; text you typed on a page, the watermark and page numbers are set in Arimo, a font with Helvetica's shapes and spacing, kept in the file. Pages from PDFs you added become pictures of themselves (drawn at about 300 dpi, then stored at the quality you chose), because their own fonts and colours may not meet the standard: turn on [searchable text](#searchable-text-ocr) to keep their words searchable. A PDF/A file can't have a password (an archive must open without one), so the password field is set aside while it's on; what you typed comes back if you turn PDF/A off.
 
 ## Password
 

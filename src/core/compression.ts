@@ -1,7 +1,7 @@
 import type { Asset, Quality } from './model'
 import type { PdfImageInfo } from './pdfImages'
 import { PT_PER_IN } from './units'
-import { MAX_CANVAS_PIXELS } from './limits'
+import { LAYERED_EDGE, MAX_CANVAS_PIXELS } from './limits'
 
 /** A compression step: the printed resolution images are capped at, and the JPEG quality. */
 export interface Compression {
@@ -126,6 +126,20 @@ const QUALITY_FACTOR = (q: number) => (q >= 0.85 ? 0.8 : q >= 0.8 ? 0.65 : q >= 
 const JPEG_BYTES_PER_PIXEL = (q: number) =>
   q >= 0.85 ? 0.35 : q >= 0.8 ? 0.25 : q >= 0.7 ? 0.18 : 0.12
 
+/** A PDF page as the export draws it (see layeredPage): five pixels a point, at most LAYERED_EDGE long, JPEG at 0.92. */
+const drawing = <T extends Pick<Asset, 'width' | 'height' | 'byteLength'>>(asset: T): T => {
+  const scale = Math.min(5, LAYERED_EDGE / Math.max(asset.width, asset.height))
+  const width = Math.round(asset.width * scale)
+  const height = Math.round(asset.height * scale)
+  return {
+    ...asset,
+    format: 'jpeg',
+    width,
+    height,
+    byteLength: Math.round(width * height * JPEG_BYTES_PER_PIXEL(0.92)),
+  }
+}
+
 export const estimateBytes = (
   items: {
     asset: Pick<Asset, 'id' | 'bytesId' | 'width' | 'height' | 'format' | 'byteLength'> &
@@ -133,6 +147,8 @@ export const estimateBytes = (
     drawnWidthPt: number
   }[],
   compression: Compression | null,
+  /** PDF/A (#116): every PDF page goes as a drawing, a JPEG like a photo's. */
+  { drawPdfPages = false }: { drawPdfPages?: boolean } = {},
 ): number => {
   const counted = new Set<string>()
   /** Per PDF file: the longest any of its pages is drawn, and the pictures its used pages draw. */
@@ -141,7 +157,9 @@ export const estimateBytes = (
     { bytes: number; longPt: number; images: Map<string, PdfImageInfo> }
   >()
   let total = 2_000 // document overhead
-  for (const { asset, drawnWidthPt } of items) {
+  for (const item of items) {
+    const { drawnWidthPt } = item
+    const asset = drawPdfPages && item.asset.format === 'pdf' ? drawing(item.asset) : item.asset
     if (asset.format === 'pdf') {
       const file = pdfs.get(asset.bytesId) ?? {
         bytes: asset.byteLength,

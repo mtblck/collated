@@ -35,7 +35,11 @@ jobs:
       - run: npm ci --ignore-scripts
       # `npm run check`, with the tests run through `coverage` so CI can report it.
       - run: npm run format:check && npm run lint && npm run changelog:check && npm run typecheck
+      # veraPDF checks the PDF/A exports (#116); fetched from Maven Central first.
+      - run: scripts/verapdf.sh --version
       - run: npm run coverage
+        env:
+          VERAPDF: scripts/verapdf.sh
       - run: npm run build
       # Report only: whole-repo and changed-line coverage in the job summary, plus
       # coverage/diff-coverage.json for the Claude review. Fails only below the
@@ -77,9 +81,11 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npx playwright install --with-deps chromium
       - run: npm run build
+      - run: scripts/verapdf.sh --version
       - run: npm run verify
         env:
           SHOTS: shots
+          VERAPDF: scripts/verapdf.sh
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

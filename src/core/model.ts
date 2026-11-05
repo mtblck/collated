@@ -98,6 +98,11 @@ export interface Settings {
   ocrLanguage: OcrLanguage
   /** Bookmark each imported file at its first page (#75). Missing in work saved before. */
   bookmarkFiles: boolean
+  /**
+   * Export PDF/A-2b, for archiving (#116): fonts embedded, PDF pages drawn,
+   * never a password. Missing in work saved before.
+   */
+  pdfa: boolean
 }
 
 /**

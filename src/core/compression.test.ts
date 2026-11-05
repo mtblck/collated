@@ -148,4 +148,25 @@ describe('estimateBytes', () => {
     expect(small).toBeLessThan(original / 4)
     expect(small).toBeGreaterThan(100_000)
   })
+
+  it('counts each PDF page as a drawing for PDF/A (#116)', () => {
+    const pages = [1, 2, 3].map((n) =>
+      asset(`p${String(n)}`, {
+        format: 'pdf',
+        bytesId: 'f',
+        byteLength: 50_000,
+        width: 612,
+        height: 792,
+      }),
+    )
+    const items = pages.map((a) => ({ asset: a, drawnWidthPt: 612 }))
+    expect(estimateBytes(items, null)).toBe(52_000)
+    // 3060 × 3960 at five pixels a point, about 4 MB each as a 0.92 JPEG.
+    const drawn = estimateBytes(items, null, { drawPdfPages: true })
+    expect(drawn).toBeGreaterThan(3 * 3_000_000)
+    // A quality step shrinks the drawings like photos.
+    expect(estimateBytes(items, QUALITY_PRESETS.small, { drawPdfPages: true })).toBeLessThan(
+      drawn / 4,
+    )
+  })
 })

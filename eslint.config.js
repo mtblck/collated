@@ -43,6 +43,7 @@ export default tseslint.config(
       'src/core/pdfUnlock.ts',
       'src/core/glyphless.ts',
       'src/core/imposePdf.ts',
+      'src/core/pdfa.ts',
       'src/core/splitBuild.ts',
       'src/**/*.test.ts',
       'src/export/pdf.worker.ts',
@@ -55,7 +56,7 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                '/core/(pdf(Sanitize|Unlock|Images)?|splitBuild|glyphless|imposePdf)$|^\\./(pdf(Sanitize|Unlock|Images)?|splitBuild|glyphless|imposePdf)$',
+                '/core/(pdf(Sanitize|Unlock|Images|a)?|splitBuild|glyphless|imposePdf)$|^\\./(pdf(Sanitize|Unlock|Images|a)?|splitBuild|glyphless|imposePdf)$',
               allowTypeImports: true,
               message: 'core/pdf pulls pdf-lib into the main bundle; use it from the worker.',
             },

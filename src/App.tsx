@@ -103,7 +103,8 @@ export interface AppDeps {
   importFile: (file: File, newId: () => string, options?: ImportOptions) => Promise<Imported>
   exportPdf: (
     doc: DocState,
-    onProgress: (done: number, total: number, attempt: number) => void,
+    /** `drawing`: PDF pages being drawn first (PDF/A draws them all, #116). */
+    onProgress: (done: number, total: number, attempt: number, drawing?: boolean) => void,
     options?: {
       password?: string
       text?: Record<string, OcrWord[]>
@@ -770,7 +771,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
 
   // Normalised so the same password typed on another keyboard or system
   // (composed vs decomposed accents, full-width forms) opens the file.
-  const lockPassword = password.normalize('NFKC')
+  // PDF/A files can't be locked (#116): what's typed is kept, not used.
+  const lockPassword = settings.pdfa ? '' : password.normalize('NFKC')
   const passwordError =
     new TextEncoder().encode(lockPassword).length > PASSWORD_MAX_BYTES
       ? `Too long: a PDF password can use at most ${PASSWORD_MAX_BYTES} bytes (about ${PASSWORD_MAX_BYTES} plain letters, fewer with accents or other scripts), and anything after that would be silently ignored.`
@@ -805,6 +807,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
               ...settings,
               quality: 'original',
               maxBytes: null,
+              // Images can't be PDF/A, and their PDF pages stay sharp as vectors.
+              pdfa: false,
               pageNumbers: { ...settings.pageNumbers, start: part.start },
             },
           },
@@ -914,13 +918,19 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     setSupportNote(false)
     try {
       // OCR first, page by page, so progress is visible. Vector PDF pages
-      // are skipped (their text is real); one that hides a layer is
-      // exported as a drawing, so it's read from that drawing (#52).
+      // are skipped (their text is real); one that hides a layer, or any
+      // for PDF/A, is exported as a drawing, so it's read from that drawing (#52).
       let text: Record<string, OcrWord[]> | undefined
       if (settings.ocr) {
         text = {}
         // Each picture of a combined page is read on its own (#76).
         const readable: { key: string; slot: Slot; asset: Asset; drawn?: Uint8Array }[] = []
+        // PDF/A draws every PDF page first (#116): count them, so the wait shows.
+        const pdfSlots = settings.pdfa
+          ? exportPages.flatMap(picturesOf).filter((s) => assets[s.assetId]?.format === 'pdf')
+              .length
+          : 0
+        let drawnCount = 0
         for (const page of exportPages) {
           for (const [i, slot] of picturesOf(page).entries()) {
             const asset = assets[slot.assetId]
@@ -928,8 +938,12 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             const key = pictureKey(page, i)
             if (asset.format !== 'pdf') readable.push({ key, slot, asset })
             else {
+              if (pdfSlots) {
+                setExporting({ busy: true, done: drawnCount++, total: pdfSlots, phase: 'images' })
+              }
               // One with something blacked out goes as a drawing whatever it hides (#77).
-              const drawn = await deps.drawnPage(asset, isRedacted(slot))
+              // PDF/A draws every PDF page (#116).
+              const drawn = await deps.drawnPage(asset, settings.pdfa || isRedacted(slot))
               if (drawn) readable.push({ key, slot, asset, drawn })
             }
           }
@@ -965,8 +979,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       setStatus('Building PDF…')
       const result = await deps.exportPdf(
         exportDoc,
-        (done, total, attempt) => {
-          setExporting({ busy: true, done, total, attempt })
+        (done, total, attempt, drawing) => {
+          setExporting({ busy: true, done, total, attempt, ...(drawing && { phase: 'images' }) })
         },
         {
           ...(lockPassword ? { password: lockPassword } : {}),
@@ -984,7 +998,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       const used = result.compression ? `${result.compression.dpi} dpi` : 'original images'
       setLastExport({ size, used, fits: result.fits })
       setStatus(
-        `Saved ${filename} (${parts ? `${String(parts.length)} PDFs, ` : ''}${print ? `as a ${print.kind}, ` : ''}${size}, ${used}${text ? ', searchable' : ''}${lockPassword ? ', password-protected' : ''}).`,
+        `Saved ${filename} (${parts ? `${String(parts.length)} PDFs, ` : ''}${print ? `as a ${print.kind}, ` : ''}${size}, ${used}${text ? ', searchable' : ''}${settings.pdfa ? ', PDF/A' : ''}${lockPassword ? ', password-protected' : ''}).`,
       )
       if (!result.fits && settings.maxBytes !== null) {
         notify(
@@ -1545,6 +1559,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           })
         }),
         compressionFor(settings.quality),
+        { drawPdfPages: settings.pdfa },
       ),
     [assets, exportPages, settings],
   )

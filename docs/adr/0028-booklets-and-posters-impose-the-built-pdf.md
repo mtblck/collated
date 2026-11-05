@@ -2,7 +2,7 @@
 public: true
 ---
 
-# 0027: Booklets and posters impose the built pages as XObjects
+# 0028: Booklets and posters impose the built pages as XObjects
 
 - **Status:** Accepted
 - **Date:** 2026-11-05

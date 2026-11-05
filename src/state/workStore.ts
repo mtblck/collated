@@ -98,6 +98,7 @@ const mapAssets = (
       settings: {
         ...state.settings,
         bookmarkFiles: saved.bookmarkFiles ?? false,
+        pdfa: saved.pdfa ?? false,
         ocrLanguage: saved.ocrLanguage ?? 'eng',
         watermark: saved.watermark ?? NO_WATERMARK,
       },

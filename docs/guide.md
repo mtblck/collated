@@ -12,7 +12,7 @@ Collated turns a stack of scanned pages or phone photos into one PDF. You add th
 - [Arranging pages](guide/arranging-pages.md): order, rotation, straightening, cropping, filters.
 - [Filling in and signing a page](guide/signing.md): type on a form, tick its boxes, add the date, and draw, type or photograph your signature.
 - [Page setup](guide/page-setup.md): paper size, orientation, margins.
-- [Exporting](guide/exporting.md): quality, file size, searchable text, page numbers, bookmarks, watermarks, passwords.
+- [Exporting](guide/exporting.md): quality, file size, searchable text, page numbers, bookmarks, watermarks, PDF/A, passwords.
 - [Keyboard](guide/keyboard.md): every shortcut.
 - [Privacy and security](guide/privacy-and-security.md): what stays on your device, and what's in the PDF.
 - [Troubleshooting](guide/troubleshooting.md): when something doesn't look right.

@@ -1101,6 +1101,35 @@ describe('App', () => {
     expect(JSON.stringify([...store.values()])).not.toContain('hunter2')
   })
 
+  it('exports PDF/A without the password typed, and says so (#116)', async () => {
+    const exportPdf = vi.fn<AppDeps['exportPdf']>(() =>
+      Promise.resolve({ blob: new Blob(['%PDF']), compression: null, fits: true }),
+    )
+    const { user, upload } = setup({ exportPdf })
+    await upload('a.jpg')
+    await user.click(await findExportMenu())
+    await user.type(screen.getByLabelText('Password to open'), 'hunter2')
+    await user.click(screen.getByRole('checkbox', { name: 'PDF/A, for archiving' }))
+    // The field gives way to why there's no password.
+    expect(screen.queryByLabelText('Password to open')).not.toBeInTheDocument()
+    expect(screen.getByText(/a PDF\/A file can’t have a password/)).toHaveTextContent(
+      'The password you typed isn’t used.',
+    )
+    expect(exportMenu()).toHaveAccessibleName('Export · 1 page, options')
+    await user.click(screen.getByRole('button', { name: 'Export PDF/A', hidden: true }))
+    await waitFor(() => {
+      expect(exportPdf).toHaveBeenCalled()
+    })
+    expect(exportPdf.mock.calls[0]?.[0].settings.pdfa).toBe(true)
+    expect(exportPdf.mock.calls[0]?.[2]).toEqual({})
+    expect(status()).toHaveTextContent('PDF/A')
+    expect(status()).not.toHaveTextContent('password-protected')
+    // Off again, the password is back in use.
+    await user.click(exportMenu())
+    await user.click(screen.getByRole('checkbox', { name: 'PDF/A, for archiving' }))
+    expect(screen.getByLabelText('Password to open')).toHaveValue('hunter2')
+  })
+
   it('shows page numbers on the pages when switched on', async () => {
     const { user, upload } = setup()
     await upload('a.jpg', 'b.jpg')

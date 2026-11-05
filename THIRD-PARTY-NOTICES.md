@@ -75,6 +75,11 @@ Typefaces (Geist, Geist Mono, and Dancing Script for typed signatures,
 Copyright 2016 The Dancing Script Project Authors, Reserved Font Name
 “Dancing Script”) are under the SIL Open Font License 1.1.
 
+Arimo (Copyright 2020 The Arimo Project Authors, SIL Open Font License 1.1,
+text in `licenses/arimo-OFL.txt`) is embedded in PDF/A exports for typed text,
+the watermark and page numbers, cut to the Windows-1252 characters by
+`scripts/make-archive-font.py`.
+
 The blank font in searchable text (`CollatedGlyphless`, built by
 `scripts/make-glyphless-font.py`) is Collated's own, under its MIT licence;
 nothing in it is copied from another font. It's embedded in exported PDFs
