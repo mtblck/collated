@@ -16,7 +16,8 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { asset, fixture, page, settings } from '../../tests/helpers'
 import { layoutPage, layoutSheet, type Layout } from './geometry'
 import { DEFAULT_TRANSFORM, blankPage } from './model'
-import type { Asset, Page, PageTransform, Settings, SheetKind, Slot } from './model'
+import type { Asset, Mark, Page, PageTransform, Settings, SheetKind, Slot } from './model'
+import { markBox } from './marks'
 import { passthrough } from './imageInfo'
 import { pdfFilename } from './filename'
 import {
@@ -1027,5 +1028,145 @@ describe('watermark (#78)', () => {
       expect(job.scale * picture.image.width).toBeGreaterThanOrEqual((picture.job?.width ?? 0) - 1)
       expect(job.quality).toBeLessThan(0.92)
     })
+  })
+})
+
+describe('signatures (#111)', () => {
+  /** A 300 × 100 PNG: transparent, with a magenta bar along its middle third. */
+  const SIGNATURE = new Uint8Array(
+    execFileSync('python3', [
+      '-c',
+      `import sys; from PIL import Image, ImageDraw
+im = Image.new('RGBA', (300, 100), (0, 0, 0, 0))
+ImageDraw.Draw(im).rectangle((0, 34, 299, 65), fill=(230, 0, 200, 255))
+im.save(sys.stdout.buffer, 'PNG')`,
+    ]),
+  )
+  const MAGENTA = [230, 0, 200]
+  const signatureAsset = asset('signature-s1', {
+    format: 'png',
+    width: 300,
+    height: 100,
+    name: 'Signature',
+  })
+  const mark = (patch: Partial<Mark> = {}): Mark => ({
+    id: 'm1',
+    kind: 'signature',
+    assetId: signatureAsset.id,
+    x: 0.3,
+    y: 0.9,
+    width: 0.45,
+    angle: 0,
+    ...patch,
+  })
+
+  const signed = async (s: Settings, file: string, marks: Mark[], flatten?: FlattenJob[]) => {
+    const { meta, bytes } = await fileAsset(file)
+    const assets = { [meta.id]: meta, [signatureAsset.id]: signatureAsset }
+    const pages = [page('p0', meta.id, { marks })]
+    const out = await buildPdf(
+      { settings: s, pages, assets },
+      {
+        getBytes: (id) => (id === signatureAsset.bytesId ? SIGNATURE : bytes),
+        processImage: (b, job) => Promise.resolve(canvasStandIn(b, job)),
+        flattenPage: (job) => {
+          flatten?.push(job)
+          return Promise.resolve(
+            new Uint8Array(
+              execFileSync('python3', [
+                '-c',
+                `import sys; from PIL import Image; Image.new('RGB', (${String(Math.round(job.page.width))}, ${String(Math.round(job.page.height))}), 'white').save(sys.stdout.buffer, 'JPEG')`,
+              ]),
+            ),
+          )
+        },
+        now: NOW,
+      },
+    )
+    const sheet = layoutSheet(s, assets, pages[0] ?? page('p0', meta.id))
+    return { bytes: out, sheet, assets }
+  }
+
+  /** The magenta bar where `markBox` says, the page (not the PNG's box) round it. */
+  const expectSigned = (pixel: (x: number, y: number) => number[], box: Layout['image']) => {
+    const r = (box.rotation * Math.PI) / 180
+    const at = (u: number, v: number) => {
+      const dx = u * box.width
+      const dy = v * box.height
+      return [
+        box.cx + dx * Math.cos(r) - dy * Math.sin(r),
+        box.cy + dx * Math.sin(r) + dy * Math.cos(r),
+      ] as const
+    }
+    // The bar's middle and its ends along the signature's own axis…
+    for (const u of [-0.45, 0, 0.45]) {
+      const [x, y] = at(u, 0)
+      expect(close(pixel(x, y), MAGENTA), `bar at ${x.toFixed(0)},${y.toFixed(0)}`).toBe(true)
+    }
+    // …and above and below it, the transparent PNG shows what's under it.
+    for (const v of [-0.4, 0.4]) {
+      const [x, y] = at(0, v)
+      expect(close(pixel(x, y), MAGENTA), `clear at ${x.toFixed(0)},${y.toFixed(0)}`).toBe(false)
+    }
+  }
+
+  it.skipIf(!hasPdftoppm)(
+    'draws it over a photo where the preview does, turned, in the margin too',
+    async () => {
+      const s = settings({ size: 'letter', orientation: 'portrait', margin: 72 })
+      const m = mark({ x: 0.5, y: 0.95, angle: 12 })
+      const { bytes, sheet } = await signed(s, 'quad-landscape.jpg', [m])
+      const box = markBox(m, sheet.page, signatureAsset)
+      const pixel = rasterise(bytes)
+      expectSigned(pixel, box)
+      // The photo is still there under the page's content.
+      const picture = sheet.pictures[0]
+      if (picture) expectDrawn(pixel, picture)
+    },
+  )
+
+  it.skipIf(!hasPdftoppm)('draws it over a PDF page, keeping the page as vectors', async () => {
+    const s = settings({ size: 'image' })
+    const m = mark({ x: 0.6, y: 0.4, width: 0.3, angle: -20 })
+    const { bytes, sheet } = await signed(s, 'quad-3pages.pdf#0', [m])
+    expectSigned(rasterise(bytes), markBox(m, sheet.page, signatureAsset))
+    const doc = await PDFDocument.load(bytes)
+    const xobjects = doc.getPage(0).node.Resources()?.lookup(PDFName.of('XObject'), PDFDict)
+    // The source page as a form, and the signature as an image.
+    const subtypes = (xobjects?.keys() ?? []).map((k) =>
+      String(
+        (xobjects?.lookup(k) as PDFRawStream | undefined)?.dict.get(PDFName.of('Subtype')) ?? '',
+      ),
+    )
+    expect(subtypes.toSorted()).toEqual(['/Form', '/Image'])
+  })
+
+  it('burns it into a flattened page, under the watermark', async () => {
+    const s = settings({
+      watermark: { ...NO_WATERMARK, show: true, text: 'Copy', flatten: true },
+    })
+    const jobs: FlattenJob[] = []
+    // Small on the page, so its own pixels ask for more than 150 dpi.
+    const m = mark({ width: 0.1 })
+    const { sheet } = await signed(s, 'quad-landscape.jpg', [m], jobs)
+    expect(jobs).toHaveLength(1)
+    const box = markBox(m, sheet.page, signatureAsset)
+    expect(jobs[0]?.marks).toEqual([{ bytes: SIGNATURE, image: box }])
+    // Drawn at no less than the signature's own resolution.
+    expect((jobs[0]?.scale ?? 0) * box.width).toBeGreaterThanOrEqual(signatureAsset.width - 1e-6)
+  })
+
+  it('refuses a page whose signature is missing', async () => {
+    const { meta, bytes } = await fileAsset('quad-landscape.jpg')
+    await expect(
+      buildPdf(
+        {
+          settings: settings(),
+          pages: [page('p0', meta.id, { marks: [mark()] })],
+          assets: { [meta.id]: meta },
+        },
+        { getBytes: () => bytes, now: NOW },
+      ),
+    ).rejects.toThrow(/Page 1 refers to missing content/)
   })
 })

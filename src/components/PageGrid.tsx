@@ -10,6 +10,7 @@ import { memo, useEffect, useMemo, useRef, useState, type ComponentProps } from 
 import { layoutSheet } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
 import { watermarkMark } from '../core/watermark'
+import { placedMarks } from '../core/marks'
 import { pageCovers } from '../core/redact'
 import { picturesOf, sizeModel, type Asset, type Page, type Settings } from '../core/model'
 import { IconButton } from './controls'
@@ -72,6 +73,7 @@ const PageCard = memo(function PageCard({
     [settings, assets, page, like],
   )
   const covers = useMemo(() => pageCovers(page, assets), [page, assets])
+  const marks = useMemo(() => placedMarks(page, sheet.page, assets), [page, sheet.page, assets])
   const mark = numberMark(settings.pageNumbers, index, sheet.page, sheet.content.x)
   const watermark = watermarkMark(
     settings.watermark,
@@ -120,7 +122,7 @@ const PageCard = memo(function PageCard({
             ? { 'aria-pressed': selected }
             : { 'aria-current': selected ? 'true' : undefined })}
           data-page-select
-          aria-label={`Page ${index + 1}: ${name}${section ? `, starts section ${section}` : ''}${blank ? ', looks blank' : ''}`}
+          aria-label={`Page ${index + 1}: ${name}${section ? `, starts section ${section}` : ''}${marks.length ? ', signed' : ''}${blank ? ', looks blank' : ''}`}
           onClick={(event) => {
             const mode = pickModeOf(event)
             onSelect(page.id, selecting && mode === 'only' ? 'toggle' : mode)
@@ -137,6 +139,7 @@ const PageCard = memo(function PageCard({
             sheet={sheet}
             thumbUrls={thumbUrls}
             covers={covers}
+            marks={marks}
             selected={selected}
             mark={mark}
             watermark={watermark}

@@ -40,4 +40,18 @@ describe('useBlankPages', () => {
     })
     expect(result.current.blankIds).toEqual([])
   })
+
+  it('never flags a signed page (#111)', async () => {
+    const signed = page('signed', 'empty1', {
+      marks: [
+        { id: 'm', kind: 'signature', assetId: 'text', x: 0.5, y: 0.5, angle: 0, width: 0.3 },
+      ],
+    })
+    const pages = [page('p1', 'empty2'), signed]
+    const { result } = renderHook(() => useBlankPages(pages, assets, detect))
+    await waitFor(() => {
+      expect(result.current.checking).toBe(false)
+    })
+    expect(result.current.blankIds).toEqual(['p1'])
+  })
 })

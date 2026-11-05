@@ -1,10 +1,12 @@
 import { PAGE_MAX, PAGE_MIN } from './limits'
 import { interleave, reverse, sort, type SortKey } from './order'
 import { isConvex, type Point, type Quad } from './perspective'
+import { cleanMarks } from './marks'
 import { cleanRedactions } from './redact'
 import type {
   Asset,
   DocState,
+  Mark,
   Page,
   PageTransform,
   QuarterTurns,
@@ -63,6 +65,12 @@ export type Action =
   | { type: 'sortPages'; by: SortKey; ids?: string[] }
   | { type: 'resetPage'; id: string }
   | { type: 'applyToAll'; id: string }
+  /**
+   * Puts these marks (#111) on a page, replacing what it had; `assets` are
+   * the pictures they show that the document doesn't hold yet. Empty
+   * removes them all.
+   */
+  | { type: 'setMarks'; id: string; marks: Mark[]; assets?: Asset[] }
   /** Names the section that starts at a page (#75); blank removes it. */
   | { type: 'setSection'; id: string; title: string }
   | { type: 'setSettings'; patch: Partial<Settings> }
@@ -380,6 +388,30 @@ export const docReducer = (state: DocState, action: Action): DocState => {
           if (p.id !== action.id) return p
           if (title.trim()) return { ...p, section: title }
           const { section: _, ...rest } = p
+          return rest
+        }),
+      }
+    }
+
+    case 'setMarks': {
+      const marks = cleanMarks(action.marks)
+      const assets = { ...state.assets }
+      for (const asset of action.assets ?? []) assets[asset.id] = asset
+      // A mark whose picture the document doesn't have would only fail the export.
+      const kept = marks.filter((mark) => assets[mark.assetId])
+      const page = state.pages.find((p) => p.id === action.id)
+      // Nothing changed (an editor applied as it opened): no undo step.
+      const fresh = (action.assets ?? []).some((a) => state.assets[a.id] !== a)
+      if (!page || (!fresh && JSON.stringify(page.marks ?? []) === JSON.stringify(kept))) {
+        return state
+      }
+      return {
+        ...state,
+        assets,
+        pages: state.pages.map((p) => {
+          if (p.id !== action.id) return p
+          if (kept.length) return { ...p, marks: kept }
+          const { marks: _, ...rest } = p
           return rest
         }),
       }

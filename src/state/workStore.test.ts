@@ -50,6 +50,24 @@ describe('work store (#74)', () => {
     expect([...reachableAssets(present).keys()].sort()).toEqual(['a', 'b'])
   })
 
+  it('keeps the signatures on a page (#111)', () => {
+    let h = docOf('a')
+    const signature = { ...asset('sig'), format: 'png' as const }
+    h = reduce(h, {
+      type: 'do',
+      action: {
+        type: 'setMarks',
+        id: 'p-a',
+        marks: [
+          { id: 'm', kind: 'signature', assetId: 'sig', x: 0.5, y: 0.5, angle: 0, width: 0.3 },
+        ],
+        assets: [signature],
+      },
+    })
+    const present = { past: [], present: h.present, future: [], lastKey: null }
+    expect([...reachableAssets(present).keys()].sort()).toEqual(['a', 'sig'])
+  })
+
   it('round-trips the history, undo included, with fresh thumbnail URLs', async () => {
     const backend = memoryBackend()
     const store = createWorkStore(backend, () => 1234)

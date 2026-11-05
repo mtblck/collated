@@ -41,6 +41,7 @@ export const PAGES: readonly PageSpec[] = [
       ['getting-started', 'Getting started'],
       ['adding-pages', 'Adding pages'],
       ['arranging-pages', 'Arranging pages'],
+      ['signing', 'Signing a page'],
       ['page-setup', 'Page setup'],
       ['exporting', 'Exporting'],
       ['keyboard', 'Keyboard'],

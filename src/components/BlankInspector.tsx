@@ -1,7 +1,9 @@
 import { useEffect, useId, useMemo, useRef } from 'react'
 import { layoutSheet } from '../core/geometry'
 import { numberMark } from '../core/pageNumbers'
-import type { Asset, Page, Settings } from '../core/model'
+import { placedMarks } from '../core/marks'
+import { SignSection } from './SignSection'
+import type { Asset, Mark, Page, Settings } from '../core/model'
 import { Button, IconButton, Segmented } from './controls'
 import { ArrowLeftIcon, ArrowRightIcon, CopyIcon, TrashIcon } from './Icons'
 import { PagePreview } from './PagePreview'
@@ -22,6 +24,8 @@ export interface BlankActions {
   onRemove: () => void
   /** Names the section that starts at this page; blank removes it. */
   onSection: (title: string) => void
+  /** Puts these signatures on the page (#111), with any pictures new to the document. */
+  onMarks: (marks: Mark[], added: Asset[]) => void
   onGestureEnd: () => void
 }
 
@@ -53,6 +57,7 @@ export const BlankInspector = ({
     [settings, assets, page, like],
   )
   const mark = numberMark(settings.pageNumbers, index, sheet.page, sheet.content.x)
+  const marks = useMemo(() => placedMarks(page, sheet.page, assets), [page, sheet.page, assets])
   const boxRatio = Math.max(sheet.page.width / sheet.page.height, 3 / 4)
   const landscape = page.turns % 2 === 1
   // Page setup decides unless its orientation is Auto.
@@ -87,7 +92,8 @@ export const BlankInspector = ({
           {BLANK_NAME}
         </h2>
         <p className="mt-2 text-xs leading-relaxed text-ink-muted">
-          Nothing is printed on it but its page number, if page numbers are on.
+          Nothing is printed on it but its page number, if page numbers are on, and any signature
+          you put on it.
         </p>
       </header>
 
@@ -95,7 +101,7 @@ export const BlankInspector = ({
         className="relative w-full rounded-xl bg-paper-sunk p-5"
         style={{ aspectRatio: boxRatio }}
       >
-        <PagePreview sheet={sheet} thumbUrls={[]} showMargins mark={mark} />
+        <PagePreview sheet={sheet} thumbUrls={[]} marks={marks} showMargins mark={mark} />
       </div>
 
       <div>
@@ -119,6 +125,17 @@ export const BlankInspector = ({
               : 'Sized by page setup.'}
         </p>
       </div>
+
+      <SignSection
+        pageLabel={`page ${String(index + 1)}`}
+        page={page}
+        sheet={sheet}
+        thumbUrls={[]}
+        watermark={null}
+        numbers={mark}
+        assets={assets}
+        onMarks={actions.onMarks}
+      />
 
       <SectionField
         value={page.section ?? ''}

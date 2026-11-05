@@ -5,7 +5,7 @@ order: 90
 
 # Privacy notice
 
-_Last updated 27 October 2026._
+_Last updated 5 November 2026._
 
 Collated is a free, open-source tool. It is built so that your documents never leave your device, and this notice explains exactly what that means.
 
@@ -19,6 +19,7 @@ The files you add, the pages you arrange and the PDFs you export are processed o
 - **Your current document,** so you can pick up where you left off after a reload or a closed tab: the files you added (each stored once), their small previews, the page order and settings, the section names, the title, and the undo history. A PDF you opened with its password is kept as an unlocked copy, so restoring it doesn't ask again; the password itself is never kept. It's kept in your browser's IndexedDB (a database called `collated-work`) on this device only, and next time you open Collated it asks **Restore your last document?** The password is never stored. **Discard** on that question, **Start over**, or turning off **Keep work after a reload** (in the **More** menu) deletes it straight away; with that setting off (remembered as `collated:keep-work`) nothing about your document is stored. If a document is too large for the space your browser allows, Collated tells you and keeps nothing of it.
 - **Your light or dark theme choice** (`mb-theme`).
 - **When Collated last asked for support** (`collated:support-prompt`): the date it last showed the note after an export, or `off` once you choose **Don’t ask again** or follow one of its links. Nothing about the export itself.
+- **Signatures you save,** only if you tick **Save on this device for next time** when you make one (it starts unticked): the picture of the signature (a small transparent image) and when you saved it, in your browser's IndexedDB (a database called `collated-signatures`), on this device only and never uploaded. The 12 most recent are kept. Delete one under **Saved** when you sign a page; clearing this site's data in your browser deletes them all. **Start over** and **Keep work after a reload** don't touch them, since they aren't part of a document. A signature you put on a page is part of that document, and is kept with it as described above.
 - **Collated itself,** so it opens and works without a connection: its code, fonts and help pages, and once you've used them the HEIC and TIFF decoders and the text-recognition engine, are kept in your browser's Cache Storage. They contain nothing about your documents. Files you share to Collated from another app wait there too, for the moment it takes the app to open, and are then deleted.
 - **Text-recognition data:** if you use searchable text, the recognition data for each language you've used (1–8 MB once unpacked) is cached in your browser's IndexedDB so it doesn't download again; so is the orientation data (about 11 MB unpacked) if you use **Auto-rotate pages**. Neither contains anything about your documents.
 

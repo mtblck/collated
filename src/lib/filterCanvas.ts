@@ -211,7 +211,8 @@ export const processToBlob = (source: Blob, job: ImageJob) =>
  * A whole page as one JPEG, watermark burned in (#78): white paper, each
  * picture processed as the export would embed it (black-outs included) and
  * placed as the layout says (the same turn about its centre the preview's CSS
- * makes), clipped to its cell, then the watermark over everything.
+ * makes), clipped to its cell, then any signatures, then the watermark over
+ * everything.
  */
 export const flattenToBlob = async (job: FlattenJob) => {
   const want = job.page.width * job.page.height * job.scale * job.scale
@@ -251,6 +252,20 @@ export const flattenToBlob = async (job: FlattenJob) => {
       ctx.restore()
     } finally {
       if (image instanceof ImageBitmap) image.close()
+    }
+  }
+  // Signatures (#111): over the pictures, turned about their middles as the preview turns them.
+  for (const placed of job.marks) {
+    const image = await createImageBitmap(new Blob([placed.bytes as Uint8Array<ArrayBuffer>]))
+    try {
+      const { cx, cy, width, height, rotation } = placed.image
+      ctx.save()
+      ctx.translate(cx, cy)
+      ctx.rotate((rotation * Math.PI) / 180)
+      ctx.drawImage(image, -width / 2, -height / 2, width, height)
+      ctx.restore()
+    } finally {
+      image.close()
     }
   }
   const { mark } = job

@@ -33,6 +33,7 @@ import { layoutSheet, partLayout, snapPart, visiblePart, type Layout, type Part 
 import { compressionFor, targetPixels, type Compression } from './compression'
 import { contentSize, isRedacted, pictureKey, picturesOf, sizeModel } from './model'
 import type { Asset, Filter, Page, Redaction, Settings } from './model'
+import { markBox } from './marks'
 import { redactionShapes, wordsClear } from './redact'
 import { FULL_IMAGE, apply, homography, type Quad } from './perspective'
 import { NeedsDrawing, embedSanitized, reachesHiddenLayer, sanitizedPage } from './pdfSanitize'
@@ -135,6 +136,8 @@ export interface FlattenJob {
     /** Its cell: nothing is drawn outside it. */
     clip: Layout['content']
   }[]
+  /** Signatures (#111), over the pictures and under the watermark: PNG bytes and where each goes. */
+  marks: { bytes: Uint8Array; image: Layout['image'] }[]
   mark: WatermarkMark
   /** JPEG quality, 0–1. */
   quality: number
@@ -555,7 +558,10 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
 
   for (const [index, page] of pages.entries()) {
     const pictures = picturesOf(page)
-    if (pictures.some((slot) => !assets[slot.assetId])) {
+    if (
+      pictures.some((slot) => !assets[slot.assetId]) ||
+      (page.marks ?? []).some((mark) => !assets[mark.assetId])
+    ) {
       throw new Error(`Page ${index + 1} refers to missing content.`)
     }
     const sheet = layoutSheet(
@@ -589,6 +595,12 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
       const job = imageJob(stored, look, layout.image.width, compression, part)
       return [{ i, layout, stored, look, part, job }]
     })
+    // Signatures (#111) and other marks: over the pictures, anywhere on the
+    // page (margins included), under the watermark and page number.
+    const marks = (page.marks ?? []).flatMap((mark) => {
+      const asset = assets[mark.assetId]
+      return asset ? [{ asset, box: markBox(mark, sheet.page, asset) }] : []
+    })
     // Burned in only where every picture is pixels: a vector page keeps its
     // text and gets the watermark as text.
     const flatten =
@@ -611,10 +623,18 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
           clip: layout.content,
         })
       }
+      // A signature keeps its own sharpness too.
+      for (const { asset, box } of marks) scale = Math.max(scale, asset.width / box.width)
       const jpeg = await options.flattenPage({
         page: sheet.page,
         scale,
         pictures: pieces,
+        marks: await Promise.all(
+          marks.map(async ({ asset, box }) => ({
+            bytes: await options.getBytes(asset.bytesId),
+            image: box,
+          })),
+        ),
         mark: watermark,
         quality: compression?.quality ?? 0.92,
       })
@@ -646,6 +666,12 @@ export const buildPdf = async (input: BuildInput, options: BuildOptions): Promis
         if (content.kind === 'page') pdfPage.drawPage(content.page, draw)
         else pdfPage.drawImage(content.image, draw)
         pdfPage.pushOperators(popGraphicsState())
+      }
+      for (const { asset, box } of marks) {
+        const content = await embed(asset, null)
+        if (content.kind !== 'image') continue
+        const at = placement({ ...sheet, image: box, dpi: 0 }, content.turns)
+        pdfPage.drawImage(content.image, { ...at, rotate: degrees(at.rotate) })
       }
     }
 
