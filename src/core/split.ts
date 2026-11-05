@@ -1,4 +1,5 @@
 import { IMAGE_TYPES, imagesWord, isImageFormat, type ExportFormat } from './imageExport'
+import { DEFAULT_PRINT, type PrintOptions } from './impose'
 import type { Page } from './model'
 
 /**
@@ -23,6 +24,8 @@ export interface SplitOptions {
    * pages, one file each, so the split modes don't apply to them.
    */
   format: ExportFormat
+  /** Pages as they are, a booklet or a poster (#119); each file of a split on its own. PDF only. */
+  print: PrintOptions
 }
 
 export const DEFAULT_SPLIT: SplitOptions = {
@@ -31,6 +34,7 @@ export const DEFAULT_SPLIT: SplitOptions = {
   every: 1,
   numbering: 'restart',
   format: 'pdf',
+  print: DEFAULT_PRINT,
 }
 
 /** One output file: its pages in order, and the number printed on its first page. */

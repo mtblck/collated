@@ -18,6 +18,7 @@ import { cx } from './cx'
 import type { ExportState } from './DocumentBar'
 import { DownloadIcon, LockIcon } from './Icons'
 import { NumberField } from './NumberField'
+import { PrintLayout } from './PrintLayout'
 import { POPOVER_FRAME, POPOVER_WIDTH, closeOwnPopover, useCloseOnFocusOut } from './popover'
 import { TOOLBAR_ITEM } from './toolbarItem'
 
@@ -102,6 +103,7 @@ export const ExportOptions = ({
     | 'ocr'
     | 'ocrLanguage'
     | 'bookmarkFiles'
+    | 'unit'
   >
   pageCount: number
   exporting: ExportState
@@ -368,6 +370,20 @@ export const ExportOptions = ({
                 {summary}
               </p>
             </fieldset>
+
+            {!images && (
+              <PrintLayout
+                id={id}
+                print={split.print}
+                onPrint={(patch) => {
+                  onSplit({ print: { ...split.print, ...patch } })
+                }}
+                pageCount={'parts' in plan ? (plan.parts[0]?.pageIds.length ?? 0) : pageCount}
+                files={files}
+                unit={settings.unit}
+                bookmarks={settings.bookmarkFiles}
+              />
+            )}
 
             <fieldset className="mt-4" aria-describedby={`${id}-quality-hint`}>
               <legend className="label mb-2 text-ink-faint">Image quality</legend>

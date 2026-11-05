@@ -1858,6 +1858,66 @@ describe('App', () => {
     })
   })
 
+  describe('booklets and posters (#119)', () => {
+    const pdfMock = () =>
+      vi.fn<AppDeps['exportPdf']>(() =>
+        Promise.resolve({
+          blob: new Blob(['%PDF'], { type: 'application/pdf' }),
+          compression: null,
+          fits: true,
+        }),
+      )
+
+    it('prints five pages as a booklet on A3, saying how it folds', async () => {
+      const exportPdf = pdfMock()
+      const { user, deps, upload } = setup({ exportPdf })
+      await upload('a.jpg', 'b.jpg', 'c.jpg', 'd.jpg', 'e.jpg')
+      await screen.findByRole('list', { name: '5 pages' })
+      await user.click(await findExportMenu())
+      const booklet = screen.getByRole('radio', { name: 'Booklet', hidden: true })
+      await user.click(booklet)
+      expect(
+        screen.getByRole('group', { name: 'Print as', hidden: true }),
+      ).toHaveAccessibleDescription(
+        /5 pages on 2 sheets, two a side, 3 blank pages at the end\. Print on both sides, flipping on the short edge/,
+      )
+      await user.selectOptions(screen.getByLabelText('Paper'), 'A3')
+      await user.click(exportButton())
+      await waitFor(() => {
+        expect(deps.download).toHaveBeenCalled()
+      })
+      const [doc, , options] = exportPdf.mock.calls[0] ?? []
+      expect(doc?.pages).toHaveLength(5)
+      expect(options?.print?.kind).toBe('booklet')
+      expect(options?.print?.paper.height).toBeCloseTo(1190.55, 1)
+    })
+
+    it('tiles a poster across the chosen sheets, and leaves it off for images', async () => {
+      const exportPdf = pdfMock()
+      const { user, upload } = setup({ exportPdf })
+      await upload('a.jpg')
+      await screen.findByRole('list', { name: '1 page' })
+      await user.click(await findExportMenu())
+      await user.click(screen.getByRole('radio', { name: 'Poster', hidden: true }))
+      await user.selectOptions(screen.getByLabelText('Sheets across'), '3')
+      await user.click(
+        screen.getByRole('checkbox', { name: 'Cut marks and sheet labels', hidden: true }),
+      )
+      expect(
+        screen.getByRole('group', { name: 'Print as', hidden: true }),
+      ).toHaveAccessibleDescription(/The page across 3 × 2 sheets\. Cut the marked strips off/)
+      await user.click(exportButton())
+      await waitFor(() => {
+        expect(exportPdf).toHaveBeenCalled()
+      })
+      const [, , options] = exportPdf.mock.calls[0] ?? []
+      expect(options?.print).toMatchObject({ kind: 'poster', across: 3, down: 2, cutMarks: false })
+      // Images are each page as it is: no print layout to choose.
+      await user.click(screen.getByRole('radio', { name: 'JPG', hidden: true }))
+      expect(screen.queryByRole('radio', { name: 'Poster', hidden: true })).toBeNull()
+    })
+  })
+
   describe('save pages as images (#117)', () => {
     const card = (n: number) => screen.getByRole('button', { name: new RegExp(`^Page ${n}:`) })
     const jpeg = (n: number) => new Blob([new Uint8Array(n)], { type: 'image/jpeg' })
