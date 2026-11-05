@@ -214,8 +214,8 @@ export interface Page {
    */
   blank?: true
   /**
-   * What is put on the page itself, over its pictures (#111): signatures,
-   * and in time text and stamps (#112). Placed on the page, not on a
+   * What is put on the page itself, over its pictures: signatures (#111),
+   * text, ticks and crosses (#112). Placed on the page, not on a
    * picture, so a combined or blank page takes them too. Unset or empty:
    * none. Reset keeps them; combining or splitting pages drops them (their
    * places mean nothing on the new pages).
@@ -246,8 +246,29 @@ export interface ImageMark extends MarkPlace {
   width: number
 }
 
-/** Everything a page can carry over its pictures. #112 adds text and stamps here. */
-export type Mark = ImageMark
+/**
+ * Typed text (#112): one or more lines in Helvetica, the standard font the
+ * watermark uses, so only Windows-1252 characters. `size` is the font size
+ * as a fraction of the page's width (so it keeps its place on a form when
+ * the paper changes, as the rest of the mark does); its box follows the
+ * text. `colour` is `#rrggbb`.
+ */
+export interface TextMark extends MarkPlace {
+  kind: 'text'
+  text: string
+  size: number
+  colour: string
+}
+
+/** A tick or a cross (#112), drawn as strokes: `width` is its side, a fraction of the page's width. */
+export interface StampMark extends MarkPlace {
+  kind: 'tick' | 'cross'
+  width: number
+  colour: string
+}
+
+/** Everything a page can carry over its pictures. */
+export type Mark = ImageMark | TextMark | StampMark
 
 /**
  * How a combined page is laid out: `two` stacked along the page's long side,

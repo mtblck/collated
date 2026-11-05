@@ -240,3 +240,24 @@ export const SignIcon = (p: P) => (
     <path d="M3 17.5c2.5-1.5 4 .5 6-1s3.5.5 5.5-.5" />
   </Icon>
 )
+
+/** Typed text on a page (#112). */
+export const TextIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M4.5 5V3.5h11V5M10 3.5v13M7.5 16.5h5" />
+  </Icon>
+)
+
+/** Today's date on a page (#112). */
+export const CalendarIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M3.5 5h13v11.5h-13zM3.5 8.5h13M7 3v3.5M13 3v3.5" />
+  </Icon>
+)
+
+/** A cross mark on a page (#112), drawn as the stamp is. */
+export const CrossMarkIcon = (p: P) => (
+  <Icon {...p} strokeWidth="2">
+    <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />
+  </Icon>
+)

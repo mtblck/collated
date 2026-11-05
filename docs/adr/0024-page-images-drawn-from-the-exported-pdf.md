@@ -2,7 +2,7 @@
 public: true
 ---
 
-# 0023: Pages saved as images are drawn from the exported PDF
+# 0024: Pages saved as images are drawn from the exported PDF
 
 - **Status:** Accepted
 - **Date:** 2026-11-05

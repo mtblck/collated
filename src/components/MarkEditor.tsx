@@ -2,12 +2,21 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEve
 import type { SheetLayout } from '../core/geometry'
 import {
   MARK_ANGLE_LIMIT,
-  MARK_MAX_WIDTH,
-  MARK_MIN_WIDTH,
+  MARK_COLOURS,
+  TEXT_MAX_LENGTH,
   cleanMark,
+  isImageMark,
   markBox,
+  markReady,
+  markTextProblems,
   newSignature,
+  newStamp,
+  newText,
   placedMarks,
+  sizeLimits,
+  sizeOf,
+  todayText,
+  withSize,
 } from '../core/marks'
 import type { Asset, Mark } from '../core/model'
 import type { NumberMark } from '../core/pageNumbers'
@@ -16,7 +25,18 @@ import type { WatermarkMark } from '../core/watermark'
 import { assetStore } from '../import/assetStore'
 import type { SavedSignature, SignatureStore } from '../state/signatureStore'
 import { Button, IconButton } from './controls'
-import { MinusIcon, PlusIcon, RotateLeftIcon, RotateRightIcon, SignIcon, TrashIcon } from './Icons'
+import {
+  CalendarIcon,
+  CheckIcon,
+  CrossMarkIcon,
+  MinusIcon,
+  PlusIcon,
+  RotateLeftIcon,
+  RotateRightIcon,
+  SignIcon,
+  TextIcon,
+  TrashIcon,
+} from './Icons'
 import { PagePreview } from './PagePreview'
 import { SignatureMaker } from './SignatureMaker'
 import { cx } from './cx'
@@ -64,17 +84,57 @@ type Gesture =
 
 const percent = (n: number) => `${String(Math.round(n * 1000) / 10)}%`
 
+const KIND_NAMES: Record<Mark['kind'], string> = {
+  signature: 'Signature',
+  text: 'Text',
+  tick: 'Tick',
+  cross: 'Cross',
+}
+
 /**
- * Puts signatures on a page (#111), and in time text and stamps (#112):
+ * The part of the screen the page can use: on a phone, the on-screen
+ * keyboard covers the bottom of the layout viewport without shrinking it
+ * (iOS, and Android Chrome by default), so the dialog follows the visual
+ * viewport instead and the text being typed stays above the keyboard.
+ */
+const useVisibleHeight = () => {
+  const [view, setView] = useState<{ height: number; top: number; keyboard: boolean } | null>(null)
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const read = () => {
+      // Zoomed in, the visual viewport is a magnifier, not what's left of the screen.
+      if (Math.abs(vv.scale - 1) > 0.01) {
+        setView(null)
+        return
+      }
+      const keyboard = window.innerHeight - vv.height > 120
+      setView(keyboard ? { height: vv.height, top: vv.offsetTop, keyboard } : null)
+    }
+    read()
+    vv.addEventListener('resize', read)
+    vv.addEventListener('scroll', read)
+    return () => {
+      vv.removeEventListener('resize', read)
+      vv.removeEventListener('scroll', read)
+    }
+  }, [])
+  return view
+}
+
+/**
+ * Puts signatures (#111), text, dates, ticks and crosses (#112) on a page:
  * the page as it will print, with each mark drawn where the export puts it.
  * A native modal dialog that fills a phone's screen; nothing changes until
  * Apply, so the whole visit is one undo step.
  *
  * Every gesture has a one-finger or keyboard way too (WCAG 2.5.1, 2.5.7):
- * drag a signature to move it, its corner to size it, the knob above it to
- * turn it, or pinch with two fingers to do both; or tap the page to move the
+ * drag a mark to move it, its corner to size it, the knob above it to turn
+ * it, or pinch with two fingers to do both; or tap the page to move the
  * selected one there, and use Smaller, Larger and the turn buttons; or the
  * arrow keys, + and −, [ and ] (Shift for bigger steps), Delete to remove.
+ * Text is typed in a box under the page, which stays above a phone's
+ * on-screen keyboard (`useVisibleHeight`).
  */
 export const MarkEditor = ({
   title,
@@ -84,6 +144,7 @@ export const MarkEditor = ({
   watermark = null,
   numbers = null,
   initial,
+  start = 'sign',
   assets,
   store,
   onApply,
@@ -96,6 +157,8 @@ export const MarkEditor = ({
   watermark?: WatermarkMark | null
   numbers?: NumberMark | null
   initial: readonly Mark[]
+  /** With nothing on the page yet: open the signature pad (`sign`), or the page itself (`fill`). */
+  start?: 'sign' | 'fill'
   /** The document's assets: the pictures existing marks show. */
   assets: Readonly<Record<string, Asset>>
   store: SignatureStore
@@ -107,12 +170,14 @@ export const MarkEditor = ({
   const dialog = useRef<HTMLDialogElement>(null)
   const overlay = useRef<HTMLDivElement>(null)
   const addButton = useRef<HTMLButtonElement>(null)
+  const textBox = useRef<HTMLTextAreaElement>(null)
   const markRefs = useRef(new Map<string, HTMLButtonElement>())
   const [marks, setMarks] = useState<Mark[]>(() => [...initial])
   const [added, setAdded] = useState<Record<string, Asset>>({})
   const [selected, setSelected] = useState<string | null>(initial[0]?.id ?? null)
-  // With nothing on the page yet, start by making or picking a signature.
-  const [making, setMaking] = useState(initial.length === 0)
+  // Signing an empty page starts by making or picking a signature.
+  const [making, setMaking] = useState(start === 'sign' && initial.length === 0)
+  const visible = useVisibleHeight()
   const [announcement, setAnnouncement] = useState('')
   const pointers = useRef(new Map<number, { x: number; y: number }>())
   const gesture = useRef<Gesture | null>(null)
@@ -122,6 +187,7 @@ export const MarkEditor = ({
   const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const all = { ...assets, ...added }
   const { page } = sheet
+  const current = marks.find((m) => m.id === selected)
 
   useEffect(() => {
     const d = dialog.current
@@ -135,6 +201,7 @@ export const MarkEditor = ({
     const key = focusNext.current
     focusNext.current = null
     if (key === 'add') addButton.current?.focus()
+    else if (key === 'text') textBox.current?.focus()
     else if (key) markRefs.current.get(key)?.focus()
   })
 
@@ -147,10 +214,22 @@ export const MarkEditor = ({
       }, delay)
   }
 
-  const nameOf = (markId: string) =>
-    `Signature ${String(marks.findIndex((m) => m.id === markId) + 1)}`
-  const where = (mark: Mark) =>
-    `${percent(mark.x)} across, ${percent(mark.y)} down, ${percent(mark.width)} of the page wide${mark.angle ? `, turned ${String(Math.round(mark.angle))}°` : ''}`
+  /** "Signature 1", "Tick 2": counted within its kind, in the order they were added. */
+  const nameOf = (markId: string, list: readonly Mark[] = marks) => {
+    const mark = list.find((m) => m.id === markId)
+    if (!mark) return ''
+    const same = list.filter((m) => m.kind === mark.kind)
+    return `${KIND_NAMES[mark.kind]} ${String(same.indexOf(mark) + 1)}`
+  }
+  const where = (mark: Mark) => {
+    const size =
+      mark.kind === 'text'
+        ? `${String(Math.round(mark.size * page.width))} pt`
+        : `${percent(mark.width)} of the page wide`
+    const turned = mark.angle ? `, turned ${String(Math.round(mark.angle))}°` : ''
+    const says = mark.kind === 'text' ? `“${mark.text.trim() || 'empty'}”, ` : ''
+    return `${says}${percent(mark.x)} across, ${percent(mark.y)} down, ${size}${turned}`
+  }
 
   const update = (markId: string, fn: (mark: Mark) => Mark, say = true) => {
     const mark = marks.find((m) => m.id === markId)
@@ -168,9 +247,23 @@ export const MarkEditor = ({
     setSelected(next?.id ?? null)
     focusNext.current = next?.id ?? 'add'
     announce(
-      `Signature removed. ${rest.length ? `${String(rest.length)} left` : 'None on the page'}.`,
+      `${nameOf(markId)} removed. ${rest.length ? `${String(rest.length)} left` : 'Nothing on the page'}.`,
     )
   }
+
+  /** Where a new text or stamp goes: the middle of the page, each one a little lower. */
+  const spot = () => ({ x: 0.5, y: 0.4 + (marks.length % 8) * 0.06 })
+
+  const add = (mark: Mark, focus: 'mark' | 'text') => {
+    setMarks((list) => [...list, mark])
+    setSelected(mark.id)
+    focusNext.current = focus === 'text' ? 'text' : mark.id
+    const name = nameOf(mark.id, [...marks, mark])
+    announce(
+      `${name} added in the middle of the page. ${focus === 'text' ? 'Type it, then tap' : 'Tap'} the page where it goes, or drag it; arrow keys move it.`,
+    )
+  }
+  const colourNow = () => (current && !isImageMark(current) ? current.colour : undefined)
 
   const place = (signature: SavedSignature) => {
     const asset = all[`signature-${signature.id}`] ?? signatureAsset(signature)
@@ -209,7 +302,7 @@ export const MarkEditor = ({
     const markId = target?.getAttribute('data-mark-id') ?? null
     const handle = target?.getAttribute('data-handle') as 'move' | 'size' | 'turn' | null
     if (pointers.current.size === 2) {
-      // A second finger: pinch the selected signature (or the one being dragged).
+      // A second finger: pinch the selected mark (or the one being dragged).
       const pinched = gesture.current && 'id' in gesture.current ? gesture.current.id : selected
       const from = marks.find((m) => m.id === pinched)
       const fingers = twoFingers()
@@ -246,7 +339,7 @@ export const MarkEditor = ({
         g.id,
         () => ({
           ...g.from,
-          width: g.from.width * (fingers.distance / g.distance),
+          ...withSize(g.from, sizeOf(g.from) * (fingers.distance / g.distance)),
           angle: g.from.angle + fingers.angle - g.angle,
         }),
         false,
@@ -272,7 +365,7 @@ export const MarkEditor = ({
     if (g.kind === 'size') {
       const start = Math.hypot(g.x - c.x, g.y - c.y)
       const now = Math.hypot(event.clientX - c.x, event.clientY - c.y)
-      if (start > 0) update(g.id, () => ({ ...from, width: (from.width * now) / start }), false)
+      if (start > 0) update(g.id, () => withSize(from, (sizeOf(from) * now) / start), false)
       return
     }
     const turned =
@@ -304,7 +397,7 @@ export const MarkEditor = ({
       if (g.moved && mark) announce(`${nameOf(g.id)}, ${where(mark)}.`)
       return
     }
-    // A tap on the page puts the selected signature there.
+    // A tap on the page puts the selected mark there.
     const rect = frame()
     const mark = marks.find((m) => m.id === selected)
     if (g.moved || !rect || !mark) return
@@ -315,7 +408,7 @@ export const MarkEditor = ({
   }
 
   const resize = (markId: string, factor: number) => {
-    update(markId, (m) => ({ ...m, width: m.width * factor }))
+    update(markId, (m) => withSize(m, sizeOf(m) * factor))
   }
   const turn = (markId: string, by: number) => {
     update(markId, (m) => ({ ...m, angle: m.angle + by }))
@@ -352,10 +445,11 @@ export const MarkEditor = ({
     }
   }
 
-  const current = marks.find((m) => m.id === selected)
-  const pictureOf = (mark: Mark) => all[mark.assetId]
-  const atMin = (mark: Mark) => mark.width <= MARK_MIN_WIDTH + 1e-9
-  const atMax = (mark: Mark) => mark.width >= MARK_MAX_WIDTH - 1e-9
+  const atMin = (mark: Mark) => sizeOf(mark) <= sizeLimits(mark).min + 1e-9
+  const atMax = (mark: Mark) => sizeOf(mark) >= sizeLimits(mark).max - 1e-9
+  const boxOf = (mark: Mark) =>
+    markBox(mark, page, isImageMark(mark) ? all[mark.assetId] : undefined)
+  const problems = [...new Set(marks.flatMap(markTextProblems))]
 
   return (
     <dialog
@@ -366,6 +460,19 @@ export const MarkEditor = ({
         'm-0 h-dvh max-h-none w-screen max-w-none overflow-hidden bg-paper p-0 text-ink backdrop:bg-black/50',
         'sm:m-auto sm:h-[calc(100dvh-2rem)] sm:w-[min(60rem,calc(100vw-2rem))] sm:rounded-2xl sm:shadow-panel',
       )}
+      // Above a phone's keyboard while text is typed (see useVisibleHeight).
+      style={
+        visible
+          ? {
+              height: `${String(visible.height)}px`,
+              top: `${String(visible.top)}px`,
+              bottom: 'auto',
+              marginTop: 0,
+              marginBottom: 0,
+            }
+          : undefined
+      }
+      data-keyboard={visible ? '' : undefined}
       onClose={(event) => {
         // React passes the signature maker's close up to here; only ours counts.
         if (event.target === event.currentTarget) onClose()
@@ -376,10 +483,10 @@ export const MarkEditor = ({
           <h2 id={`${id}-title`} className="text-xl font-semibold tracking-tight">
             {title}
           </h2>
-          <p id={`${id}-help`} className="mt-1 text-sm text-ink-muted">
-            Drag a signature into place, or tap the page where it goes. Pinch, or drag its corner,
-            to size it; drag the knob above it to turn it. Keys: arrows move, + and − size, [ and ]
-            turn, Delete removes.
+          <p id={`${id}-help`} className={cx('mt-1 text-sm text-ink-muted', visible && 'sr-only')}>
+            Add a signature, text, today’s date, a tick or a cross, then drag it into place or tap
+            the page where it goes. Pinch, or drag its corner, to size it; drag the knob above it to
+            turn it. Keys: arrows move, + and − size, [ and ] turn, Delete removes.
           </p>
         </div>
 
@@ -401,12 +508,11 @@ export const MarkEditor = ({
               onPointerUp={onPointerEnd}
               onPointerCancel={onPointerEnd}
             >
-              {/* The signatures themselves are drawn by the preview, under the
+              {/* The marks themselves are drawn by the preview, under the
                   watermark and page number as printed; these are their handles. */}
-              {marks.map((mark, index) => {
-                const picture = pictureOf(mark)
-                if (!picture) return null
-                const box = markBox(mark, page, picture)
+              {marks.map((mark) => {
+                const box = boxOf(mark)
+                if (!box) return null
                 const isSelected = mark.id === selected
                 return (
                   <div
@@ -428,11 +534,12 @@ export const MarkEditor = ({
                       type="button"
                       data-handle="move"
                       data-mark-id={mark.id}
-                      aria-label={`Signature ${String(index + 1)}`}
+                      aria-label={nameOf(mark.id)}
                       aria-describedby={`${id}-where-${mark.id}`}
                       aria-pressed={isSelected}
                       className={cx(
-                        'absolute inset-0 cursor-move rounded-sm',
+                        // Small marks (a tick) still get a finger-sized target.
+                        'absolute top-1/2 left-1/2 h-full min-h-6 w-full min-w-6 -translate-x-1/2 -translate-y-1/2 cursor-move rounded-sm',
                         isSelected
                           ? 'outline-2 outline-offset-2 outline-accent'
                           : 'outline-1 outline-accent/50 outline-dashed',
@@ -476,17 +583,93 @@ export const MarkEditor = ({
           {announcement}
         </p>
 
+        {current?.kind === 'text' && (
+          <div>
+            <label htmlFor={`${id}-text`} className="sr-only">
+              {`${nameOf(current.id)}: what it says`}
+            </label>
+            <textarea
+              ref={textBox}
+              id={`${id}-text`}
+              data-mark-text
+              rows={Math.min(4, current.text.split('\n').length)}
+              maxLength={TEXT_MAX_LENGTH}
+              placeholder="Type here"
+              value={current.text}
+              aria-invalid={problems.length > 0}
+              aria-describedby={problems.length ? `${id}-problem` : undefined}
+              // 16px, or iOS zooms the page in when it's focused.
+              className="border-line block w-full resize-none rounded-lg border bg-paper px-3 py-2 text-base"
+              onChange={(event) => {
+                const text = event.target.value
+                update(current.id, (m) => ({ ...m, text }), false)
+              }}
+            />
+          </div>
+        )}
+        {problems.length > 0 && (
+          <p id={`${id}-problem`} role="alert" className="text-sm text-danger">
+            {`The text’s font can’t write ${problems.join(' ')}. Use Latin letters.`}
+          </p>
+        )}
+
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            ref={addButton}
-            onClick={() => {
-              setMaking(true)
-            }}
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Add">
+            <Button
+              ref={addButton}
+              size="sm"
+              onClick={() => {
+                setMaking(true)
+              }}
+            >
+              <SignIcon width={16} height={16} />
+              Signature
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                add(newText(crypto.randomUUID(), page, spot(), '', colourNow()), 'text')
+              }}
+            >
+              <TextIcon width={16} height={16} />
+              Text
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                add(newText(crypto.randomUUID(), page, spot(), todayText(), colourNow()), 'mark')
+              }}
+            >
+              <CalendarIcon width={16} height={16} />
+              Date
+            </Button>
+            <IconButton
+              label="Tick"
+              variant="secondary"
+              onClick={() => {
+                add(newStamp(crypto.randomUUID(), 'tick', page, spot(), colourNow()), 'mark')
+              }}
+            >
+              <CheckIcon width={16} height={16} />
+            </IconButton>
+            <IconButton
+              label="Cross"
+              variant="secondary"
+              onClick={() => {
+                add(newStamp(crypto.randomUUID(), 'cross', page, spot(), colourNow()), 'mark')
+              }}
+            >
+              <CrossMarkIcon width={16} height={16} />
+            </IconButton>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div
+            className="flex flex-wrap gap-1"
+            role="group"
+            aria-label={current ? nameOf(current.id) : 'Selected'}
           >
-            <SignIcon width={16} height={16} />
-            {marks.length ? 'Add another' : 'Add a signature'}
-          </Button>
-          <div className="flex gap-1" role="group" aria-label="Selected signature">
             <IconButton
               label="Smaller"
               disabled={!current || atMin(current)}
@@ -524,7 +707,7 @@ export const MarkEditor = ({
               <RotateRightIcon width={16} height={16} />
             </IconButton>
             <IconButton
-              label="Remove signature"
+              label={current ? `Remove ${nameOf(current.id).toLowerCase()}` : 'Remove'}
               disabled={!current}
               onClick={() => {
                 if (current) remove(current.id)
@@ -533,6 +716,33 @@ export const MarkEditor = ({
               <TrashIcon width={16} height={16} />
             </IconButton>
           </div>
+          {current && !isImageMark(current) && (
+            <div className="flex gap-1" role="radiogroup" aria-label="Colour">
+              {MARK_COLOURS.map((colour) => (
+                <button
+                  key={colour.hex}
+                  type="button"
+                  role="radio"
+                  aria-checked={current.colour === colour.hex}
+                  aria-label={colour.name}
+                  title={colour.name}
+                  className={cx(
+                    'flex size-9 items-center justify-center rounded-full',
+                    current.colour === colour.hex && 'ring-2 ring-accent',
+                  )}
+                  onClick={() => {
+                    update(current.id, (m) => ({ ...m, colour: colour.hex }), false)
+                    announce(`${nameOf(current.id)} in ${colour.name.toLowerCase()}.`)
+                  }}
+                >
+                  <span
+                    className="block size-5 rounded-full border border-paper"
+                    style={{ background: colour.hex }}
+                  />
+                </button>
+              ))}
+            </div>
+          )}
           <div className="ml-auto flex gap-2">
             <Button
               onClick={() => {
@@ -543,9 +753,11 @@ export const MarkEditor = ({
             </Button>
             <Button
               variant="primary"
+              inactive={problems.length > 0}
+              {...(problems.length ? { 'aria-describedby': `${id}-problem` } : {})}
               onClick={() => {
-                const kept = marks.filter((m) => all[m.assetId])
-                const used = new Set(kept.map((m) => m.assetId))
+                const kept = marks.filter((m) => markReady(m, all))
+                const used = new Set(kept.flatMap((m) => (isImageMark(m) ? [m.assetId] : [])))
                 onApply(
                   kept,
                   Object.values(added).filter((a) => used.has(a.id)),

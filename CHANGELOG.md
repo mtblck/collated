@@ -13,6 +13,7 @@ version or date when it ships.
 
 ### Added
 
+- Fill in forms that have no fields (#112): type text, add today's date, or tick and cross boxes anywhere on a page, in black, blue or red. Text is real, selectable text in the PDF. Works by touch on a phone, with the page still in view while the keyboard is up.
 - Install Collated as an app (#73). It opens and works with no connection after your first visit, and in Chrome and Edge (and on Android) it shows up in the share sheet, so photos from the gallery or a PDF from an email go into your document once you confirm them, and in "Open with" for PDFs and images on your computer.
 - **Enhance** filter (#71): whitens the paper and lifts shadows while keeping colour, for photos of forms with stamps, highlighted pages and receipts with logos. It sits between Greyscale and B&W.
 - Select several pages at once (#65): Shift-click for a range, ⌘/Ctrl-click for one more, ⌘A / Ctrl+A for all, or **Select** on a phone. Rotate, straighten, scale, filter, move, duplicate or remove them together, each as one undo step, and drag any of them to move them all.

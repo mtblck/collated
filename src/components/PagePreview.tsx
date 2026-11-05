@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { SheetLayout } from '../core/geometry'
-import type { PlacedMark } from '../core/marks'
+import { STAMP_STROKE, type PlacedMark } from '../core/marks'
 import type { Quad } from '../core/perspective'
 import { NUMBER_GREY, type NumberMark } from '../core/pageNumbers'
 import { WATERMARK_FONT, type WatermarkMark } from '../core/watermark'
@@ -42,7 +42,7 @@ export const PagePreview = ({
   selected?: boolean
   /** The page number to draw, placed exactly as the export places it. */
   mark?: NumberMark | null
-  /** Signatures (#111), placed exactly as the export places them (core/marks.ts). */
+  /** Signatures (#111), text and stamps (#112), placed exactly as the export places them (core/marks.ts). */
   marks?: readonly PlacedMark[]
   /** The watermark (#78), placed exactly as the export places it. */
   watermark?: WatermarkMark | null
@@ -148,24 +148,74 @@ export const PagePreview = ({
         {marks.length > 0 && (
           // Clipped to the paper, as the PDF clips them at its edge.
           <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-            {marks.map(({ id, src, box }) => (
-              <img
-                key={id}
-                data-mark={id}
-                src={src}
-                alt=""
-                draggable={false}
-                decoding="async"
-                className="absolute max-w-none select-none"
-                style={{
-                  left: pct(box.cx, page.width),
-                  top: pct(box.cy, page.height),
-                  width: pct(box.width, page.width),
-                  height: pct(box.height, page.height),
-                  transform: `translate(-50%, -50%) rotate(${String(box.rotation)}deg)`,
-                }}
-              />
-            ))}
+            {marks.map((placed) => {
+              const { box } = placed
+              const style = {
+                left: pct(box.cx, page.width),
+                top: pct(box.cy, page.height),
+                width: pct(box.width, page.width),
+                height: pct(box.height, page.height),
+                transform: `translate(-50%, -50%) rotate(${String(box.rotation)}deg)`,
+              }
+              if (placed.kind === 'image') {
+                return (
+                  <img
+                    key={placed.id}
+                    data-mark={placed.id}
+                    src={placed.src}
+                    alt=""
+                    draggable={false}
+                    decoding="async"
+                    className="absolute max-w-none select-none"
+                    style={style}
+                  />
+                )
+              }
+              // Text and stamps (#112) in the box's own points, so the font
+              // size and baselines are the export's numbers.
+              return (
+                <svg
+                  key={placed.id}
+                  data-mark={placed.id}
+                  data-mark-kind={placed.kind}
+                  viewBox={`0 0 ${String(box.width)} ${String(box.height)}`}
+                  preserveAspectRatio="none"
+                  className="absolute overflow-visible select-none"
+                  style={style}
+                >
+                  {placed.kind === 'text' ? (
+                    <text
+                      fill={placed.colour}
+                      fontFamily={WATERMARK_FONT}
+                      fontSize={placed.size}
+                      style={{ fontKerning: 'none', whiteSpace: 'pre' }}
+                    >
+                      {placed.lines.map((line, i) => (
+                        <tspan key={i} x={0} y={line.baseline}>
+                          {line.text}
+                        </tspan>
+                      ))}
+                    </text>
+                  ) : (
+                    <g
+                      transform={`scale(${String(box.width)} ${String(box.height)})`}
+                      fill="none"
+                      stroke={placed.colour}
+                      strokeWidth={STAMP_STROKE}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      {placed.paths.map((path, i) => (
+                        <polyline
+                          key={i}
+                          points={path.map(([u, v]) => `${String(u)},${String(v)}`).join(' ')}
+                        />
+                      ))}
+                    </g>
+                  )}
+                </svg>
+              )
+            })}
           </div>
         )}
         {watermark && (

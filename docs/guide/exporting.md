@@ -9,7 +9,7 @@ order: 6
 
 ## Save as
 
-**PDF** is the usual choice. **JPG** or **PNG** saves each page as an image instead, for an upload form that won't take a PDF. The image is the page exactly as the PDF would show it: crop, filters, blacked-out areas, watermark and page numbers included. It's drawn at your image quality's resolution: 300 dpi for Original and High, 200 for Balanced, 150 for Small. JPG makes smaller files and suits photos; PNG keeps text perfectly sharp but is larger.
+**PDF** is the usual choice. **JPG** or **PNG** saves each page as an image instead, for an upload form that won't take a PDF. The image is the page exactly as the PDF would show it: crop, filters, blacked-out areas, signatures and text you added, watermark and page numbers included. It's drawn at your image quality's resolution: 300 dpi for Original and High, 200 for Balanced, 150 for Small. JPG makes smaller files and suits photos; PNG keeps text perfectly sharp but is larger.
 
 Images take **All pages** or **Selected pages**, one image each. One page downloads as an image (`Lease.jpg`); several come in one ZIP (`Lease.zip`, holding `Lease-page-1.jpg`, `Lease-page-2.jpg` and so on, numbered `01`, `02` once there are ten or more). On a phone, when they're ready, **Share…** opens the share sheet, so you can save them to your photos or send them straight to an app; **Download** (or **Download ZIP**) saves them as a file instead, and **Not now** drops them. An image can't carry searchable text, a password, bookmarks or a size limit, so those options are hidden while JPG or PNG is chosen.
 
