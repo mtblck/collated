@@ -4065,6 +4065,193 @@ await context.close()
   await phone.close()
 }
 
+// 41. Text, dates and ticks (#112), by touch on a 390px phone: type a name
+//     with the on-screen keyboard up and the box still in view, tap it and a
+//     tick into place, a date too; one undo step; the PDF has the name as
+//     real text and the tick where the preview draws them.
+{
+  const { page: p, context: phone } = await open({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  const form = await PDFDocument.create()
+  const formPage = form.addPage([612, 792])
+  const helvetica = await form.embedFont(StandardFonts.Helvetica)
+  formPage.drawText('NAME', { x: 72, y: 700, size: 12, font: helvetica })
+  formPage.drawRectangle({ x: 72, y: 600, width: 20, height: 20, borderWidth: 1 })
+  formPage.drawText('I agree', { x: 100, y: 605, size: 12, font: helvetica })
+  const dir = mkdtempSync(join(tmpdir(), 'collated-verify-fill-'))
+  const formPath = join(dir, 'form.pdf')
+  writeFileSync(formPath, await form.save())
+  await p.setInputFiles('[data-testid="file-input"]', formPath)
+  await p.waitForSelector('ol[aria-label="1 page"]', { timeout: 20_000 })
+  const card = p.locator('ol[aria-label] > li:nth-child(1) [data-page-select]')
+  const panel = p.locator('aside[aria-label="Selected page"]')
+  await card.tap()
+  await panel.getByRole('button', { name: 'Add text or ticks…' }).tap()
+  const editor = p.getByRole('dialog', { name: 'Fill and sign page 1' })
+  await editor.waitFor()
+  check(
+    (await p.getByRole('dialog', { name: 'Add a signature' }).count()) === 0,
+    'adding text opens the page, not the signature pad',
+  )
+  await editor.getByRole('button', { name: 'Text', exact: true }).tap()
+  const box = editor.getByLabel('Text 1: what it says')
+  check(
+    await box.evaluate((el) => el === document.activeElement),
+    'new text puts the cursor in its box',
+  )
+  // The on-screen keyboard: the visual viewport shrinks to 460px.
+  await p.evaluate(() => {
+    const vv = window.visualViewport
+    Object.defineProperty(vv, 'height', { configurable: true, get: () => 460 })
+    vv.dispatchEvent(new Event('resize'))
+  })
+  await box.fill('Avery Quinn')
+  const name = editor.getByRole('button', { name: 'Text 1', exact: true })
+  const above = await p.evaluate(() => {
+    const dialog = document.querySelector('dialog[open]')
+    const field = document.querySelector('[data-mark-text]')
+    const handle = document.querySelector('[data-mark-stage] [aria-pressed="true"]')
+    return {
+      dialog: dialog?.getBoundingClientRect().bottom,
+      field: field?.getBoundingClientRect().bottom,
+      handle: handle?.getBoundingClientRect().bottom,
+    }
+  })
+  check(
+    above.dialog <= 461 && above.field <= 460 && above.handle <= 460,
+    'the text and its box stay above the on-screen keyboard',
+    JSON.stringify(above),
+  )
+  await p.screenshot({ path: join(shots, 'fill-type-phone.png') })
+  await p.evaluate(() => {
+    const vv = window.visualViewport
+    delete vv.height
+    vv.dispatchEvent(new Event('resize'))
+  })
+  await p.waitForFunction(() => !document.querySelector('dialog[data-keyboard]'))
+  const where = async (handle) =>
+    handle.evaluate(
+      (el) => document.getElementById(el.getAttribute('aria-describedby') ?? '')?.textContent ?? '',
+    )
+  // Tap where the name goes: right of "NAME", on its line (y 792 − 700 from the top).
+  const stage = editor.locator('[data-mark-stage]')
+  const st = await stage.boundingBox()
+  const tapAt = (fx, fy) => stage.tap({ position: { x: fx * st.width, y: fy * st.height } })
+  await tapAt(0.4, (792 - 704) / 792)
+  check(
+    /^“Avery Quinn”, 40(\.\d)?% across, 11(\.\d)?% down, 12 pt$/.test(await where(name)),
+    'a tap puts the text where it goes',
+    await where(name),
+  )
+  // A tick in the box, in blue, a little bigger.
+  await editor.getByRole('button', { name: 'Tick', exact: true }).tap()
+  const tick = editor.getByRole('button', { name: 'Tick 1', exact: true })
+  await tapAt(82 / 612, (792 - 610) / 792)
+  await editor.getByRole('button', { name: 'Larger' }).tap()
+  await editor.getByRole('radio', { name: 'Blue' }).tap()
+  check(
+    /^13(\.\d)?% across, 23(\.\d)?% down/.test(await where(tick)),
+    'a tap puts the tick in the box',
+    await where(tick),
+  )
+  await editor.getByRole('button', { name: 'Date', exact: true }).tap()
+  const today = await p.evaluate(() =>
+    new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date()),
+  )
+  check(
+    (await where(editor.getByRole('button', { name: 'Text 2', exact: true }))).includes(today),
+    'Date adds today’s date',
+    today,
+  )
+  await p.screenshot({ path: join(shots, 'fill-placed-phone.png') })
+  await axe(p, 'fill editor on a phone')
+  const overflow = await p.evaluate(() => document.documentElement.scrollWidth - 390)
+  check(overflow <= 0, 'the fill editor fits a 390px phone', `${overflow}px`)
+  await editor.getByRole('button', { name: 'Apply' }).tap()
+  await editor.waitFor({ state: 'hidden' })
+  const filled = async () => /, filled in/.test((await card.getAttribute('aria-label')) ?? '')
+  check(await filled(), 'the page is filled in in the grid')
+  check(
+    (await panel.getByRole('button', { name: 'Edit 3 items…' }).count()) === 1,
+    'the panel offers to edit the three items',
+  )
+  await p.evaluate(() => document.activeElement?.blur())
+  await p.keyboard.press('Control+z')
+  check(!(await filled()), 'one undo takes them all off')
+  await p.keyboard.press('Control+Shift+z')
+  check(await filled(), 'redo puts them back')
+
+  // The PDF: the name as real text, and the blue tick, where the preview draws them.
+  const sheet = await card.locator('.sheet').boundingBox()
+  const nameBox = await card.locator('svg[data-mark-kind="text"]').first().boundingBox()
+  const tickBox = await card.locator('svg[data-mark-kind="stamp"]').boundingBox()
+  const [dl] = await Promise.all([p.waitForEvent('download', { timeout: 120_000 }), exportNow(p)])
+  const out = join(dir, 'filled.pdf')
+  await dl.saveAs(out)
+  if (hasPoppler) {
+    const xml = execFileSync('pdftotext', ['-bbox', out, '-']).toString()
+    const avery = /<word xMin="([\d.]+)" yMin="([\d.]+)"[^>]*>Avery<\/word>/.exec(xml)
+    check(
+      avery !== null && xml.includes('>Quinn<') && xml.includes(`>${today.split(' ')[0]}<`),
+      'the PDF has the name and date as text',
+    )
+    const left = (nameBox.x - sheet.x) / sheet.width
+    check(
+      avery && Math.abs(Number(avery[1]) / 612 - left) < 0.01,
+      'the PDF sets the name where the preview does',
+      `${avery?.[1]} pt vs ${(left * 612).toFixed(1)} pt`,
+    )
+    const prefix = join(dir, 'filled-page')
+    execFileSync('pdftoppm', ['-png', '-r', '72', '-f', '1', '-l', '1', '-singlefile', out, prefix])
+    const blue = await p.evaluate(
+      async ({ png, box }) => {
+        const img = new Image()
+        img.src = `data:image/png;base64,${png}`
+        await img.decode()
+        const canvas = new OffscreenCanvas(img.width, img.height)
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0)
+        const share = (x0, y0, x1, y1) => {
+          const w = Math.max(1, Math.round((x1 - x0) * img.width))
+          const h = Math.max(1, Math.round((y1 - y0) * img.height))
+          const { data } = ctx.getImageData(
+            Math.round(x0 * img.width),
+            Math.round(y0 * img.height),
+            w,
+            h,
+          )
+          let n = 0
+          for (let i = 0; i < data.length; i += 4) if (data[i + 2] > data[i] + 60) n++
+          return n / (w * h)
+        }
+        return {
+          inside: share(box.x0, box.y0, box.x1, box.y1),
+          beside: share(box.x1 + 0.05, box.y0, box.x1 + 0.05 + (box.x1 - box.x0), box.y1),
+        }
+      },
+      {
+        png: readFileSync(`${prefix}.png`).toString('base64'),
+        box: {
+          x0: (tickBox.x - sheet.x) / sheet.width,
+          y0: (tickBox.y - sheet.y) / sheet.height,
+          x1: (tickBox.x + tickBox.width - sheet.x) / sheet.width,
+          y1: (tickBox.y + tickBox.height - sheet.y) / sheet.height,
+        },
+      },
+    )
+    check(
+      blue.inside > 0.08 && blue.beside === 0,
+      'the PDF draws the blue tick where the preview does',
+      JSON.stringify(blue),
+    )
+  }
+  await phone.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()
