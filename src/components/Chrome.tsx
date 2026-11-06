@@ -189,6 +189,100 @@ export const RestoreOffer = ({ pages, savedAt, busy, onRestore, onDiscard }: Res
   </section>
 )
 
+/** Guide pages the landing view's advanced features point to. */
+const GUIDE = {
+  adding: { href: `${DOCS_URL}adding-pages/`, label: 'Adding pages' },
+  arranging: { href: `${DOCS_URL}arranging-pages/`, label: 'Arranging pages' },
+  signing: { href: `${DOCS_URL}signing/`, label: 'Filling in and signing' },
+  exporting: { href: `${DOCS_URL}exporting/`, label: 'Exporting' },
+} as const
+
+/**
+ * The landing view's second act: what Collated does past add, arrange and
+ * export, which people otherwise only find in the panels. Keep each line
+ * true to the app (and to the guide page it links).
+ */
+const ADVANCED: readonly { title: string; body: string; guide: keyof typeof GUIDE }[] = [
+  {
+    title: 'Scan with your phone',
+    body: 'The camera outlines each page live and takes it once it’s steady, already cropped. Fronts and backs interleave in one step.',
+    guide: 'adding',
+  },
+  {
+    title: 'Tidy up a pile',
+    body: 'Crop every photo to its paper, turn upside-down pages the right way up, and find the blank backs, all at once.',
+    guide: 'arranging',
+  },
+  {
+    title: 'Fill in and sign',
+    body: 'Draw, type or photograph your signature, and add text, dates, ticks and crosses to forms that have no fields.',
+    guide: 'signing',
+  },
+  {
+    title: 'Black out for real',
+    body: 'Boxes over account and ID numbers remove what’s under them, not just cover it, searchable text included.',
+    guide: 'arranging',
+  },
+  {
+    title: 'Make it searchable',
+    body: 'Text recognition in 23 languages, on this device, so the PDF can be searched and copied from.',
+    guide: 'exporting',
+  },
+  {
+    title: 'Shrink to fit',
+    body: 'Small quality and a size limit bring heavy scans and PDFs down until they fit an upload form.',
+    guide: 'exporting',
+  },
+  {
+    title: 'Print it your way',
+    body: 'A booklet that folds in order, a poster across several sheets, 2 or 4 pages per sheet, or an ID card at real size.',
+    guide: 'exporting',
+  },
+  {
+    title: 'Ready to send or keep',
+    body: 'Watermarks, an AES-256 password, bookmarks, splitting into several files, and PDF/A for archiving.',
+    guide: 'exporting',
+  },
+]
+
+const Advanced = () => (
+  <section aria-labelledby="advanced-heading" className="flex flex-col gap-6">
+    <div className="flex flex-col gap-2">
+      <p className="label text-accent">Beyond one PDF</p>
+      <h2
+        id="advanced-heading"
+        className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl"
+      >
+        The tools you’d usually pay for
+      </h2>
+      <p className="max-w-xl text-ink-muted">
+        All free, all in your browser, and none of it needs an account.
+      </p>
+    </div>
+    <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {ADVANCED.map((feature) => {
+        const guide = GUIDE[feature.guide]
+        return (
+          <li
+            key={feature.title}
+            className="flex flex-col rounded-[1.125rem] bg-paper p-6 shadow-panel"
+          >
+            <h3 className="text-base font-semibold tracking-tight text-ink">{feature.title}</h3>
+            <p className="mt-1.5 grow text-sm leading-relaxed text-ink-muted">{feature.body}</p>
+            <a
+              className="mt-4 inline-block py-1 text-sm text-accent hover:underline"
+              href={guide.href}
+            >
+              {guide.label}
+              <span className="sr-only"> in the guide</span>
+            </a>
+          </li>
+        )
+      })}
+    </ul>
+  </section>
+)
+
 export const EmptyState = ({
   task = null,
   onChoose,
@@ -270,7 +364,7 @@ export const EmptyState = ({
             </p>
           )}
           <p className="text-sm text-ink-muted">or paste them from the clipboard</p>
-          <p className="label text-ink-faint">PDF · JPEG · PNG · HEIC · WebP · AVIF · GIF</p>
+          <p className="label text-ink-faint">PDF · JPEG · PNG · HEIC · TIFF · WebP · AVIF · GIF</p>
         </div>
       </div>
 
@@ -296,6 +390,7 @@ export const EmptyState = ({
           </li>
         ))}
       </ol>
+      <Advanced />
       <p className="text-sm text-ink-muted">
         Nothing is uploaded: there is no server, no account and no cookies, only anonymous counts of
         page views and exports. Open source under the MIT licence.
