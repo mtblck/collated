@@ -1,6 +1,6 @@
 # Collated
 
-Images → one PDF, client-only, at https://collatedpdf.com/ (own Vercel project and origin, #25; the old mattblack.space/tools/collated/ address redirects there, from both this project and mb-portfolio). Public, MIT. README has the design notes; read them before changing placement or import.
+Images → one PDF, client-only, at https://collatedpdf.com/ (own Vercel project and origin, #25; the old mattblack.space/tools/collated/ address redirects there, from both this project and mb-portfolio). Public, MIT. `design_notes.md` has the design notes; read them before changing placement or import.
 
 ## Commands
 

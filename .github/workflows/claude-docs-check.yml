@@ -1,6 +1,6 @@
 name: Docs drift check
 
-# Once a month, checks README, CLAUDE.md, docs/ (including ADRs), .env.example, the
+# Once a month, checks README, design_notes.md, CLAUDE.md, docs/ (including ADRs), .env.example, the
 # changelog and the privacy page against the code on the default branch, and keeps
 # one open issue listing the drift (opens it, updates it, or closes it when the docs
 # are clean). It never edits docs or opens a PR: fixes happen when someone asks.
