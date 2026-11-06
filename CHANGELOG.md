@@ -45,6 +45,7 @@ version or date when it ships.
 
 ### Changed
 
+- The README on GitHub is shorter and leads with what Collated does, split into the basics and advanced features, with a screenshot. How it is built moved to [design_notes.md](design_notes.md), with headings and short sections (#147).
 - A new look, the light table: pages lie on a softly lit dark ground (or a pale one in the light theme), the toolbar and the selected page's settings float above them, and the landing page matches. New type (Geist) and an amber accent.
 - Collated now counts page views with Vercel Web Analytics: no cookies, and nothing about your pictures or documents. The privacy page says exactly what is recorded (#102).
 - Collated now counts how many PDFs are exported, as an anonymous daily total with nothing about you or your files. The privacy notice has the details.
