@@ -108,6 +108,17 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Choose files' })).toBeEnabled()
   })
 
+  it('shows the advanced features on the landing view, each linked to its guide page', () => {
+    setup()
+    const section = screen.getByRole('region', { name: 'The tools you’d usually pay for' })
+    const features = within(section).getAllByRole('heading', { level: 3 })
+    expect(features.map((h) => h.textContent)).toContain('Fill in and sign')
+    for (const link of within(section).getAllByRole('link')) {
+      expect(link.getAttribute('href')).toMatch(/^\/docs\/[a-z-]+\/$/)
+    }
+    expect(within(section).getAllByRole('link')).toHaveLength(features.length)
+  })
+
   it('imports files as pages, reports failures by name, and selects the first page', async () => {
     const { upload } = setup()
     await upload('a.jpg', 'notes.txt', 'b.jpg')
