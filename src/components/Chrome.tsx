@@ -259,13 +259,16 @@ const Advanced = () => (
         All free, all in your browser, and none of it needs an account.
       </p>
     </div>
-    <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    {/* On phones a row to swipe along, the next card peeking in from the
+      edge, edge to edge past the page gutter; a grid from sm up. The padding
+      keeps the cards' shadows from being clipped by the scroller. */}
+    <ul className="-mx-4 flex snap-x snap-mandatory scroll-px-4 gap-4 overflow-x-auto overscroll-x-contain px-4 pt-2 pb-6 sm:mx-0 sm:grid sm:snap-none sm:grid-cols-2 sm:overflow-visible sm:p-0 lg:grid-cols-4">
       {ADVANCED.map((feature) => {
         const guide = GUIDE[feature.guide]
         return (
           <li
             key={feature.title}
-            className="flex flex-col rounded-[1.125rem] bg-paper p-6 shadow-panel"
+            className="relative flex w-[82%] shrink-0 snap-start flex-col rounded-[1.125rem] bg-paper p-6 shadow-panel sm:w-auto"
           >
             <h3 className="text-base font-semibold tracking-tight text-ink">{feature.title}</h3>
             <p className="mt-1.5 grow text-sm leading-relaxed text-ink-muted">{feature.body}</p>
