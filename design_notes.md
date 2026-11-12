@@ -194,7 +194,7 @@ Synthetic pages from −12° to +7° come back within 0.3°, and the 4°-skewed 
 
 tesseract.js runs in its own worker on the page _as displayed_: cropped, turned and straightened. A sideways photo you turned upright is read upright, and word boxes come back as fractions of that displayed image. `placeWord` maps them onto the page through the same layout as the pixels. The builder writes each word as invisible text (rendering mode 3), squeezed horizontally to span the printed word.
 
-Words in Windows-1252 are set in the standard Helvetica. Any other word goes in an embedded glyphless font (`core/glyphless.ts`: one blank glyph, with a ToUnicode map naming each character used). So Polish, Greek or Russian search and copy correctly, while Western European files stay as they were (ADR 0025). Right-to-left and CJK scripts wait for #139.
+Words in Windows-1252 are set in the standard Helvetica. Any other word goes in an embedded glyphless font (`core/glyphless.ts`: one blank glyph, with a ToUnicode map naming each character used). So Polish, Greek or Russian search and copy correctly, while Western European files stay as they were (ADR 0025). Right-to-left lines are written in the order their words sit on the page, each word's letters reversed, which readers turn back into reading order; Chinese and Japanese neighbours are joined into one word with no space after (`arrangeLine`, #139, ADR 0030).
 
 Words under 40% confidence are dropped as noise, unless every letter in them is at 90% or more, since Tesseract marks down elisions like "l’élève" that it reads perfectly.
 

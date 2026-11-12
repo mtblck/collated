@@ -30,10 +30,18 @@ describe('settings storage', () => {
     expect(defaultSettings('pt-BR').ocrLanguage).toBe('por')
     expect(defaultSettings('nb-NO').ocrLanguage).toBe('nor')
     expect(defaultSettings('en-US').ocrLanguage).toBe('eng')
-    // Languages it can't read yet, and nonsense, fall back to English.
-    expect(defaultSettings('ja-JP').ocrLanguage).toBe('eng')
+    expect(defaultSettings('ja-JP').ocrLanguage).toBe('jpn')
     expect(defaultSettings('pl').ocrLanguage).toBe('pol')
-    expect(defaultSettings('ar-EG').ocrLanguage).toBe('eng')
+    expect(defaultSettings('ar-EG').ocrLanguage).toBe('ara')
+    expect(defaultSettings('he').ocrLanguage).toBe('heb')
+    // Chinese by its script, or the script its region writes (#139).
+    expect(defaultSettings('zh-CN').ocrLanguage).toBe('chi_sim')
+    expect(defaultSettings('zh').ocrLanguage).toBe('chi_sim')
+    expect(defaultSettings('zh-TW').ocrLanguage).toBe('chi_tra')
+    expect(defaultSettings('zh-HK').ocrLanguage).toBe('chi_tra')
+    expect(defaultSettings('zh-Hant').ocrLanguage).toBe('chi_tra')
+    // Languages it can't read yet, and nonsense, fall back to English.
+    expect(defaultSettings('hi-IN').ocrLanguage).toBe('eng')
     expect(defaultSettings('not a locale!').ocrLanguage).toBe('eng')
   })
 

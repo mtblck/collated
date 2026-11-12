@@ -58,8 +58,9 @@ import { shrinkPageImages, type ShrinkImage } from './pdfImages'
 import { stripJpegMetadata } from './jpegClean'
 import { headerSize } from './imageInfo'
 import { readGreyPng } from './png'
-import { placeWord, type OcrWord } from './textLayer'
+import { placeWord, type OcrWord, type WordPlacement } from './textLayer'
 import { GlyphlessFont } from './glyphless'
+import { visualOrder } from './scripts'
 import { embedArchiveFont, makeArchival, xmlSafe } from './pdfa'
 import { ocrLanguageInfo } from './ocrLanguages'
 import { NUMBER_GREY, numberMark } from './pageNumbers'
@@ -326,41 +327,64 @@ const drawTextLayer = async (
     setTextRenderingMode(TextRenderingMode.Invisible),
   )
   const box = layout.content
-  for (const word of words) {
+  /** Where a word goes, or null if the page hides it (cropped by Fill or scale, or in the margins). */
+  const shown = (word: OcrWord) => {
+    const at = placeWord(layout, word)
+    const midX = at.x + at.width / 2
+    const midY = layout.page.height - at.y - at.size / 3
+    const out =
+      midX < box.x || midX > box.x + box.width || midY < box.y || midY > box.y + box.height
+    return out ? null : at
+  }
+  /**
+   * How wide a word is written. pdf.js starts a new run of text at a gap over
+   * 0.6 em, and reads the runs of a right-to-left line left to right, out of
+   * reading order; so a word of one stretches to leave at most half an em
+   * before the next word on its line (#139). Gaps of 3 em or more are taken
+   * as columns or table cells and left alone.
+   */
+  const reach = (at: WordPlacement, next: OcrWord | undefined) => {
+    const to = next?.rtl && next.text.trim() ? shown(next) : null
+    if (!to) return at.width
+    const gap = to.x - (at.x + at.width)
+    const same = Math.abs(to.y - at.y) < at.size / 2
+    return same && gap > at.size / 2 && gap < at.size * 3 ? to.x - at.x - at.size / 2 : at.width
+  }
+  for (const [i, word] of words.entries()) {
     // Ligatures and other compatibility forms ("ﬁ") become plain letters,
     // which searches match.
     const text = word.text.normalize('NFKC')
     if (!text.trim()) continue
-    const at = placeWord(layout, word)
-    // Words the page hides (cropped by Fill or scale, or in the margins)
-    // aren't on the page, so they aren't in its text either.
-    const midX = at.x + at.width / 2
-    const midY = layout.page.height - at.y - at.size / 3
-    if (midX < box.x || midX > box.x + box.width || midY < box.y || midY > box.y + box.height) {
-      continue
-    }
+    // Words the page hides aren't on the page, so they aren't in its text either.
+    const at = shown(word)
+    if (!at) continue
     // A trailing space so copied text and screen readers see separate words;
-    // the squeeze below spans the word itself.
+    // the squeeze below spans the word itself. (Chinese and Japanese words on
+    // a line are already one, see arrangeLine.)
+    const spaced = `${text} `
     let font: { name: string; ref: PDFRef }
     let encoded: PDFHexString
     let natural: number
-    if (fonts.standard && isWinAnsi(text)) {
+    if (fonts.standard && !word.rtl && isWinAnsi(text)) {
       standard ??= await fonts.standard()
       font = standard
-      encoded = standard.encodeText(`${text} `)
+      encoded = standard.encodeText(spaced)
       natural = standard.widthOfTextAtSize(text, at.size)
     } else {
       const glyphless = fonts.glyphless()
       // Only a page with over 65,000 different characters runs out.
-      if (!glyphless.canEncode(`${text} `)) continue
+      if (!glyphless.canEncode(spaced)) continue
       font = glyphless
-      encoded = glyphless.encodeText(`${text} `)
+      // Arabic and Hebrew go in in the order they sit on the page, which
+      // readers reverse back to the order they're read in (#139).
+      encoded = glyphless.encodeText(visualOrder(text) + spaced.slice(text.length))
       natural = glyphless.widthOfTextAtSize(text, at.size)
     }
     if (natural <= 0) continue
+    const squeeze = reach(at, word.rtl ? words[i + 1] : undefined) / natural
     page.pushOperators(
       setFontAndSize(keyOf(font), at.size),
-      setCharacterSqueeze((at.width / natural) * 100),
+      setCharacterSqueeze(squeeze * 100),
       setTextMatrix(1, 0, 0, 1, at.x, at.y),
       showText(encoded),
     )

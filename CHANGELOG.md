@@ -13,6 +13,7 @@ version or date when it ships.
 
 ### Added
 
+- Searchable text in Arabic, Hebrew, Persian, Urdu, Chinese (simplified and traditional), Japanese and Korean (#139). Right-to-left text copies and searches in reading order, and Chinese and Japanese copy without stray spaces between words.
 - The home page shows what Collated does beyond one PDF: scanning with a phone, tidying a pile, filling in and signing, real black-outs, searchable text, shrinking, booklets and posters, and watermarks, passwords, bookmarks and PDF/A, each linked to its guide page (#146). On a phone the cards swipe sideways.
 - Task pages (#120, #144): JPG to PDF, Merge PDF files, Scan to PDF, Sign a PDF, Compress a PDF and HEIC to PDF each have their own page with a short how-to, linked from the footer. Their button opens Collated ready for the task: Sign a PDF brings the Sign button into view, Compress a PDF sets image quality to Small, and Scan to PDF puts **Scan pages** first.
 - Print as a **booklet** or a **poster** (#119), under **Print as** in Export options. A booklet puts two pages on each side of a sheet in the order that folds and staples into the right sequence, padded with blank pages to a multiple of four. A poster enlarges each page across up to 8 × 8 sheets that overlap a little, with cut marks and a label on each sheet. Pick the paper; text stays sharp and searchable.

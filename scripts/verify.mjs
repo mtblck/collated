@@ -188,13 +188,21 @@ const open = async (options = {}) => {
   const context = await browser.newContext({ acceptDownloads: true, ...options })
   return { context, page: await watch(context, await context.newPage()) }
 }
+/** Settings of Tesseract's legacy engine, which some language data still lists. */
+const LEGACY_PARAM =
+  /: (language_model_|segsearch_|classify_|assume_fixed_pitch_char_segment|chop_enable|allow_blob_division)/
 /** Fails the run on any console error, uncaught exception or CSP violation in `page`. */
 const watch = async (context, page) => {
   guard(context)
   page.on('console', (m) => {
     // A check that loads a revoked blob: URL on purpose expects this one.
-    if (m.type() === 'error' && !(expectRevoked && m.text().includes('ERR_FILE_NOT_FOUND')))
-      fails.push(`console: ${m.text()}`)
+    if (m.type() !== 'error' || (expectRevoked && m.text().includes('ERR_FILE_NOT_FOUND'))) return
+    // The Chinese and Japanese data name a few legacy-engine settings that
+    // the LSTM-only engine doesn't have; Tesseract says so on stderr and
+    // reads on (#139). Only that exact warning, only for those settings.
+    if (/^Warning: Parameter not found: [a-z_]+$/.test(m.text()) && LEGACY_PARAM.test(m.text()))
+      return
+    fails.push(`console: ${m.text()}`)
   })
   page.on('pageerror', (e) => fails.push(`pageerror: ${e.message}`))
   await page.addInitScript(() => {
@@ -5098,6 +5106,115 @@ for (const [label, viewport] of [
     seen.join('\n      '),
   )
   await context.close()
+}
+
+// 49. Right-to-left and CJK OCR (#139), by touch on a 390px phone: the picker
+//     starts at the browser's language (he-IL → Hebrew); Hebrew, then Arabic,
+//     then Japanese pages come back out of the PDF in reading order through
+//     pdftotext and pdf.js, and Japanese phrases have no spaces inside.
+{
+  const { context: phone, page: p } = await open({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+    locale: 'he-IL',
+  })
+  const langFetches = []
+  p.on('request', (r) => {
+    if (r.url().includes('/ocr/lang/')) langFetches.push(new URL(r.url()).pathname)
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  /** pdftotext's text of one page, without the bidi marks it adds, spaces collapsed. */
+  const textOf = (path, n, ...args) => {
+    try {
+      return execFileSync('pdftotext', [...args, '-f', String(n), '-l', String(n), path, '-'])
+        .toString()
+        .replace(/[‪-‮]/g, '')
+        .replace(/\s+/g, ' ')
+    } catch {
+      return null
+    }
+  }
+  /** What pdf.js gives search and copy for one page: its items, a line apiece. */
+  const pdfjsText = async (path, n) => {
+    const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
+    const doc = await getDocument({ data: new Uint8Array(readFileSync(path)), verbosity: 0 })
+      .promise
+    const content = await (await doc.getPage(n)).getTextContent()
+    await doc.cleanup()
+    return content.items.map((item) => item.str + (item.hasEOL ? '\n' : '')).join('')
+  }
+  const read = async (fixture, pages, language) => {
+    await p.setInputFiles('[data-testid="file-input"]', [join(fixtures, fixture)])
+    await p.waitForSelector(`ol[aria-label="${pages}"]`, { timeout: 20_000 })
+    await exportMenu(p).tap()
+    const panel = p.getByRole('dialog', { name: 'Export options' })
+    const ocr = panel.getByRole('checkbox', { name: 'Make text searchable (OCR)' })
+    if (!(await ocr.isChecked())) await ocr.tap()
+    const picker = panel.getByLabel('Language of the text')
+    if (language) await picker.selectOption(language)
+    const chosen = await picker.inputValue()
+    if (!language) {
+      await picker.scrollIntoViewIfNeeded()
+      await p.screenshot({ path: join(shots, 'ocr-hebrew-phone.png') })
+    }
+    const [d] = await Promise.all([
+      p.waitForEvent('download', { timeout: 180_000 }),
+      panel.getByRole('button', { name: 'Export PDF' }).tap(),
+    ])
+    const path = join(mkdtempSync(join(tmpdir(), 'collated-verify-ocr-scripts-')), `${fixture}.pdf`)
+    await d.saveAs(path)
+    return { path, chosen }
+  }
+  const expectLines = async (path, n, expected, what) => {
+    const plain = textOf(path, n)
+    if (plain === null) return
+    const viaPdfjs = (await pdfjsText(path, n)).replace(/\s+/g, ' ')
+    const missing = expected.filter((line) => !plain.includes(line) || !viaPdfjs.includes(line))
+    check(
+      missing.length === 0,
+      what,
+      `missing: ${missing.join(' | ')}\n      pdftotext: "${plain.slice(0, 160)}"\n      pdf.js: "${viaPdfjs.slice(0, 160)}"`,
+    )
+  }
+
+  const he = await read('text-page-he.jpg', '1 page')
+  check(he.chosen === 'heb', 'the OCR language starts at the browser’s (he-IL → Hebrew)', he.chosen)
+  await expectLines(
+    he.path,
+    1,
+    ['חשבונית מספר', 'שלום עולם וברוכים הבאים', 'קפה ועוגה בבוקר'],
+    'Hebrew OCR reads back in reading order (pdftotext and pdf.js)',
+  )
+  const ar = await read('text-page-ar.jpg', '2 pages', 'ara')
+  await expectLines(
+    ar.path,
+    2,
+    ['فاتورة رقم', 'مرحبا بكم في المدينة', 'شاي وكعك في الصباح'],
+    'Arabic OCR reads back in reading order (pdftotext and pdf.js)',
+  )
+  const ja = await read('text-page-ja.jpg', '3 pages', 'jpn')
+  const jaRaw = textOf(ja.path, 3, '-raw')
+  if (jaRaw !== null) {
+    const phrases = ['請求書番号', '東京都に住んでいます', 'ケーキを食べました']
+    const viaPdfjs = await pdfjsText(ja.path, 3)
+    check(
+      phrases.every((phrase) => jaRaw.includes(phrase) && viaPdfjs.includes(phrase)),
+      'Japanese OCR copies phrases with no spaces inside (pdftotext and pdf.js)',
+      `pdftotext: "${jaRaw.slice(0, 120)}"\n      pdf.js: "${viaPdfjs.slice(0, 120)}"`,
+    )
+  }
+  check(
+    JSON.stringify(langFetches) ===
+      JSON.stringify([
+        '/ocr/lang/heb.traineddata.gz',
+        '/ocr/lang/ara.traineddata.gz',
+        '/ocr/lang/jpn.traineddata.gz',
+      ]),
+    'only the Hebrew, Arabic and Japanese data are fetched, from our own origin',
+    langFetches.join(', '),
+  )
+  await phone.close()
 }
 
 checkSameOrigin()
