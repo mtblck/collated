@@ -125,8 +125,16 @@ describe.skipIf(!hasPdftotext)('text layer', () => {
 
   // Words with every letter beyond A–Z each offered language uses (#79, #94),
   // in both cases: Helvetica or the embedded font must write them all.
-  // Right-to-left and unspaced scripts have their own tests (textScripts.test.ts).
-  const ACCENTED: Partial<Record<OcrLanguage, string>> = {
+  // Right-to-left and unspaced scripts have their own tests (null here; see
+  // textScripts.test.ts).
+  const ACCENTED: Record<OcrLanguage, string | null> = {
+    ara: null,
+    heb: null,
+    fas: null,
+    urd: null,
+    chi_sim: null,
+    chi_tra: null,
+    jpn: null,
     eng: 'naïve café résumé',
     dan: 'blåbærgrød ÆØÅ',
     nld: 'ruïne één coöperatie',

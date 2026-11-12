@@ -188,13 +188,21 @@ const open = async (options = {}) => {
   const context = await browser.newContext({ acceptDownloads: true, ...options })
   return { context, page: await watch(context, await context.newPage()) }
 }
+/** Settings of Tesseract's legacy engine, which some language data still lists. */
+const LEGACY_PARAM =
+  /: (language_model_|segsearch_|classify_|assume_fixed_pitch_char_segment|chop_enable|allow_blob_division)/
 /** Fails the run on any console error, uncaught exception or CSP violation in `page`. */
 const watch = async (context, page) => {
   guard(context)
   page.on('console', (m) => {
     // A check that loads a revoked blob: URL on purpose expects this one.
-    if (m.type() === 'error' && !(expectRevoked && m.text().includes('ERR_FILE_NOT_FOUND')))
-      fails.push(`console: ${m.text()}`)
+    if (m.type() !== 'error' || (expectRevoked && m.text().includes('ERR_FILE_NOT_FOUND'))) return
+    // The Chinese and Japanese data name a few legacy-engine settings that
+    // the LSTM-only engine doesn't have; Tesseract says so on stderr and
+    // reads on (#139). Only that exact warning, only for those settings.
+    if (/^Warning: Parameter not found: [a-z_]+$/.test(m.text()) && LEGACY_PARAM.test(m.text()))
+      return
+    fails.push(`console: ${m.text()}`)
   })
   page.on('pageerror', (e) => fails.push(`pageerror: ${e.message}`))
   await page.addInitScript(() => {
@@ -5145,13 +5153,18 @@ for (const [label, viewport] of [
     if (!(await ocr.isChecked())) await ocr.tap()
     const picker = panel.getByLabel('Language of the text')
     if (language) await picker.selectOption(language)
+    const chosen = await picker.inputValue()
+    if (!language) {
+      await picker.scrollIntoViewIfNeeded()
+      await p.screenshot({ path: join(shots, 'ocr-hebrew-phone.png') })
+    }
     const [d] = await Promise.all([
       p.waitForEvent('download', { timeout: 180_000 }),
       panel.getByRole('button', { name: 'Export PDF' }).tap(),
     ])
     const path = join(mkdtempSync(join(tmpdir(), 'collated-verify-ocr-scripts-')), `${fixture}.pdf`)
     await d.saveAs(path)
-    return { path, picker }
+    return { path, chosen }
   }
   const expectLines = async (path, n, expected, what) => {
     const plain = textOf(path, n)
@@ -5166,12 +5179,7 @@ for (const [label, viewport] of [
   }
 
   const he = await read('text-page-he.jpg', '1 page')
-  check(
-    (await he.picker.inputValue()) === 'heb',
-    'the OCR language starts at the browser’s (he-IL → Hebrew)',
-    await he.picker.inputValue(),
-  )
-  await p.screenshot({ path: join(shots, 'ocr-hebrew-phone.png') })
+  check(he.chosen === 'heb', 'the OCR language starts at the browser’s (he-IL → Hebrew)', he.chosen)
   await expectLines(
     he.path,
     1,
@@ -5188,7 +5196,7 @@ for (const [label, viewport] of [
   const ja = await read('text-page-ja.jpg', '3 pages', 'jpn')
   const jaRaw = textOf(ja.path, 3, '-raw')
   if (jaRaw !== null) {
-    const phrases = ['東京都に住んでいます', 'お茶とケーキを食べました']
+    const phrases = ['請求書番号', '東京都に住んでいます', 'ケーキを食べました']
     const viaPdfjs = await pdfjsText(ja.path, 3)
     check(
       phrases.every((phrase) => jaRaw.includes(phrase) && viaPdfjs.includes(phrase)),

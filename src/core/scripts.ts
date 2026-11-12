@@ -13,6 +13,12 @@ const DIGIT = /\p{Nd}/u
 /** Whether `text` has a right-to-left letter, so it's written right to left. */
 export const isRightToLeft = (text: string) => RTL.test(text)
 
+/** Letters of the left-to-right alphabets OCR reads. */
+const ALPHABET = /[\p{sc=Latin}\p{sc=Greek}\p{sc=Cyrillic}\p{sc=Hangul}]/u
+
+/** Whether `text` has a letter of a left-to-right alphabet (not digits). */
+export const hasLeftToRightLetter = (text: string) => ALPHABET.test(text)
+
 /**
  * A right-to-left word in the order its characters sit on the page, left to
  * right: the Unicode bidirectional algorithm's reordering for a word in a

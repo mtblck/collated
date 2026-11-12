@@ -46,6 +46,15 @@ describe('arrangeLine', () => {
     expect(words[0]).toMatchObject({ x0: 0.05, x1: 0.05 + 0.32 + 0.12 })
   })
 
+  it('keeps far-apart Chinese words apart, as columns or cells', () => {
+    const cells = line(['品名', '価格'], false).map((w, i) => ({
+      ...w,
+      x0: i * 0.5,
+      x1: i * 0.5 + 0.1,
+    }))
+    expect(arrangeLine(cells).map((w) => w.text)).toEqual(['品名', '価格'])
+  })
+
   it('keeps Korean words apart, as Korean has spaces', () => {
     expect(arrangeLine(line(['서울', '특별시'], false)).map((w) => w.text)).toEqual([
       '서울',
@@ -58,6 +67,26 @@ describe('arrangeLine', () => {
     const words = arrangeLine(line(['שלום', 'עולם', 'PDF'], true))
     expect(words.map((w) => w.text)).toEqual(['PDF', 'עולם', 'שלום'])
     expect(words.every((w) => w.rtl)).toBe(true)
+  })
+
+  it('gives a right-to-left line one height, so pdf.js keeps it one run', () => {
+    // The recogniser boxes ink: words with ascenders are taller.
+    const words = line(['שלום', 'עולם', 'הבאים'], true).map((w, i) => ({
+      ...w,
+      y0: w.y0 - i * 0.01,
+    }))
+    expect(new Set(arrangeLine(words).map((w) => `${w.y0} ${w.y1}`)).size).toBe(1)
+  })
+
+  it('joins overlapping boxes, as the recogniser gives Japanese', () => {
+    const words: OcrWord[] = [
+      { text: '東京', x0: 0.1, x1: 0.6, y0: 0.4, y1: 0.45, baseline: 0.45 },
+      { text: '都', x0: 0.2, x1: 0.25, y0: 0.4, y1: 0.45, baseline: 0.45 },
+      { text: 'に', x0: 0.25, x1: 0.3, y0: 0.4, y1: 0.45, baseline: 0.45 },
+    ]
+    expect(arrangeLine(words)).toEqual([
+      { text: '東京都に', x0: 0.1, x1: 0.6, y0: 0.4, y1: 0.45, baseline: 0.45 },
+    ])
   })
 
   it('leaves a mostly left-to-right line in reading order', () => {

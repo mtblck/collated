@@ -171,13 +171,16 @@ export class GlyphlessFont {
       'end',
     ].join('\n')
     context.assign(this.toUnicodeRef, context.flateStream(cmap))
-    const marks = [...this.cids]
-      .filter(([codePoint]) => ZERO_WIDTH.test(String.fromCodePoint(codePoint)))
-      .flatMap(([, cid]) => [cid, [0]])
-    if (marks.length) this.cidFont.set(PDFName.of('W'), context.obj(marks))
-    // CID n draws glyph 1 (the blank one); CID 0 stays .notdef.
+    // CID n draws glyph 1 (the blank one), or glyph 2 (blank, zero width)
+    // for a combining mark, with W saying the same; CID 0 stays .notdef.
     const map = new Uint8Array((this.cids.size + 1) * 2)
-    for (let cid = 1; cid <= this.cids.size; cid++) map[cid * 2 + 1] = 1
+    const widths: (number | number[])[] = []
+    for (const [codePoint, cid] of this.cids) {
+      const mark = ZERO_WIDTH.test(String.fromCodePoint(codePoint))
+      map[cid * 2 + 1] = mark ? 2 : 1
+      if (mark) widths.push(cid, [0])
+    }
+    if (widths.length) this.cidFont.set(PDFName.of('W'), context.obj(widths))
     context.assign(this.cidToGidRef, context.flateStream(map))
   }
 }

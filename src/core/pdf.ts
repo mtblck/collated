@@ -60,7 +60,7 @@ import { headerSize } from './imageInfo'
 import { readGreyPng } from './png'
 import { placeWord, type OcrWord, type WordPlacement } from './textLayer'
 import { GlyphlessFont } from './glyphless'
-import { endsUnspaced, visualOrder } from './scripts'
+import { visualOrder } from './scripts'
 import { embedArchiveFont, makeArchival, xmlSafe } from './pdfa'
 import { ocrLanguageInfo } from './ocrLanguages'
 import { NUMBER_GREY, numberMark } from './pageNumbers'
@@ -327,15 +327,25 @@ const drawTextLayer = async (
     setTextRenderingMode(TextRenderingMode.Invisible),
   )
   const box = layout.content
+  /** Where a word goes, or null if the page hides it (cropped by Fill or scale, or in the margins). */
+  const shown = (word: OcrWord) => {
+    const at = placeWord(layout, word)
+    const midX = at.x + at.width / 2
+    const midY = layout.page.height - at.y - at.size / 3
+    const out =
+      midX < box.x || midX > box.x + box.width || midY < box.y || midY > box.y + box.height
+    return out ? null : at
+  }
   /**
    * How wide a word is written. pdf.js starts a new run of text at a gap over
    * 0.6 em, and reads the runs of a right-to-left line left to right, out of
    * reading order; so a word of one stretches to leave at most half an em
-   * before the next word on its line (#139). Wider gaps than 3 em are columns.
+   * before the next word on its line (#139). Gaps of 3 em or more are taken
+   * as columns or table cells and left alone.
    */
   const reach = (at: WordPlacement, next: OcrWord | undefined) => {
-    if (!next?.rtl) return at.width
-    const to = placeWord(layout, next)
+    const to = next?.rtl && next.text.trim() ? shown(next) : null
+    if (!to) return at.width
     const gap = to.x - (at.x + at.width)
     const same = Math.abs(to.y - at.y) < at.size / 2
     return same && gap > at.size / 2 && gap < at.size * 3 ? to.x - at.x - at.size / 2 : at.width
@@ -345,18 +355,13 @@ const drawTextLayer = async (
     // which searches match.
     const text = word.text.normalize('NFKC')
     if (!text.trim()) continue
-    const at = placeWord(layout, word)
-    // Words the page hides (cropped by Fill or scale, or in the margins)
-    // aren't on the page, so they aren't in its text either.
-    const midX = at.x + at.width / 2
-    const midY = layout.page.height - at.y - at.size / 3
-    if (midX < box.x || midX > box.x + box.width || midY < box.y || midY > box.y + box.height) {
-      continue
-    }
-    // A trailing space so copied text and screen readers see separate words
-    // (not after Chinese or Japanese, whose words have none between them);
-    // the squeeze below spans the word itself.
-    const spaced = endsUnspaced(text) ? text : `${text} `
+    // Words the page hides aren't on the page, so they aren't in its text either.
+    const at = shown(word)
+    if (!at) continue
+    // A trailing space so copied text and screen readers see separate words;
+    // the squeeze below spans the word itself. (Chinese and Japanese words on
+    // a line are already one, see arrangeLine.)
+    const spaced = `${text} `
     let font: { name: string; ref: PDFRef }
     let encoded: PDFHexString
     let natural: number
