@@ -58,8 +58,9 @@ import { shrinkPageImages, type ShrinkImage } from './pdfImages'
 import { stripJpegMetadata } from './jpegClean'
 import { headerSize } from './imageInfo'
 import { readGreyPng } from './png'
-import { placeWord, type OcrWord } from './textLayer'
+import { placeWord, type OcrWord, type WordPlacement } from './textLayer'
 import { GlyphlessFont } from './glyphless'
+import { endsUnspaced, visualOrder } from './scripts'
 import { embedArchiveFont, makeArchival, xmlSafe } from './pdfa'
 import { ocrLanguageInfo } from './ocrLanguages'
 import { NUMBER_GREY, numberMark } from './pageNumbers'
@@ -326,7 +327,20 @@ const drawTextLayer = async (
     setTextRenderingMode(TextRenderingMode.Invisible),
   )
   const box = layout.content
-  for (const word of words) {
+  /**
+   * How wide a word is written. pdf.js starts a new run of text at a gap over
+   * 0.6 em, and reads the runs of a right-to-left line left to right, out of
+   * reading order; so a word of one stretches to leave at most half an em
+   * before the next word on its line (#139). Wider gaps than 3 em are columns.
+   */
+  const reach = (at: WordPlacement, next: OcrWord | undefined) => {
+    if (!next?.rtl) return at.width
+    const to = placeWord(layout, next)
+    const gap = to.x - (at.x + at.width)
+    const same = Math.abs(to.y - at.y) < at.size / 2
+    return same && gap > at.size / 2 && gap < at.size * 3 ? to.x - at.x - at.size / 2 : at.width
+  }
+  for (const [i, word] of words.entries()) {
     // Ligatures and other compatibility forms ("ﬁ") become plain letters,
     // which searches match.
     const text = word.text.normalize('NFKC')
@@ -339,28 +353,33 @@ const drawTextLayer = async (
     if (midX < box.x || midX > box.x + box.width || midY < box.y || midY > box.y + box.height) {
       continue
     }
-    // A trailing space so copied text and screen readers see separate words;
+    // A trailing space so copied text and screen readers see separate words
+    // (not after Chinese or Japanese, whose words have none between them);
     // the squeeze below spans the word itself.
+    const spaced = endsUnspaced(text) ? text : `${text} `
     let font: { name: string; ref: PDFRef }
     let encoded: PDFHexString
     let natural: number
-    if (fonts.standard && isWinAnsi(text)) {
+    if (fonts.standard && !word.rtl && isWinAnsi(text)) {
       standard ??= await fonts.standard()
       font = standard
-      encoded = standard.encodeText(`${text} `)
+      encoded = standard.encodeText(spaced)
       natural = standard.widthOfTextAtSize(text, at.size)
     } else {
       const glyphless = fonts.glyphless()
       // Only a page with over 65,000 different characters runs out.
-      if (!glyphless.canEncode(`${text} `)) continue
+      if (!glyphless.canEncode(spaced)) continue
       font = glyphless
-      encoded = glyphless.encodeText(`${text} `)
+      // Arabic and Hebrew go in in the order they sit on the page, which
+      // readers reverse back to the order they're read in (#139).
+      encoded = glyphless.encodeText(visualOrder(text) + spaced.slice(text.length))
       natural = glyphless.widthOfTextAtSize(text, at.size)
     }
     if (natural <= 0) continue
+    const squeeze = reach(at, word.rtl ? words[i + 1] : undefined) / natural
     page.pushOperators(
       setFontAndSize(keyOf(font), at.size),
-      setCharacterSqueeze((at.width / natural) * 100),
+      setCharacterSqueeze(squeeze * 100),
       setTextMatrix(1, 0, 0, 1, at.x, at.y),
       showText(encoded),
     )

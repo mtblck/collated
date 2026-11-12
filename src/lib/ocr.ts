@@ -1,7 +1,7 @@
 import type * as Tesseract from 'tesseract.js'
 import type { Worker as TesseractWorker } from 'tesseract.js'
 import type { OcrLanguage } from '../core/ocrLanguages'
-import type { OcrWord } from '../core/textLayer'
+import { arrangeLine, type OcrWord } from '../core/textLayer'
 import { TimeoutError, withTimeout } from './timeout'
 
 /**
@@ -185,6 +185,7 @@ export const recognizeWords = async (
     for (const paragraph of block.paragraphs) {
       for (const line of paragraph.lines) {
         const { x0: bx0, y0: by0, x1: bx1, y1: by1 } = line.baseline
+        const lineWords: OcrWord[] = []
         for (const word of line.words) {
           const text = word.text.trim()
           if (!text || !keep(word)) continue
@@ -192,7 +193,7 @@ export const recognizeWords = async (
           // Baseline height under the word's start, from the line's baseline.
           const t = bx1 === bx0 ? 0 : (x0 - bx0) / (bx1 - bx0)
           const baseline = by0 + (by1 - by0) * t
-          words.push({
+          lineWords.push({
             text,
             x0: x0 / width,
             y0: y0 / height,
@@ -201,6 +202,7 @@ export const recognizeWords = async (
             baseline: Math.min(y1, Math.max(y0, baseline)) / height,
           })
         }
+        words.push(...arrangeLine(lineWords))
       }
     }
   }

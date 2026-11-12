@@ -82,6 +82,8 @@ const words: OcrWord[] = [
   { text: 'Invoice', x0: 0.1, y0: 0.1, x1: 0.3, y1: 0.15, baseline: 0.15 },
   { text: 'Счёт', x0: 0.4, y0: 0.1, x1: 0.55, y1: 0.15, baseline: 0.15 },
   { text: 'Łódź', x0: 0.6, y0: 0.1, x1: 0.75, y1: 0.15, baseline: 0.15 },
+  // A combining mark gets a zero width in the glyphless font (#139).
+  { text: 'שָׁלוֹם', x0: 0.8, y0: 0.1, x1: 0.95, y1: 0.15, baseline: 0.15, rtl: true },
 ]
 
 const marks: Mark[] = [

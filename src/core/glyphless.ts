@@ -1,4 +1,11 @@
-import { PDFHexString, PDFString, type PDFDocument, type PDFRef } from '@cantoo/pdf-lib'
+import {
+  PDFHexString,
+  PDFName,
+  PDFString,
+  type PDFDict,
+  type PDFDocument,
+  type PDFRef,
+} from '@cantoo/pdf-lib'
 import {
   GLYPHLESS_ADVANCE,
   GLYPHLESS_ASCENT,
@@ -9,6 +16,13 @@ import {
 const NAME = 'CollatedGlyphless'
 /** Two-byte codes, and CID 0 is .notdef. */
 const MAX_CID = 0xffff
+
+/**
+ * Combining marks (Hebrew points, Arabic vowels, accents given apart from
+ * their letter) take no width, as in a real font, so readers measure a word
+ * with them the same as without, and keep it in its line (#139).
+ */
+const ZERO_WIDTH = /[\p{Mn}\p{Me}]/u
 
 const hex4 = (n: number) => n.toString(16).toUpperCase().padStart(4, '0')
 
@@ -41,6 +55,7 @@ export class GlyphlessFont {
   private readonly doc: PDFDocument
   private readonly toUnicodeRef: PDFRef
   private readonly cidToGidRef: PDFRef
+  private readonly cidFont: PDFDict
   private readonly cids = new Map<number, number>()
   private finished = false
 
@@ -66,28 +81,26 @@ export class GlyphlessFont {
     )
     this.toUnicodeRef = context.nextRef()
     this.cidToGidRef = context.nextRef()
-    const cidFont = context.register(
-      context.obj({
-        Type: 'Font',
-        Subtype: 'CIDFontType2',
-        BaseFont: NAME,
-        CIDSystemInfo: {
-          Registry: PDFString.of('Adobe'),
-          Ordering: PDFString.of('Identity'),
-          Supplement: 0,
-        },
-        FontDescriptor: descriptor,
-        DW: GLYPHLESS_ADVANCE,
-        CIDToGIDMap: this.cidToGidRef,
-      }),
-    )
+    this.cidFont = context.obj({
+      Type: 'Font',
+      Subtype: 'CIDFontType2',
+      BaseFont: NAME,
+      CIDSystemInfo: {
+        Registry: PDFString.of('Adobe'),
+        Ordering: PDFString.of('Identity'),
+        Supplement: 0,
+      },
+      FontDescriptor: descriptor,
+      DW: GLYPHLESS_ADVANCE,
+      CIDToGIDMap: this.cidToGidRef,
+    })
     this.ref = context.register(
       context.obj({
         Type: 'Font',
         Subtype: 'Type0',
         BaseFont: NAME,
         Encoding: 'Identity-H',
-        DescendantFonts: [cidFont],
+        DescendantFonts: [context.register(this.cidFont)],
         ToUnicode: this.toUnicodeRef,
       }),
     )
@@ -120,10 +133,11 @@ export class GlyphlessFont {
     return PDFHexString.of(out)
   }
 
-  /** Every character is the same width. */
+  /** Every character is the same width, but combining marks take none. */
   widthOfTextAtSize(text: string, size: number) {
     // Code points, as `encodeText` gives each one a code.
-    return (Array.from(text).length * GLYPHLESS_ADVANCE * size) / 1000
+    const spacing = Array.from(text).filter((ch) => !ZERO_WIDTH.test(ch)).length
+    return (spacing * GLYPHLESS_ADVANCE * size) / 1000
   }
 
   /** Writes the CMap and the CID-to-glyph map for the characters used. */
@@ -157,6 +171,10 @@ export class GlyphlessFont {
       'end',
     ].join('\n')
     context.assign(this.toUnicodeRef, context.flateStream(cmap))
+    const marks = [...this.cids]
+      .filter(([codePoint]) => ZERO_WIDTH.test(String.fromCodePoint(codePoint)))
+      .flatMap(([, cid]) => [cid, [0]])
+    if (marks.length) this.cidFont.set(PDFName.of('W'), context.obj(marks))
     // CID n draws glyph 1 (the blank one); CID 0 stays .notdef.
     const map = new Uint8Array((this.cids.size + 1) * 2)
     for (let cid = 1; cid <= this.cids.size; cid++) map[cid * 2 + 1] = 1

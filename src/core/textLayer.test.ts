@@ -125,7 +125,8 @@ describe.skipIf(!hasPdftotext)('text layer', () => {
 
   // Words with every letter beyond A–Z each offered language uses (#79, #94),
   // in both cases: Helvetica or the embedded font must write them all.
-  const ACCENTED: Record<OcrLanguage, string> = {
+  // Right-to-left and unspaced scripts have their own tests (textScripts.test.ts).
+  const ACCENTED: Partial<Record<OcrLanguage, string>> = {
     eng: 'naïve café résumé',
     dan: 'blåbærgrød ÆØÅ',
     nld: 'ruïne één coöperatie',
@@ -149,34 +150,38 @@ describe.skipIf(!hasPdftotext)('text layer', () => {
     slv: 'češnja šola žaba ČŠŽ',
     tur: 'ılık şeker dağ İstanbul ŞĞÇÖÜ',
     ukr: 'їжак ґанок єнот ІЇЄҐ',
+    kor: '다람쥐 헌 쳇바퀴에 타고파',
   }
 
-  it.each(OCR_LANGUAGES)('writes $label words with their accents', async ({ code }) => {
-    const sample = ACCENTED[code].split(' ')
-    const line: OcrWord[] = sample.map((text, i) => ({
-      text,
-      x0: 0.05 + i * 0.1,
-      y0: 0.4,
-      x1: 0.13 + i * 0.1,
-      y1: 0.45,
-      baseline: 0.45,
-    }))
-    // Recognisers may give a letter and its accent as two code points.
-    line[0] = { ...line[0], text: (line[0]?.text ?? '').normalize('NFD') } as OcrWord
-    const bytes = await buildPdf(
-      {
-        settings: settings({ size: 'letter' }),
-        pages: [page('p', 'a')],
-        assets: { a: meta },
-        text: { p: line },
-      },
-      { getBytes: () => jpeg },
-    )
-    const plain = execFileSync('pdftotext', ['-raw', '-', '-'], { input: Buffer.from(bytes) })
-      .toString()
-      .trim()
-    expect(plain.split(/\s+/)).toEqual(sample)
-  })
+  it.each(OCR_LANGUAGES.filter(({ code }) => ACCENTED[code]))(
+    'writes $label words with their accents',
+    async ({ code }) => {
+      const sample = (ACCENTED[code] ?? '').split(' ')
+      const line: OcrWord[] = sample.map((text, i) => ({
+        text,
+        x0: 0.05 + i * 0.1,
+        y0: 0.4,
+        x1: 0.13 + i * 0.1,
+        y1: 0.45,
+        baseline: 0.45,
+      }))
+      // Recognisers may give a letter and its accent as two code points.
+      line[0] = { ...line[0], text: (line[0]?.text ?? '').normalize('NFD') } as OcrWord
+      const bytes = await buildPdf(
+        {
+          settings: settings({ size: 'letter' }),
+          pages: [page('p', 'a')],
+          assets: { a: meta },
+          text: { p: line },
+        },
+        { getBytes: () => jpeg },
+      )
+      const plain = execFileSync('pdftotext', ['-raw', '-', '-'], { input: Buffer.from(bytes) })
+        .toString()
+        .trim()
+      expect(plain.split(/\s+/)).toEqual(sample)
+    },
+  )
 
   it('separates words with spaces for copying and screen readers', async () => {
     const bytes = await buildPdf(
