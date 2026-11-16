@@ -6,10 +6,11 @@ What changed for people using Collated, newest first. Format:
 Add your line under **Unreleased** in the same PR as any change people using
 Collated would notice, under its heading (Added, Changed, Deprecated, Removed,
 Fixed or Security), with the issue or PR number. If another PR merged a line
-first, keep both when you rebase. The `release` skill moves Unreleased under a
-version or date when it ships.
+first, keep both when you rebase. A release PR (`npm run release -- x.y.z`)
+moves Unreleased under the new version and date; merging it tags and releases
+it (ADR 0031).
 
-## Unreleased
+## [Unreleased]
 
 ### Added
 

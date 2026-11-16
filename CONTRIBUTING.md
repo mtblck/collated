@@ -32,3 +32,24 @@ CI runs all of these, plus the poppler-rendered PDF tests.
 - **Guard rails over comments**: if a config shape has broken once, add a check that fails the build.
 - **Changelog**: if people using Collated will notice the change, add a line under **Unreleased** in `CHANGELOG.md`, under its heading (Added, Fixed, …), with the issue or PR number. If another pull request merged a line there first, rebase and keep both.
 - Commit messages: imperative subject line; a body that says why, and how you checked it.
+
+## Releasing
+
+Every merge to `main` is deployed to collatedpdf.com straight away; a release
+gives that state a version, a tag and release notes. Matt approves releases;
+`.github/workflows/release.yml` makes them (ADR 0031).
+
+1. Run `npm run release -- x.y.z` on a fresh branch from `main`. It moves the
+   CHANGELOG's `[Unreleased]` entries under a new `## [x.y.z] - date` heading,
+   updates the compare links at the foot, and sets `version` in `package.json`
+   and `package-lock.json`. Open that as the release PR.
+2. Merge it once Matt says go. On `main`, the workflow sees the version change,
+   runs `npm run check` and the build, tags the merge commit `vx.y.z`, and
+   makes the GitHub release from that version's CHANGELOG section.
+
+Only a release PR should change `version`: any merge that does releases it.
+Pushing a tag by hand still works (`git tag vx.y.z && git push origin vx.y.z`,
+or GitHub's New release page): the workflow checks it matches `package.json`.
+Versions follow [Semantic Versioning](https://semver.org/): a patch for fixes,
+a minor version for new features, a major one for a change that breaks how
+people already use Collated (a removed feature, saved work that won't restore).

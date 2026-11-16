@@ -1,9 +1,10 @@
 /**
  * Checks CHANGELOG.md (part of `npm run check`). PRs add their line under
- * **Unreleased** in CHANGELOG.md itself, like seedkin and tinkerkit (ADR 0022), so
- * this fails on what a PR can get wrong there: no Unreleased section, a heading that
- * isn't one of Keep a Changelog's, an empty heading, or a leftover changelog.d/
- * fragment from before ADR 0022 (move its lines into CHANGELOG.md).
+ * **[Unreleased]** in CHANGELOG.md itself, like seedkin and tinkerkit (ADR 0022), so
+ * this fails on what a PR can get wrong there: no [Unreleased] section, a version
+ * heading that isn't `## [1.2.0] - YYYY-MM-DD` (what release.yml reads, ADR 0031), a
+ * heading that isn't one of Keep a Changelog's, an empty heading, or a leftover
+ * changelog.d/ fragment from before ADR 0022 (move its lines into CHANGELOG.md).
  *
  * The path can be overridden for the tests: --file <changelog>.
  */
@@ -22,9 +23,14 @@ const file = at === -1 ? join(root, 'CHANGELOG.md') : args[at + 1]
 export const problems = (text) => {
   const found = []
   const lines = text.split('\n')
-  if (!lines.some((l) => /^## Unreleased\s*$/.test(l)))
-    found.push('there is no "## Unreleased" section.')
+  if (!lines.some((l) => /^## \[Unreleased\]\s*$/.test(l)))
+    found.push('there is no "## [Unreleased]" section.')
   lines.forEach((line, i) => {
+    const h2 = line.match(/^## (.*?)\s*$/)
+    if (h2 && h2[1] !== '[Unreleased]' && !/^\[\d+\.\d+\.\d+\] - \d{4}-\d{2}-\d{2}$/.test(h2[1]))
+      found.push(
+        `line ${i + 1}: "${line}" should be "## [Unreleased]" or "## [1.2.0] - YYYY-MM-DD".`,
+      )
     const h3 = line.match(/^### (.*?)\s*$/)
     if (!h3) return
     if (!SECTIONS.includes(h3[1]))
