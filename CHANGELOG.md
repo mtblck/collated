@@ -12,6 +12,8 @@ it (ADR 0031).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-16
+
 ### Added
 
 - Searchable text in Arabic, Hebrew, Persian, Urdu, Chinese (simplified and traditional), Japanese and Korean (#139). Right-to-left text copies and searches in reading order, and Chinese and Japanese copy without stray spaces between words.
@@ -58,3 +60,6 @@ it (ADR 0031).
 ### Fixed
 
 - The header is the same height on the home page, the docs, the task pages and while you work, and the name at its left is the same size and weight on every one: it no longer comes up wider and bolder on some pages while the font loads (#145).
+
+[Unreleased]: https://github.com/mtblck/collated/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/mtblck/collated/releases/tag/v1.0.0

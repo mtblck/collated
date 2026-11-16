@@ -1,7 +1,7 @@
 {
   "name": "collated",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Turn scanned pages and photos into one PDF, entirely in your browser.",
   "license": "MIT",
   "type": "module",
