@@ -8,10 +8,11 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error: a plain .mjs script with no types
-import { cutRelease } from '../scripts/release.mjs'
+import { cutRelease, isNewer } from '../scripts/release.mjs'
 // @ts-expect-error: a plain .mjs script with no types
 import { problems } from '../scripts/changelog.mjs'
 
+const newer = isNewer as (current: string, next: string) => boolean
 const cut = cutRelease as (markdown: string, version: string, date: string) => string
 const check = problems as (markdown: string) => string[]
 const REPO = 'https://github.com/mtblck/collated'
@@ -74,7 +75,12 @@ Intro.
 
   it('cuts the real CHANGELOG.md into a valid one', () => {
     const real = readFileSync(join(import.meta.dirname, '..', 'CHANGELOG.md'), 'utf8')
-    expect(check(cut(real, '9.9.9', '2026-11-16'))).toEqual([])
+    // Straight after a release [Unreleased] is empty, so give it a line first.
+    const withLine = real.replace(
+      '## [Unreleased]\n',
+      '## [Unreleased]\n\n### Fixed\n\n- A fix (#1).\n',
+    )
+    expect(check(cut(withLine, '9.9.9', '2026-11-16'))).toEqual([])
   })
 
   it.each([
@@ -95,5 +101,23 @@ Intro.
     ],
   ])('refuses %s', (_, markdown, version, message) => {
     expect(() => cut(markdown, version, '2026-11-16')).toThrow(message)
+  })
+
+  it('reads a heading with trailing spaces or a CR, as the check does', () => {
+    const crlf = FIRST.replace('## [Unreleased]\n', '## [Unreleased] \r\n')
+    expect(cut(crlf, '1.0.0', '2026-11-16')).toContain('## [1.0.0] - 2026-11-16\n\n### Added')
+  })
+})
+
+describe('isNewer', () => {
+  it.each([
+    ['0.1.0', '1.0.0', true],
+    ['1.0.0', '1.0.1', true],
+    ['1.9.0', '1.10.0', true],
+    ['1.0.0', '1.0.0', false],
+    ['1.0.0', '0.9.9', false],
+    ['1.10.0', '1.9.0', false],
+  ])('%s then %s: %s', (current, next, expected) => {
+    expect(newer(current, next)).toBe(expected)
   })
 })

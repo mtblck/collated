@@ -51,24 +51,28 @@ jobs:
             # The tag must name the version in package.json, so v1.0.1 can't release 1.0.0.
             if [ "$REF_NAME" != "v$version" ]; then echo "::error::Tag $REF_NAME doesn't match package.json version $version."; exit 1; fi
           else
-            before=""
-            if git fetch --depth=1 --no-tags origin "$BEFORE" 2>/dev/null; then
-              before=$(git show "$BEFORE:package.json" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
+            # Without the commit before the push (a force-push), there's no telling
+            # whether this push changed the version: release nothing; a tag still can.
+            if ! git fetch --depth=1 --no-tags origin "$BEFORE" 2>/dev/null; then
+              echo "::warning::Couldn't fetch $BEFORE to compare versions; nothing released. Push tag v$version to release it."
+              exit 0
             fi
+            before=$(git show "$BEFORE:package.json" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
             if [ "$before" = "$version" ]; then
               echo "::notice::package.json changed but its version is still $version; nothing to release."
               exit 0
             fi
             # Already tagged: a re-run finishing this release (the later steps skip
             # what's done) if the tag is on this commit, otherwise nothing to do.
-            tagged=$(git ls-remote --tags origin "refs/tags/v$version" | cut -f1)
+            # An annotated tag lists its commit on the peeled ^{} line, which comes last.
+            tagged=$(git ls-remote --tags origin "refs/tags/v$version" "refs/tags/v$version^{}" | tail -n 1 | cut -f1)
             if [ -n "$tagged" ] && [ "$tagged" != "$GITHUB_SHA" ]; then
               echo "::notice::v$version is already tagged on another commit; nothing to release."
               exit 0
             fi
             if [ -n "$tagged" ]; then echo "tagged=true" >> "$GITHUB_OUTPUT"; fi
           fi
-          if ! grep -q "^## \[$version\] - " CHANGELOG.md; then
+          if ! grep -q "^## \[${version//./\\.}\] - " CHANGELOG.md; then
             echo "::error::package.json is $version but CHANGELOG.md has no '## [$version] - date' section."
             exit 1
           fi
@@ -101,4 +105,4 @@ jobs:
           if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exit 0; fi
           # This version's CHANGELOG section: from its heading to the next one.
           awk -v v="${TAG#v}" '/^## \[/ { on = index($0, "## [" v "]") == 1; next } /^\[.*\]: / { exit } on' CHANGELOG.md > notes.md
-          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "Collated $TAG" --notes-file notes.md --verify-tag --latest
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "Collated $TAG" --notes-file notes.md --verify-tag

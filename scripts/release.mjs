@@ -13,6 +13,8 @@ import { fileURLToPath } from 'node:url'
 const REPO = 'https://github.com/mtblck/collated'
 const SEMVER = /^\d+\.\d+\.\d+$/
 const HEADING = '## [Unreleased]\n'
+// What `npm run changelog:check` accepts as the heading: trailing spaces or a CR too.
+const UNRELEASED = /^## \[Unreleased\][ \t]*\r?\n/m
 const UNRELEASED_LINK = /^\[Unreleased\]: .*\/compare\/(v\d+\.\d+\.\d+)\.\.\.HEAD$/m
 
 /**
@@ -23,9 +25,10 @@ const UNRELEASED_LINK = /^\[Unreleased\]: .*\/compare\/(v\d+\.\d+\.\d+)\.\.\.HEA
 export function cutRelease(markdown, version, date) {
   if (!SEMVER.test(version)) throw new Error(`"${version}" isn't a version like 1.2.0.`)
   if (markdown.includes(`## [${version}]`)) throw new Error(`CHANGELOG.md already has ${version}.`)
-  const start = markdown.indexOf(HEADING)
-  if (start < 0) throw new Error('CHANGELOG.md has no "## [Unreleased]" heading.')
-  const bodyStart = start + HEADING.length
+  const found = UNRELEASED.exec(markdown)
+  if (!found) throw new Error('CHANGELOG.md has no "## [Unreleased]" heading.')
+  const start = found.index
+  const bodyStart = start + found[0].length
   // The entries end at the next version, or at the link definitions at the foot.
   const rest = markdown.slice(bodyStart)
   const stop = rest.search(/^(## \[|\[[^\]]+\]: )/m)
@@ -47,6 +50,13 @@ export function cutRelease(markdown, version, date) {
   return `${cut.trimEnd()}\n\n[Unreleased]: ${REPO}/compare/v${version}...HEAD\n[${version}]: ${REPO}/releases/tag/v${version}\n`
 }
 
+/** Whether semver `next` comes after `current` (both like 1.2.0). */
+export function isNewer(current, next) {
+  const [a, b] = [current, next].map((v) => v.split('.').map(Number))
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return b[i] > a[i]
+  return false
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const version = process.argv[2] ?? ''
   const file = new URL('../CHANGELOG.md', import.meta.url)
@@ -54,11 +64,16 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   let markdown
   try {
     markdown = cutRelease(readFileSync(file, 'utf8'), version, today)
+    const current = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    ).version
+    if (!isNewer(current, version))
+      throw new Error(`${version} isn't after the current version, ${current}.`)
+    execFileSync('npm', ['version', version, '--no-git-tag-version'], { stdio: 'inherit' })
   } catch (error) {
     console.error(error instanceof Error ? error.message : error)
     process.exit(1)
   }
-  execFileSync('npm', ['version', version, '--no-git-tag-version'], { stdio: 'inherit' })
   writeFileSync(file, markdown)
   console.log(
     `CHANGELOG.md and package.json are at ${version}. Open the release PR; merging it tags and releases.`,
