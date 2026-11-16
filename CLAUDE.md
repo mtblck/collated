@@ -5,7 +5,8 @@ Images → one PDF, client-only, at https://collatedpdf.com/ (own Vercel project
 ## Commands
 
 `npm run check` (prettier, eslint strict-type-checked, tsc, vitest) · `npm run build` (hosting:check + tsc + vite) ·
-`npm run verify` after a build (Chromium E2E + axe + preview≡PDF pixel check). In Claude's sandbox:
+`npm run verify` after a build (Chromium E2E + axe + preview≡PDF pixel check) · `npm run release -- x.y.z`
+(the release PR; ADR 0031). In Claude's sandbox:
 `CHROME_PATH=$(ls -d /opt/pw-browsers/chromium-*/chrome-linux/chrome | head -1)`.
 
 PRs: open as drafts and mark them ready only when the work is done. Before marking one ready, run
@@ -45,5 +46,9 @@ one means a new ADR that supersedes it, in the same PR.
 **Changelog:** like seedkin and tinkerkit, a PR people using Collated would notice adds its line under
 **Unreleased** in `CHANGELOG.md` (`### Added` + `- line for people using Collated (#123).`), in the
 same PR. If it conflicts after another merge, rebase and keep both lines. No `changelog.d/` (ADR 0022).
+
+**Releases** (ADR 0031, like seedkin): don't push tags or publish releases. A release is a PR from
+`npm run release -- x.y.z`; merge it only on Matt's go, and `release.yml` checks, tags the merge commit
+and publishes the GitHub release from the changelog. Only a release PR changes `version`.
 
 Tickets: GitHub Issues here (shown at mattblack.space/boards/collated). Commit as `mtblck <105079242+mtblck@users.noreply.github.com>`.

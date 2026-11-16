@@ -1,0 +1,108 @@
+name: Release
+
+# Releases a version two ways, like seedkin (ADR 0031):
+# - Release PR: a merge to main that changes `version` in package.json runs the
+#   checks, tags that commit vX.Y.Z and publishes the GitHub release. Merging the
+#   release PR (made with `npm run release -- x.y.z`) is the approval. The tag is
+#   made with this run's token, so it doesn't start a second run of this workflow.
+# - Tag: Matt pushes a version tag (v1.0.0, v1.2.3) by hand, or makes one from
+#   GitHub's New release page.
+# Either way the GitHub release notes are that version's CHANGELOG.md section.
+# Vercel deploys every merge to main already, so nothing here deploys.
+# CONTRIBUTING.md has the release steps.
+on:
+  push:
+    tags: ['v*']
+    branches: [main]
+    # Ignored for tag pushes, which always run.
+    paths: [package.json]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Check, tag and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # To create the tag and the GitHub release.
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # On main, release only when this push changed the version: a merge that
+      # touches package.json for anything else (a dependency) does nothing.
+      - name: Version to release
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          if [ "$REF_TYPE" = tag ]; then
+            # The tag must name the version in package.json, so v1.0.1 can't release 1.0.0.
+            if [ "$REF_NAME" != "v$version" ]; then echo "::error::Tag $REF_NAME doesn't match package.json version $version."; exit 1; fi
+          else
+            # Without the commit before the push (a force-push), there's no telling
+            # whether this push changed the version: release nothing; a tag still can.
+            if ! git fetch --depth=1 --no-tags origin "$BEFORE" 2>/dev/null; then
+              echo "::warning::Couldn't fetch $BEFORE to compare versions; nothing released. Push tag v$version to release it."
+              exit 0
+            fi
+            before=$(git show "$BEFORE:package.json" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
+            if [ "$before" = "$version" ]; then
+              echo "::notice::package.json changed but its version is still $version; nothing to release."
+              exit 0
+            fi
+            # Already tagged: a re-run finishing this release (the later steps skip
+            # what's done) if the tag is on this commit, otherwise nothing to do.
+            # An annotated tag lists its commit on the peeled ^{} line, which comes last.
+            tagged=$(git ls-remote --tags origin "refs/tags/v$version" "refs/tags/v$version^{}" | tail -n 1 | cut -f1)
+            if [ -n "$tagged" ] && [ "$tagged" != "$GITHUB_SHA" ]; then
+              echo "::notice::v$version is already tagged on another commit; nothing to release."
+              exit 0
+            fi
+            if [ -n "$tagged" ]; then echo "tagged=true" >> "$GITHUB_OUTPUT"; fi
+          fi
+          if ! grep -q "^## \[${version//./\\.}\] - " CHANGELOG.md; then
+            echo "::error::package.json is $version but CHANGELOG.md has no '## [$version] - date' section."
+            exit 1
+          fi
+          echo "release=true" >> "$GITHUB_OUTPUT"
+      # The same checks as CI's check job, so a red main makes no tag.
+      - if: steps.version.outputs.release == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - if: steps.version.outputs.release == 'true'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils qpdf python3-pil
+      # No dependency runs code at install (see ci.yml).
+      - if: steps.version.outputs.release == 'true'
+        run: npm ci --ignore-scripts
+      - if: steps.version.outputs.release == 'true'
+        run: npm run check && npm run build
+      - name: Tag the release commit
+        if: steps.version.outputs.release == 'true' && github.ref_type != 'tag' && steps.version.outputs.tagged != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA" --silent
+      - name: GitHub release
+        if: steps.version.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exit 0; fi
+          # This version's CHANGELOG section: from its heading to the next one.
+          awk -v v="${TAG#v}" '/^## \[/ { on = index($0, "## [" v "]") == 1; next } /^\[.*\]: / { exit } on' CHANGELOG.md > notes.md
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "Collated $TAG" --notes-file notes.md --verify-tag

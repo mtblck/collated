@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * scripts/changelog.mjs (npm run changelog:check): passes a good CHANGELOG.md, and
- * fails on a missing Unreleased, a wrong or empty heading, or a leftover changelog.d/
+ * fails on a missing [Unreleased], a version heading without its date, a wrong or empty heading, or a leftover changelog.d/
  * fragment, naming what to fix.
  */
 import { spawnSync } from 'node:child_process'
@@ -14,7 +14,7 @@ const script = join(import.meta.dirname, '..', 'scripts', 'changelog.mjs')
 
 const GOOD = `# Changelog
 
-## Unreleased
+## [Unreleased]
 
 ### Added
 
@@ -25,7 +25,7 @@ const GOOD = `# Changelog
 
 - A fix (#2).
 
-## 1.0.0
+## [1.0.0] - 2026-11-16
 
 ### Added
 
@@ -58,7 +58,22 @@ describe('changelog check', () => {
   })
 
   it.each([
-    ['no Unreleased', GOOD.replace('## Unreleased', '## Next'), 'no "## Unreleased" section'],
+    ['no Unreleased', GOOD.replace('## [Unreleased]', '## Next'), 'no "## [Unreleased]" section'],
+    [
+      'Unreleased without brackets',
+      GOOD.replace('## [Unreleased]', '## Unreleased'),
+      'no "## [Unreleased]" section',
+    ],
+    [
+      'a version without a date',
+      GOOD.replace('## [1.0.0] - 2026-11-16', '## [1.0.0]'),
+      '"## [1.0.0]" should be "## [Unreleased]" or "## [1.2.0] - YYYY-MM-DD"',
+    ],
+    [
+      'a version without brackets',
+      GOOD.replace('## [1.0.0] - 2026-11-16', '## 1.0.0 - 2026-11-16'),
+      'should be "## [Unreleased]" or',
+    ],
     [
       'an unknown heading',
       GOOD.replace('### Fixed', '### New stuff'),
