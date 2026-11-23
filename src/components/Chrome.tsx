@@ -376,9 +376,17 @@ const LandingDock = ({
       </Button>
     )}
     {scanFirst && (
-      <Button size="dock" variant="quiet" onClick={onChoose} aria-label={choose}>
+      // The name holds its visible word ("Choose photos"), and focus with
+      // nowhere to go comes here, as in the wider layout.
+      <Button
+        size="dock"
+        variant="quiet"
+        onClick={onChoose}
+        aria-label={choose}
+        data-focus-fallback
+      >
         <PlusIcon />
-        Files
+        Choose
       </Button>
     )}
     {/* Where focus goes when the last page is removed. A task's longer
@@ -389,7 +397,7 @@ const LandingDock = ({
         size="dock-primary"
         className="max-w-full"
         onClick={scanFirst ? onScan : onChoose}
-        data-focus-fallback
+        {...(!scanFirst && { 'data-focus-fallback': true })}
       >
         {scanFirst ? <ScanIcon width={18} height={18} /> : <PlusIcon width={18} height={18} />}
         <span className="min-w-0 text-left leading-tight whitespace-normal">

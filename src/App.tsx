@@ -440,9 +440,14 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   }, [])
 
   const selectedIndex = pages.findIndex((p) => p.id === selectedId)
-  // The sheet closes for good with its page (removed, even if undone) or
-  // once the inspector has its own column again (a tablet turned sideways).
-  if (sheetFor !== null && (!narrow || !pages.some((p) => p.id === sheetFor))) setSheetFor(null)
+  // The sheet follows the selection made in it (Duplicate selects the copy),
+  // and closes for good with its page (removed, even if undone), with the
+  // selection, or once the inspector has its own column again.
+  const sheetAnchor = selection.anchor ?? selection.ids[0] ?? null
+  if (sheetFor !== null) {
+    if (!narrow || sheetAnchor === null || !pages.some((p) => p.id === sheetFor)) setSheetFor(null)
+    else if (!selection.ids.includes(sheetFor)) setSheetFor(sheetAnchor)
+  }
   const sheet = narrow && sheetFor !== null && pages.some((p) => p.id === sheetFor)
   const sheetClose = useRef<HTMLButtonElement>(null)
   /** A control to focus when the sheet opens, in place of its Close button. */
@@ -452,6 +457,21 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     setSheetFor(null)
     requestFocus(selection.anchor ?? sheetFor, true)
   }, [requestFocus, selection.anchor, sheetFor])
+  // A tablet turned upright while someone works in the inspector's column:
+  // it becomes the sheet, rather than vanishing from under their focus.
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const media = window.matchMedia(NARROW)
+    const onChange = () => {
+      if (media.matches && sheetAnchor && rail.current?.contains(document.activeElement)) {
+        setSheetFor(sheetAnchor)
+      }
+    }
+    media.addEventListener('change', onChange)
+    return () => {
+      media.removeEventListener('change', onChange)
+    }
+  }, [sheetAnchor])
   useLayoutEffect(() => {
     if (!sheet) return
     const target = sheetFocus.current
@@ -641,7 +661,12 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         })
         if (ready === 'sign') {
           signNext.current = true
-          if (narrow && pageIds[0]) {
+          // Read now: the import may have taken a while (a turned tablet).
+          if (
+            pageIds[0] &&
+            typeof window.matchMedia === 'function' &&
+            window.matchMedia(NARROW).matches
+          ) {
             sheetFocus.current = '[data-sign-start]'
             setSheetFor(pageIds[0])
           }
@@ -658,7 +683,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           .join(' '),
       )
     },
-    [act, deps, forgetTask, narrow, notify],
+    [act, deps, forgetTask, notify],
   )
 
   // Drop anywhere, paste anywhere, and keyboard undo/redo.
@@ -785,6 +810,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       if (modalOpen()) return
       // By key position, not character: Option+T on a Mac types "†".
       if (event.altKey && !event.metaKey && !event.ctrlKey && event.code === 'KeyT') {
+        // Behind the page tools' sheet the toolbar is out of reach.
+        if (sheet) return
         const stop = document.querySelector<HTMLElement>('[role="toolbar"] [data-toolbar-stop]')
         if (stop) {
           event.preventDefault()
@@ -1924,6 +1951,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     <div className="relative flex min-h-dvh flex-col lg:h-dvh lg:overflow-hidden">
       <a
         href="#main"
+        inert={sheet}
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-paper focus:px-3 focus:py-2"
       >
         Skip to content
@@ -2062,6 +2090,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
                       large
                       onClick={closeSheet}
                       ref={sheetClose}
+                      // Ahead of the dock's in the page: while the sheet is
+                      // open, focus that has nowhere to go comes here.
+                      data-focus-fallback
                     >
                       <CloseIcon />
                     </IconButton>

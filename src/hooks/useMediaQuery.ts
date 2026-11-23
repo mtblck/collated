@@ -23,12 +23,12 @@ export const useMediaQuery = (query: string) =>
 /**
  * Below Tailwind's `sm` (640 px): a phone, where the workspace's controls
  * sit in the dock along the bottom (DocumentBar) and the landing view has
- * its own (Chrome.tsx). Matches `max-sm:` in the class names.
+ * its own (Chrome.tsx). The same query as Tailwind's `max-sm:`, exactly.
  */
-export const PHONE = '(max-width: 39.99rem)'
+export const PHONE = '(width < 40rem)'
 
 /**
  * Below `lg` (1024 px): the inspector has no column of its own, so it opens
- * as a sheet over the pages (App). Matches `max-lg:`.
+ * as a sheet over the pages (App). The same query as `max-lg:`.
  */
-export const NARROW = '(max-width: 63.99rem)'
+export const NARROW = '(width < 64rem)'

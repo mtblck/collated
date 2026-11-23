@@ -285,7 +285,7 @@ describe('App', () => {
   it('on a phone, puts add and export in a dock and the page tools in a sheet', async () => {
     // A phone: narrower than sm (so lg too), touch.
     vi.stubGlobal('matchMedia', (query: string) => ({
-      matches: query.includes('max-width') || query === '(pointer: coarse)',
+      matches: query.startsWith('(width <') || query === '(pointer: coarse)',
       addEventListener: () => undefined,
       removeEventListener: () => undefined,
     }))
@@ -341,7 +341,7 @@ describe('App', () => {
 
   it('on a phone, the page tools’ sheet closes for good with its page', async () => {
     vi.stubGlobal('matchMedia', (query: string) => ({
-      matches: query.includes('max-width'),
+      matches: query.startsWith('(width <'),
       addEventListener: () => undefined,
       removeEventListener: () => undefined,
     }))
@@ -356,6 +356,17 @@ describe('App', () => {
       // Undo brings the page back, not the sheet.
       await user.click(screen.getByRole('button', { name: /^Undo/ }))
       expect(pageLabels()).toEqual(['Page 1: a.jpg', 'Page 2: b.jpg'])
+      expect(screen.queryByRole('dialog', { name: 'Selected page' })).not.toBeInTheDocument()
+      // It follows Duplicate to the copy, and closes when the copy goes.
+      await user.click(screen.getByRole('button', { name: 'Page 1: a.jpg' }))
+      await user.click(
+        within(screen.getByRole('dialog', { name: 'Selected page' })).getByRole('button', {
+          name: 'Duplicate',
+        }),
+      )
+      const copy = screen.getByRole('dialog', { name: 'Selected page' })
+      expect(within(copy).getByText(/^Page 02/)).toBeInTheDocument()
+      await user.click(within(copy).getByRole('button', { name: 'Remove' }))
       expect(screen.queryByRole('dialog', { name: 'Selected page' })).not.toBeInTheDocument()
     } finally {
       vi.unstubAllGlobals()
