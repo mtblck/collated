@@ -171,6 +171,9 @@
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
+    /* Focus and in-page jumps stop below the pinned header (brand.ts
+       HEADER_STICKY): the app measures it, the docs header is one 64 px row. */
+    scroll-padding-top: var(--header-room, 4.5rem);
   }
   /* The table: a soft pool of light on the ground, fixed so it stays put
      while the panes scroll. */

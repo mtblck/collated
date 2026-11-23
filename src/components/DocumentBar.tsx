@@ -115,11 +115,13 @@ export const DocumentBar = ({
   return (
     // Phones: two rows (setup, undo, redo / add, export, more), in
     // the same order as the DOM so the arrow keys go where the eye does.
+    // Wider, one pill beside the name: below md, Add pages is its icon and
+    // the setup summary gives way (truncates) before the name does.
     <Toolbar
       label="Document"
       className="min-w-0 flex-1 basis-full flex-wrap gap-x-1 gap-y-2 sm:flex-none sm:basis-auto sm:flex-nowrap sm:rounded-full sm:bg-paper sm:p-1 sm:shadow-panel"
     >
-      <div className="flex min-w-0 flex-1 sm:flex-none">
+      <div className="flex min-w-0 flex-1 sm:min-w-11 sm:flex-initial">
         <PageSetup settings={settings} onSettings={onSettings} />
       </div>
       {/* Inactive rather than disabled: undoing the last step mustn't
@@ -146,7 +148,7 @@ export const DocumentBar = ({
         className="ml-auto sm:ml-0"
       >
         <PlusIcon width={16} height={16} />
-        <span className="hidden sm:inline" aria-hidden="true">
+        <span className="hidden md:inline" aria-hidden="true">
           Add pages
         </span>
       </Button>

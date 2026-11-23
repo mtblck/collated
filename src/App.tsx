@@ -1817,7 +1817,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   return (
     // On a wide screen the window never scrolls: the header stays put and the
     // page grid and the inspector scroll on their own. On narrower screens the
-    // page scrolls as usual and the header scrolls with it.
+    // page scrolls as usual, under the header pinned to the top (Chrome.tsx).
     <div className="relative flex min-h-dvh flex-col lg:h-dvh lg:overflow-hidden">
       <a
         href="#main"

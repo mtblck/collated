@@ -10,7 +10,7 @@ import {
   SOURCE_URL,
   TERMS_URL,
 } from './src/components/links'
-import { HEADER_ROW, HEADER_RULE, WORDMARK } from './src/components/brand'
+import { HEADER_ROW, HEADER_RULE, HEADER_STICKY, WORDMARK } from './src/components/brand'
 import { TASKS, taskAppUrl, taskUrl, type Task } from './src/components/tasks'
 
 /**
@@ -185,7 +185,7 @@ export const renderPage = (
   </head>
   <body>
     <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-paper focus:px-3 focus:py-2">Skip to content</a>
-    <header class="relative z-10 ${HEADER_RULE}">
+    <header class="${HEADER_STICKY} ${HEADER_RULE}">
       <div class="mx-auto flex max-w-6xl ${HEADER_ROW}">
         <a href="${APP_URL}" class="${WORDMARK}">Collated</a>
         <span class="label text-ink-faint">Docs</span>
@@ -245,7 +245,7 @@ export const renderTaskPage = (
   </head>
   <body>
     <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-paper focus:px-3 focus:py-2">Skip to content</a>
-    <header class="relative z-10 ${HEADER_RULE}">
+    <header class="${HEADER_STICKY} ${HEADER_RULE}">
       <div class="mx-auto flex max-w-6xl ${HEADER_ROW}">
         <a href="${APP_URL}" class="${WORDMARK}">Collated</a>
         <a href="${DOCS_URL}" class="ml-auto inline-flex min-h-11 items-center rounded-full px-3 text-sm text-ink-muted hover:bg-ink/[0.06] hover:text-ink">Docs</a>

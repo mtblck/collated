@@ -12,6 +12,14 @@ it (ADR 0031).
 
 ## [Unreleased]
 
+### Changed
+
+- The header stays at the top while you scroll, on the home page, in the app on phones and tablets, and on the guide and task pages. In the app on a phone, the Collated name is back above the toolbar; it scrolls away and the toolbar stays (#157).
+
+### Fixed
+
+- On tablets, the toolbar no longer covers the Collated name in the app: the page setup summary shortens instead (#157).
+
 ## [1.0.0] - 2026-11-16
 
 ### Added
