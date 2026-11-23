@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react'
 import { Button, IconButton } from './controls'
-import { HEADER_ROW, WORDMARK } from './brand'
+import { HEADER_ROW, HEADER_STICKY, WORDMARK } from './brand'
 import { cx } from './cx'
 import { CameraIcon, CloseIcon, MoonIcon, ScanIcon, SunIcon } from './Icons'
 import { APP_URL, DOCS_URL, FOOTER, SOURCE_URL, SPONSORS_URL, SUPPORT_URL } from './links'
@@ -32,58 +32,101 @@ const TrustNote = ({ className }: { className?: string }) => (
 )
 
 /**
- * One row over the table, no bar of its own. In the workspace: the
- * wordmark, a link back to the landing view (`onHome` decides how to
- * leave), the toolbar (`children`) as a floating pill in the middle, and
- * the privacy note; on the landing view, the note and links. It never
- * scrolls away: on a wide screen the panes below scroll instead (see App).
+ * Tells the page how much of the top of the window the header covers once
+ * it's pinned, so focus and in-page jumps scroll clear of it (WCAG 2.4.11;
+ * index.css reads --header-room). A negative `top` (the phone workspace,
+ * whose name row scrolls away) is taken off.
  */
-export const Header = ({ children, onHome }: { children?: ReactNode; onHome?: () => void }) => (
-  <header className="relative z-20 shrink-0">
-    {children !== undefined ? (
-      <div
-        className={cx(
-          HEADER_ROW,
-          'mx-auto flex max-w-[1600px] flex-wrap sm:grid sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]',
-        )}
-      >
-        {/* While working on a phone the toolbar needs the room: there the
-            name is only for screen readers, and isn't a link. */}
-        <span className="sr-only sm:hidden">Collated</span>
-        <a
-          href={APP_URL}
-          aria-label="Collated home"
-          className={cx(WORDMARK, 'justify-self-start rounded-sm max-sm:hidden')}
-          onClick={(event) => {
-            // A new tab or window goes there as any link would.
-            if (!onHome || event.button !== 0) return
-            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-            event.preventDefault()
-            onHome()
-          }}
+const useHeaderRoom = (box: RefObject<HTMLElement | null>) => {
+  useEffect(() => {
+    const el = box.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const root = document.documentElement
+    const measure = () => {
+      const top = parseFloat(getComputedStyle(el).top) || 0
+      const room = Math.max(0, Math.ceil(el.getBoundingClientRect().height + top))
+      root.style.setProperty('--header-room', `${room + 8}px`)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    window.addEventListener('resize', measure)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', measure)
+      root.style.removeProperty('--header-room')
+    }
+  }, [box])
+}
+
+/**
+ * The header over the table, no bar of its own on a wide screen. In the
+ * workspace: the wordmark, a link back to the landing view (`onHome`
+ * decides how to leave), the toolbar (`children`) as a floating pill in
+ * the middle, and the privacy note; on the landing view, the note and
+ * links. It never scrolls away: on a wide screen the panes below scroll
+ * instead (see App); narrower, the window scrolls under it. On a phone the
+ * workspace's name has a row of its own above the toolbar's two, and only
+ * that row scrolls away, so the toolbar stays in reach.
+ */
+export const Header = ({ children, onHome }: { children?: ReactNode; onHome?: () => void }) => {
+  const box = useRef<HTMLElement>(null)
+  useHeaderRoom(box)
+  return (
+    <header
+      ref={box}
+      className={cx(
+        HEADER_STICKY,
+        'shrink-0 max-lg:shadow-[0_1px_0_var(--c-rule)] lg:bg-transparent',
+        // The name row: HEADER_ROW's top padding and the 44 px row (see below).
+        children !== undefined && 'max-sm:-top-[3.375rem]',
+      )}
+    >
+      {children !== undefined ? (
+        <div
+          className={cx(
+            HEADER_ROW,
+            'mx-auto flex max-w-[1600px] flex-wrap sm:grid sm:grid-cols-[minmax(max-content,1fr)_minmax(0,auto)_minmax(0,1fr)]',
+          )}
         >
-          Collated
-        </a>
-        {children}
-        <TrustNote className="hidden justify-self-end xl:flex" />
-      </div>
-    ) : (
-      <div className={cx(HEADER_ROW, 'mx-auto flex max-w-6xl flex-wrap')}>
-        <span className={WORDMARK}>Collated</span>
-        <TrustNote className="ml-auto hidden md:flex" />
-        <nav aria-label="About Collated" className="ml-auto flex items-center gap-1 md:ml-4">
-          <a className={NAV_LINK} href={DOCS_URL}>
-            Docs
+          <a
+            href={APP_URL}
+            aria-label="Collated home"
+            className={cx(
+              WORDMARK,
+              'justify-self-start rounded-sm max-sm:flex max-sm:h-11 max-sm:items-center',
+            )}
+            onClick={(event) => {
+              // A new tab or window goes there as any link would.
+              if (!onHome || event.button !== 0) return
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+              event.preventDefault()
+              onHome()
+            }}
+          >
+            Collated
           </a>
-          <a className={NAV_LINK} href={SOURCE_URL} rel="noopener noreferrer" target="_blank">
-            Source<span className="sr-only"> code (opens in a new tab)</span>
-          </a>
-          <ThemeToggle />
-        </nav>
-      </div>
-    )}
-  </header>
-)
+          {children}
+          <TrustNote className="hidden justify-self-end xl:flex" />
+        </div>
+      ) : (
+        <div className={cx(HEADER_ROW, 'mx-auto flex max-w-6xl flex-wrap')}>
+          <span className={WORDMARK}>Collated</span>
+          <TrustNote className="ml-auto hidden md:flex" />
+          <nav aria-label="About Collated" className="ml-auto flex items-center gap-1 md:ml-4">
+            <a className={NAV_LINK} href={DOCS_URL}>
+              Docs
+            </a>
+            <a className={NAV_LINK} href={SOURCE_URL} rel="noopener noreferrer" target="_blank">
+              Source<span className="sr-only"> code (opens in a new tab)</span>
+            </a>
+            <ThemeToggle />
+          </nav>
+        </div>
+      )}
+    </header>
+  )
+}
 
 /**
  * Asked before the wordmark leaves a document that won't all be there on
