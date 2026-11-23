@@ -6,7 +6,7 @@ public: true
 
 - **Status:** Accepted
 - **Date:** 2026-11-23
-- **PR:** [#PR](https://github.com/mtblck/collated/pull/PR)
+- **PR:** [#158](https://github.com/mtblck/collated/pull/158)
 
 ## Context
 
