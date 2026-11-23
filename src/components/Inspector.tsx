@@ -200,7 +200,8 @@ export const Inspector = ({
       </header>
 
       <div
-        className="relative w-full rounded-xl bg-paper-sunk p-5"
+        // Below lg, in the sheet (App): short enough that the tools start on screen.
+        className="relative mx-auto w-full rounded-xl bg-paper-sunk p-5 max-lg:h-[min(36dvh,24rem)] max-lg:w-auto max-lg:max-w-full"
         style={{ aspectRatio: boxRatio }}
       >
         <PagePreview

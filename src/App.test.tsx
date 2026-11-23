@@ -282,6 +282,63 @@ describe('App', () => {
     }
   })
 
+  it('on a phone, puts add and export in a dock and the page tools in a sheet', async () => {
+    // A phone: narrower than sm (so lg too), touch.
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('max-width') || query === '(pointer: coarse)',
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }))
+    try {
+      const { user, upload } = setup()
+      // The landing view's dock: the ways in, and the Support heart.
+      const landing = screen.getByRole('group', { name: 'Add pages' })
+      expect(within(landing).getByRole('button', { name: 'Choose files' })).toBeInTheDocument()
+      expect(within(landing).getByRole('button', { name: 'Take photo' })).toBeInTheDocument()
+      expect(
+        within(landing).getByRole('link', { name: 'Support Collated (opens in a new tab)' }),
+      ).toHaveAttribute('target', '_blank')
+      await upload('a.jpg', 'b.jpg')
+      await screen.findByRole('list', { name: '2 pages' })
+      // The header keeps setup, undo, redo and More; the dock adding and export.
+      const top = screen.getByRole('toolbar', { name: 'Document' })
+      expect(within(top).getByRole('button', { name: /^Page setup/ })).toBeInTheDocument()
+      expect(within(top).getByRole('button', { name: /^Undo/ })).toBeInTheDocument()
+      expect(within(top).queryByRole('button', { name: /^Export · / })).not.toBeInTheDocument()
+      const dock = screen.getByRole('toolbar', { name: 'Add and export' })
+      expect(within(dock).getByRole('button', { name: 'Add pages' })).toBeInTheDocument()
+      expect(within(dock).getByRole('button', { name: /^Export · 2 pages/ })).toBeInTheDocument()
+      // The inspector waits for a tap on a page, then opens as a sheet over
+      // the rest, which is out of reach until it closes.
+      expect(screen.queryByRole('dialog', { name: 'Selected page' })).not.toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Page 2: b.jpg' }))
+      const sheet = screen.getByRole('dialog', { name: 'Selected page' })
+      expect(sheet).toHaveAttribute('aria-modal', 'true')
+      expect(within(sheet).getByRole('heading', { level: 2, name: 'b.jpg' })).toBeInTheDocument()
+      expect(within(sheet).getByRole('button', { name: 'Close page tools' })).toHaveFocus()
+      expect(screen.getByRole('region', { name: 'Pages', hidden: true })).toHaveAttribute('inert')
+      await user.keyboard('{Escape}')
+      expect(screen.queryByRole('dialog', { name: 'Selected page' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Page 2: b.jpg' })).toHaveFocus()
+      // Its button closes it too; Select mode taps toggle pages, no sheet.
+      await user.click(screen.getByRole('button', { name: 'Page 1: a.jpg' }))
+      await user.click(screen.getByRole('button', { name: 'Close page tools' }))
+      expect(screen.getByRole('button', { name: 'Page 1: a.jpg' })).toHaveFocus()
+      await user.click(screen.getByRole('button', { name: 'Select' }))
+      await user.click(screen.getByRole('button', { name: 'Page 2: b.jpg' }))
+      expect(screen.queryByRole('dialog', { name: 'Selected page' })).not.toBeInTheDocument()
+      // Edit opens it for the selection.
+      await user.click(screen.getByRole('button', { name: 'Edit the selected pages' }))
+      expect(
+        within(screen.getByRole('dialog', { name: 'Selected page' })).getByRole('heading', {
+          name: '2 pages selected',
+        }),
+      ).toBeInTheDocument()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('turns a PDF into one page per PDF page, shown as vector in the inspector', async () => {
     const { user, upload } = setup()
     await upload('lease.pdf', 'a.jpg')

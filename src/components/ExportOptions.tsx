@@ -92,6 +92,7 @@ export const ExportOptions = ({
   selectedIds = [],
   plan,
   panelId: givenPanelId,
+  dock = false,
 }: {
   settings: Pick<
     Settings,
@@ -130,6 +131,8 @@ export const ExportOptions = ({
   plan: Plan
   /** The panel's id; `${panelId}-password` is the password field's. */
   panelId?: string
+  /** In the phone's dock: as tall as the dock's other buttons (48 px). */
+  dock?: boolean
 }) => {
   const id = useId()
   const panelId = givenPanelId ?? `${id}-export-options`
@@ -179,7 +182,13 @@ export const ExportOptions = ({
       {/* Stays a working button while busy (it only opens the options), so
           focus isn't dropped mid-export; the progress shows here, and the
           status line announces it. */}
-      <Button variant="primary" popoverTarget={panelId} {...TOOLBAR_ITEM} className="anchor-export">
+      <Button
+        variant="primary"
+        size={dock ? 'dock-primary' : 'md'}
+        popoverTarget={panelId}
+        {...TOOLBAR_ITEM}
+        className="anchor-export"
+      >
         {locked && !images ? (
           <LockIcon width={16} height={16} />
         ) : (
@@ -189,7 +198,7 @@ export const ExportOptions = ({
         {exporting.busy ? (
           <>
             <span className="hidden tabular-nums sm:inline">{progress(exporting)}</span>
-            {/* Phones: just the count, so the toolbar keeps its two rows. */}
+            {/* Phones: just the count, so the dock keeps its one row. */}
             <span className="tabular-nums sm:hidden">
               {String(exporting.done)}/{String(exporting.total)}…
             </span>

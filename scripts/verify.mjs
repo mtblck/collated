@@ -112,6 +112,7 @@ const ok = (message) => console.log(`  ok  ${message}`)
 
 /** Opens the toolbar's Page setup popover, runs `act` on it, and closes it. */
 const pageSetup = async (p, act) => {
+  await closeSheet(p)
   await p.getByRole('button', { name: /^Page setup/ }).click()
   const panel = p.getByRole('dialog', { name: 'Page setup' })
   await panel.waitFor()
@@ -119,10 +120,35 @@ const pageSetup = async (p, act) => {
   await p.keyboard.press('Escape')
   await panel.waitFor({ state: 'hidden' })
 }
+/**
+ * On a phone or tablet the page tools are a sheet over the rest (App): close
+ * it, if it's open, to reach the toolbar.
+ */
+const closeSheet = async (p) => {
+  const close = p.getByRole('button', { name: 'Close page tools' })
+  if (await close.isVisible()) {
+    await close.click()
+    await close.waitFor({ state: 'detached' })
+  }
+}
 /** The toolbar's export button, which opens the export popover. */
-const exportMenu = (p) => p.getByRole('button', { name: /, options$/ })
+const exportMenu = (p) =>
+  // Pressing it first closes the page tools' sheet, which a page tap opens
+  // on a phone, as a person would.
+  new Proxy(p.getByRole('button', { name: /, options$/ }), {
+    get(target, key) {
+      const value = target[key]
+      if (key === 'click' || key === 'tap')
+        return async (...args) => {
+          await closeSheet(p)
+          return value.apply(target, args)
+        }
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
 /** Opens the export popover and clicks Export at its foot. */
 const exportNow = async (p) => {
+  await closeSheet(p)
   await exportMenu(p).click()
   await p
     .getByRole('dialog', { name: 'Export options' })
@@ -131,6 +157,7 @@ const exportNow = async (p) => {
 }
 /** Sets the title in the Export options popover. */
 const setTitle = async (p, title) => {
+  await closeSheet(p)
   await exportMenu(p).click()
   const panel = p.getByRole('dialog', { name: 'Export options' })
   await panel.getByLabel('Title & filename').fill(title)
@@ -1483,7 +1510,9 @@ await context.close()
     'room is reserved under a notice',
     reserved,
   )
-  // The last control on the page, tabbed to, isn't hidden by the notice.
+  // The last control in the page's tools (a sheet on a phone), tabbed to,
+  // isn't hidden by the notice.
+  await p.getByRole('button', { name: 'Page 1: quad-landscape.jpg' }).tap()
   const remove = p
     .locator('aside[aria-label="Selected page"]')
     .getByRole('button', { name: 'Remove' })
@@ -1494,6 +1523,7 @@ await context.close()
     return a && n ? Math.max(0, Math.min(a.bottom, n.bottom) - Math.max(a.top, n.top)) : -1
   })
   check(overlap === 0, 'a focused control is not covered by the notice', `${overlap}px overlap`)
+  await p.getByRole('button', { name: 'Close page tools' }).tap()
   await p
     .locator('h1')
     .first()
@@ -3472,14 +3502,18 @@ await context.close()
   await p.waitForSelector('ol[aria-label="1 page"]')
   check((await p.locator('.tipjar').count()) === 0, 'the workspace has no floating Support button')
   await ctx.close()
-  // On a phone it folds to its heart, keeping its name.
+  // On a phone it's just a heart, keeping its name.
   const { context: phone, page: q } = await open({ viewport: { width: 390, height: 844 } })
   await q.goto(URL_ROOT, { waitUntil: 'networkidle' })
-  const small = await q.locator('.tipjar').boundingBox()
+  // The phone's landing dock carries the heart instead (index.css, step 51).
+  const heart = await q
+    .getByRole('group', { name: 'Add pages' })
+    .getByRole('link', { name: /^Support Collated/ })
+    .boundingBox()
   check(
-    small !== null && small.width <= 48,
-    'on a phone the Support button is just its icon',
-    JSON.stringify(small),
+    heart !== null && heart.width <= 48 && !(await q.locator('.tipjar').isVisible()),
+    'on a phone the Support button is a heart in the landing dock',
+    JSON.stringify(heart),
   )
   await q.screenshot({ path: join(shots, 'tipjar-phone.png') })
   await phone.close()
@@ -5221,7 +5255,8 @@ for (const [label, viewport] of [
 //     tablet, by touch, with the window scrolled down a workspace of eight
 //     pages: the header stays at the top with the toolbar on screen; Tab onto
 //     a page lands below it; arrow keys along the toolbar don't scroll the
-//     window; on the phone, the name comes back on screen when it has focus.
+//     window; on the phone, the name (in the toolbar's one row) is on screen
+//     when it has focus.
 //     The docs header stays at the top too.
 for (const [label, viewport] of [
   ['phone', { width: 390, height: 844 }],
@@ -5301,6 +5336,117 @@ for (const [label, viewport] of [
     )
   }
   await context.close()
+}
+
+// 51. The phone's dock and the page tools' sheet (floating dock PR), by touch
+//     on a 390px phone: the landing view's ways in sit in a dock, with the
+//     Support heart in place of tipjar's; in the workspace the header is one
+//     row, the dock holds Add and Export, and the last page scrolls clear of
+//     it. A tapped page opens its tools in a sheet over the dimmed pages,
+//     which closes by its button or a tap beside it. On a tablet the sheet
+//     opens too, with no dock.
+{
+  const { context, page: p } = await open({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  const landing = p.getByRole('group', { name: 'Add pages' })
+  check(
+    (await landing.getByRole('button', { name: 'Choose files' }).isVisible()) &&
+      (await landing.getByRole('link', { name: /^Support Collated/ }).isVisible()) &&
+      (await p.locator('.tipjar').count()) > 0 &&
+      !(await p.locator('.tipjar').first().isVisible()),
+    'the landing dock holds the ways in and the Support heart, in place of tipjar’s',
+  )
+  await p.screenshot({ path: join(shots, 'dock-landing-phone.png') })
+  await axe(p, 'landing dock, phone')
+  await p.setInputFiles(
+    '[data-testid="file-input"]',
+    Array.from({ length: 6 }, (_, i) => join(fixtures, i % 2 ? 'doc-photo.jpg' : 'doc-colour.jpg')),
+  )
+  await p.waitForSelector('ol[aria-label="6 pages"]', { timeout: 20_000 })
+  const header = await p.getByRole('banner').boundingBox()
+  const dock = p.getByRole('toolbar', { name: 'Add and export' })
+  const dockBox = await dock.boundingBox()
+  check(
+    header !== null && header.height <= 72 && dockBox !== null && dockBox.y + dockBox.height <= 844,
+    'on a phone the workspace header is one row and the dock sits along the bottom',
+    JSON.stringify({ header, dockBox }),
+  )
+  check(
+    (await dock.getByRole('button', { name: 'Add pages' }).isVisible()) &&
+      (await exportMenu(p).isVisible()),
+    'the dock holds Add pages and Export',
+  )
+  await axe(p, 'workspace dock, phone')
+  await p.evaluate(() => {
+    window.scrollTo(0, document.documentElement.scrollHeight)
+  })
+  const last = await p.locator('ol[aria-label="6 pages"] li').last().boundingBox()
+  check(
+    last !== null && dockBox !== null && last.y + last.height <= dockBox.y,
+    'the last page scrolls clear of the dock',
+    JSON.stringify({ last, dockBox }),
+  )
+  await p.screenshot({ path: join(shots, 'dock-workspace-phone.png') })
+  check(
+    !(await p.locator('aside[aria-label="Selected page"]').isVisible()),
+    'the page tools wait for a tap on a page',
+  )
+  await p.getByRole('button', { name: 'Page 2: doc-photo.jpg' }).tap()
+  const sheet = p.getByRole('dialog', { name: 'Selected page' })
+  await sheet.waitFor()
+  const sheetBox = await sheet.boundingBox()
+  const crop = await sheet.getByRole('button', { name: 'Crop to the page…' }).boundingBox()
+  check(
+    sheetBox !== null &&
+      Math.round(sheetBox.y + sheetBox.height) === 844 &&
+      crop !== null &&
+      crop.y + crop.height <= 844,
+    'a tapped page opens its tools in a sheet, the first tools on screen',
+    JSON.stringify({ sheetBox, crop }),
+  )
+  check(
+    await p.evaluate(
+      () => document.activeElement?.getAttribute('aria-label') === 'Close page tools',
+    ),
+    'focus moves into the sheet',
+  )
+  await p.screenshot({ path: join(shots, 'dock-sheet-phone.png') })
+  await axe(p, 'page tools sheet, phone')
+  // A tap on the dimmed pages above closes it, and focus goes back to the page.
+  await p.touchscreen.tap(195, 40)
+  await sheet.waitFor({ state: 'hidden' })
+  check(
+    await p.evaluate(() =>
+      document.activeElement?.getAttribute('aria-label')?.startsWith('Page 2:'),
+    ),
+    'a tap beside the sheet closes it, back on its page',
+  )
+  await p.getByRole('button', { name: 'Page 3: doc-colour.jpg' }).tap()
+  await sheet.getByRole('button', { name: 'Close page tools' }).tap()
+  await sheet.waitFor({ state: 'hidden' })
+  ok('its button closes it')
+  await context.close()
+
+  const { context: tab, page: t } = await open({
+    viewport: { width: 820, height: 1000 },
+    hasTouch: true,
+  })
+  await t.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await t.setInputFiles('[data-testid="file-input"]', [join(fixtures, 'doc-photo.jpg')])
+  await t.waitForSelector('ol[aria-label="1 page"]')
+  await t.getByRole('button', { name: 'Page 1: doc-photo.jpg' }).tap()
+  await t.getByRole('dialog', { name: 'Selected page' }).waitFor()
+  check(
+    (await t.getByRole('toolbar', { name: 'Add and export' }).count()) === 0,
+    'on a tablet the page tools open as a sheet too, and the toolbar stays in the header',
+  )
+  await t.screenshot({ path: join(shots, 'dock-sheet-tablet.png') })
+  await axe(t, 'page tools sheet, tablet')
+  await tab.close()
 }
 
 checkSameOrigin()

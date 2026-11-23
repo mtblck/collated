@@ -14,7 +14,9 @@ it (ADR 0031).
 
 ### Changed
 
-- The header stays at the top while you scroll, on the home page, in the app on phones and tablets, and on the guide and task pages. In the app on a phone, the Collated name is back above the toolbar; it scrolls away and the toolbar stays (#157).
+- The header stays at the top while you scroll, on the home page, in the app on phones and tablets, and on the guide and task pages. In the app on a phone, the Collated name is back (#157).
+- On a phone, the app's header is one row again, and Add, Take photo, Scan and Export sit in a bar along the bottom of the screen, within reach of your thumb; the home page has one too, with Choose files and the Support heart (#PR).
+- On phones and tablets, tapping a page opens its tools in a panel that slides up over the pages, instead of below all of them; in Select mode, **Edit** opens it for the selected pages (#PR).
 
 ### Fixed
 

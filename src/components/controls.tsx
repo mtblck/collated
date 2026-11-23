@@ -28,7 +28,7 @@ const VARIANTS: Record<Variant, string> = {
  * element resolve by stylesheet order, not by which was written last, which
  * once squeezed every icon button's glyph to 6px wide.
  */
-type Size = 'sm' | 'md' | 'lg' | 'tile' | 'icon' | 'icon-sm' | 'icon-lg'
+type Size = 'sm' | 'md' | 'lg' | 'tile' | 'dock' | 'dock-primary' | 'icon' | 'icon-sm' | 'icon-lg'
 
 // The corner radius rides with the size for the same reason: pills, except
 // the tile, which is a rounded square.
@@ -38,6 +38,10 @@ const SIZES: Record<Size, string> = {
   /** Icon over label, for a row of equal actions in a narrow panel. */
   tile: 'h-16 flex-col gap-1.5 rounded-xl px-2 text-xs',
   lg: 'h-11 gap-2 rounded-full px-6 text-base',
+  /** Icon over a short label, in the phone's dock along the bottom (DocumentBar). */
+  dock: 'h-12 min-w-13 flex-col gap-1 rounded-2xl px-1.5 text-[0.6875rem] leading-none',
+  /** The dock's main action, as tall as its other buttons. */
+  'dock-primary': 'h-12 gap-2 rounded-full px-5 text-sm',
   icon: 'size-9 rounded-full',
   'icon-sm': 'size-7 rounded-full',
   /** A full 44 px touch target, for screens used only by touch (the scan camera). */
@@ -90,14 +94,17 @@ export const IconButton = ({
   label,
   small = false,
   variant = 'quiet',
+  large = false,
   ...props
 }: Omit<ButtonProps, 'aria-label' | 'size'> & {
   label: string
   small?: boolean
+  /** A full 44 px touch target (the phone's header). */
+  large?: boolean
 }) => (
   <Button
     variant={variant}
-    size={small ? 'icon-sm' : 'icon'}
+    size={small ? 'icon-sm' : large ? 'icon-lg' : 'icon'}
     aria-label={label}
     title={label}
     {...props}

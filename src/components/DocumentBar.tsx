@@ -24,11 +24,19 @@ export interface ExportState {
 }
 
 /**
- * The workspace toolbar, a pill floating in the header's one row: page setup (a popover),
- * undo and redo, add, export (a popover of options with the Export button
- * pinned at its foot), and a More menu for the rest. One Tab stop; arrow keys move along it.
+ * The workspace toolbar. Wider than a phone (`part="bar"`), a pill floating
+ * in the header's one row: page setup (a popover), undo and redo, add,
+ * export (a popover of options with the Export button pinned at its foot),
+ * and a More menu for the rest. On a phone it comes in two parts: the
+ * header keeps the things you set or fix (`part="top"`: setup, undo, redo,
+ * More) beside the name, and the dock along the bottom, under the thumb,
+ * holds the ways in and out (`part="dock"`: add, take photo, scan, export).
+ * Each is one Tab stop; arrow keys move along it.
  */
+export type BarPart = 'bar' | 'top' | 'dock'
+
 export const DocumentBar = ({
+  part = 'bar',
   settings,
   pageCount,
   canUndo,
@@ -64,6 +72,7 @@ export const DocumentBar = ({
   selectedIds,
   plan,
 }: {
+  part?: BarPart
   settings: Settings
   pageCount: number
   canUndo: boolean
@@ -112,40 +121,149 @@ export const DocumentBar = ({
   const mod =
     typeof navigator !== 'undefined' && /Mac|iP(hone|ad)/.test(navigator.platform) ? '⌘' : 'Ctrl+'
 
+  const undo = (
+    <IconButton
+      label={`Undo (${mod}Z)`}
+      inactive={!canUndo}
+      onClick={onUndo}
+      large={part === 'top'}
+      {...TOOLBAR_ITEM}
+    >
+      <UndoIcon />
+    </IconButton>
+  )
+  // Inactive rather than disabled: undoing the last step mustn't drop focus
+  // from the button.
+  const redo = (
+    <IconButton
+      label={`Redo (${mod}Shift+Z)`}
+      inactive={!canRedo}
+      onClick={onRedo}
+      large={part === 'top'}
+      {...TOOLBAR_ITEM}
+    >
+      <RedoIcon />
+    </IconButton>
+  )
+  const exportOptions = (
+    <ExportOptions
+      settings={settings}
+      pageCount={pageCount}
+      exporting={exporting}
+      estimate={estimate}
+      lastExport={lastExport}
+      onSettings={onSettings}
+      onExport={onExport}
+      canExport={pageCount > 0 && !exporting.busy}
+      password={password}
+      onPassword={onPassword}
+      passwordError={passwordError}
+      split={split}
+      onSplit={onSplit}
+      selectedCount={selectedCount}
+      selectedIds={selectedIds}
+      plan={plan}
+      panelId={optionsId}
+      dock={part === 'dock'}
+    />
+  )
+  const more = (
+    <MoreMenu
+      pageCount={pageCount}
+      onRotateAll={onRotateAll}
+      onAutoRotate={onAutoRotate}
+      rotating={rotating}
+      duplex={duplex}
+      orderScope={orderScope}
+      onArrange={onArrange}
+      blankAfter={blankAfter}
+      onInsertBlank={onInsertBlank}
+      busy={exporting.busy || busy}
+      onStartOver={onStartOver}
+      keepWork={keepWork}
+      onKeepWork={onKeepWork}
+      large={part === 'top'}
+    />
+  )
+
+  if (part === 'top')
+    return (
+      <Toolbar label="Document" className="ml-auto flex-none gap-x-0.5">
+        <PageSetup settings={settings} onSettings={onSettings} compact />
+        {undo}
+        {redo}
+        {more}
+      </Toolbar>
+    )
+
+  if (part === 'dock')
+    return (
+      // Fixed over the pages, clear of the home indicator; the page leaves
+      // room for it at the end (App), and notices sit above it (index.css).
+      <Toolbar
+        label="Add and export"
+        className="dock fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 items-center gap-1 rounded-full bg-paper p-1.5 shadow-panel"
+      >
+        {/* Each name starts with or holds its visible word (WCAG 2.5.3). */}
+        <Button
+          size="dock"
+          variant="quiet"
+          onClick={onAdd}
+          data-focus-fallback
+          {...TOOLBAR_ITEM}
+          aria-label="Add pages"
+        >
+          <PlusIcon />
+          Add
+        </Button>
+        {onTakePhoto && (
+          <Button
+            size="dock"
+            variant="quiet"
+            onClick={onTakePhoto}
+            {...TOOLBAR_ITEM}
+            aria-label="Take photo"
+          >
+            <CameraIcon />
+            Photo
+          </Button>
+        )}
+        {onScan && (
+          <Button
+            size="dock"
+            variant="quiet"
+            onClick={onScan}
+            {...TOOLBAR_ITEM}
+            aria-label="Scan pages"
+          >
+            <ScanIcon />
+            Scan
+          </Button>
+        )}
+        <span className="flex-1" aria-hidden="true" />
+        {exportOptions}
+      </Toolbar>
+    )
+
   return (
-    // Phones: two rows (setup, undo, redo / add, export, more), in
-    // the same order as the DOM so the arrow keys go where the eye does.
-    // Wider, one pill beside the name: below md, Add pages is its icon and
-    // the setup summary gives way (truncates) before the name does.
+    // One pill beside the name: below md, Add pages is its icon and the
+    // setup summary gives way (truncates) before the name does.
     <Toolbar
       label="Document"
-      className="min-w-0 flex-1 basis-full flex-wrap gap-x-1 gap-y-2 sm:flex-none sm:basis-auto sm:flex-nowrap sm:rounded-full sm:bg-paper sm:p-1 sm:shadow-panel"
+      className="flex-none flex-nowrap gap-x-1 rounded-full bg-paper p-1 shadow-panel"
     >
-      <div className="flex min-w-0 flex-1 sm:min-w-11 sm:flex-initial">
+      <div className="flex min-w-11 flex-initial">
         <PageSetup settings={settings} onSettings={onSettings} />
       </div>
-      {/* Inactive rather than disabled: undoing the last step mustn't
-          drop focus from the button. */}
-      <IconButton label={`Undo (${mod}Z)`} inactive={!canUndo} onClick={onUndo} {...TOOLBAR_ITEM}>
-        <UndoIcon />
-      </IconButton>
-      <IconButton
-        label={`Redo (${mod}Shift+Z)`}
-        inactive={!canRedo}
-        onClick={onRedo}
-        {...TOOLBAR_ITEM}
-      >
-        <RedoIcon />
-      </IconButton>
-      <span className="basis-full sm:hidden" aria-hidden="true" />
-      <span className="mx-1 hidden h-5 border-l border-rule sm:block" aria-hidden="true" />
+      {undo}
+      {redo}
+      <span className="mx-1 h-5 border-l border-rule" aria-hidden="true" />
       <Button
         variant="quiet"
         onClick={onAdd}
         data-focus-fallback
         {...TOOLBAR_ITEM}
         aria-label="Add pages"
-        className="ml-auto sm:ml-0"
       >
         <PlusIcon width={16} height={16} />
         <span className="hidden md:inline" aria-hidden="true">
@@ -162,40 +280,8 @@ export const DocumentBar = ({
           <ScanIcon />
         </IconButton>
       )}
-      <ExportOptions
-        settings={settings}
-        pageCount={pageCount}
-        exporting={exporting}
-        estimate={estimate}
-        lastExport={lastExport}
-        onSettings={onSettings}
-        onExport={onExport}
-        canExport={pageCount > 0 && !exporting.busy}
-        password={password}
-        onPassword={onPassword}
-        passwordError={passwordError}
-        split={split}
-        onSplit={onSplit}
-        selectedCount={selectedCount}
-        selectedIds={selectedIds}
-        plan={plan}
-        panelId={optionsId}
-      />
-      <MoreMenu
-        pageCount={pageCount}
-        onRotateAll={onRotateAll}
-        onAutoRotate={onAutoRotate}
-        rotating={rotating}
-        duplex={duplex}
-        orderScope={orderScope}
-        onArrange={onArrange}
-        blankAfter={blankAfter}
-        onInsertBlank={onInsertBlank}
-        busy={exporting.busy || busy}
-        onStartOver={onStartOver}
-        keepWork={keepWork}
-        onKeepWork={onKeepWork}
-      />
+      {exportOptions}
+      {more}
     </Toolbar>
   )
 }

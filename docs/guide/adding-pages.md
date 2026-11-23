@@ -9,7 +9,7 @@ Drop files anywhere on the page, use **Choose files** (or **Add pages** once you
 
 ## Taking photos on a phone
 
-On a phone or tablet, **Take photo** (the camera button in the toolbar once you've started) opens your camera. Take the picture, confirm it, and it's added after the last page; press **Take photo** again for the next one. Each shot is named by the time it was taken, such as "Photo 14.03.22.jpg".
+On a phone or tablet, **Take photo** (**Photo** along the bottom of the screen) opens your camera. Take the picture, confirm it, and it's added after the last page; press **Take photo** again for the next one. Each shot is named by the time it was taken, such as "Photo 14.03.22.jpg".
 
 Your phone's own camera app takes the picture, so Collated never asks for camera access and never sees the camera except for the photos you confirm. iPhone photos in HEIC work like any other. For the straightest result, lay the page on a darker surface: **Crop to the page…** then finds the paper's corners for you (see [Arranging pages](arranging-pages.md)).
 
