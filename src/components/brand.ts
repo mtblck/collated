@@ -9,7 +9,9 @@
 export const WORDMARK = 'text-xl leading-none font-semibold tracking-[-0.03em] text-ink lowercase'
 
 /**
- * 64 px tall, the name centred in it. Contents up to 44 px (a touch-size
+ * 64 px tall, the name centred in it. The phone workspace pins its header
+ * by its top padding plus a 44 px name row (Chrome.tsx, -3.375rem): keep
+ * that in step if the padding changes. Contents up to 44 px (a touch-size
  * control) fit without growing it; the rule under the docs header is a
  * shadow, so it doesn't add a pixel either.
  */
@@ -20,8 +22,11 @@ export const HEADER_RULE = 'shadow-[0_1px_0_var(--c-rule)]'
 
 /**
  * Pinned to the top of the window while the page scrolls under it (the
- * landing view and workspace below lg, the docs and task pages): the
- * ground, opaque over the content, with the rule under it.
- * In the wide-screen app the window doesn't scroll, so nothing passes under.
+ * landing view and workspace below lg, the docs and task pages), opaque
+ * over the content; add the rule under it (HEADER_RULE) where content
+ * passes under. In the wide-screen app the window doesn't scroll, so
+ * nothing passes under. Focusing a control in it never scrolls the page:
+ * they're always in view, but the page's scroll-padding-top (index.css)
+ * covers them.
  */
-export const HEADER_STICKY = 'sticky top-0 z-20 bg-ground'
+export const HEADER_STICKY = 'sticky top-0 z-20 bg-ground [&_*]:scroll-mt-[-100dvh]'

@@ -40,7 +40,7 @@ const TrustNote = ({ className }: { className?: string }) => (
 const useHeaderRoom = (box: RefObject<HTMLElement | null>) => {
   useEffect(() => {
     const el = box.current
-    if (!el || typeof ResizeObserver === 'undefined') return
+    if (!el) return
     const root = document.documentElement
     const measure = () => {
       const top = parseFloat(getComputedStyle(el).top) || 0
@@ -48,11 +48,11 @@ const useHeaderRoom = (box: RefObject<HTMLElement | null>) => {
       root.style.setProperty('--header-room', `${room + 8}px`)
     }
     measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(el)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(el)
     window.addEventListener('resize', measure)
     return () => {
-      observer.disconnect()
+      observer?.disconnect()
       window.removeEventListener('resize', measure)
       root.style.removeProperty('--header-room')
     }
@@ -78,8 +78,10 @@ export const Header = ({ children, onHome }: { children?: ReactNode; onHome?: ()
       className={cx(
         HEADER_STICKY,
         'shrink-0 max-lg:shadow-[0_1px_0_var(--c-rule)] lg:bg-transparent',
-        // The name row: HEADER_ROW's top padding and the 44 px row (see below).
-        children !== undefined && 'max-sm:-top-[3.375rem]',
+        // The name row: HEADER_ROW's top padding and the 44 px row (see
+        // below). It comes back while the name has keyboard focus.
+        children !== undefined &&
+          'max-sm:-top-[3.375rem] max-sm:has-[[data-wordmark]:focus-visible]:top-0',
       )}
     >
       {children !== undefined ? (
@@ -92,6 +94,7 @@ export const Header = ({ children, onHome }: { children?: ReactNode; onHome?: ()
           <a
             href={APP_URL}
             aria-label="Collated home"
+            data-wordmark
             className={cx(
               WORDMARK,
               'justify-self-start rounded-sm max-sm:flex max-sm:h-11 max-sm:items-center',
