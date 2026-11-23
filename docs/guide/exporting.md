@@ -5,7 +5,7 @@ order: 6
 
 # Exporting
 
-**Export** in the toolbar (it says how many pages, or files, it will make) opens the export options: everything below. At the foot, always in view, are the estimated file size and **Export PDF**, which builds the file and saves it to your downloads (or **Export JPG**, **Export 3 PNGs** and so on, when saving [as images](#save-as)). When a password is set, it says **Export locked PDF**, and with [PDF/A](#pdf-a-for-archiving) on, **Export PDF/A**. While a file is being built, the toolbar button shows its progress.
+**Export** in the toolbar, or along the bottom of the screen on a phone (it says how many pages, or files, it will make), opens the export options: everything below. At the foot, always in view, are the estimated file size and **Export PDF**, which builds the file and saves it to your downloads (or **Export JPG**, **Export 3 PNGs** and so on, when saving [as images](#save-as)). When a password is set, it says **Export locked PDF**, and with [PDF/A](#pdf-a-for-archiving) on, **Export PDF/A**. While a file is being built, the toolbar button shows its progress.
 
 ## Save as
 

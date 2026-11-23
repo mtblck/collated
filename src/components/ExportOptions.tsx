@@ -49,6 +49,22 @@ const MB = 1024 * 1024
 /** "1 page", "3 pages". */
 const pages = (n: number) => `${String(n)} ${n === 1 ? 'page' : 'pages'}`
 
+/**
+ * What the export makes, as the dock shows it on a phone: the number alone
+ * ("12"), the word after it for screen readers, so the button fits beside
+ * Add, Take photo and Scan on a 360 px screen. Anything else shows whole.
+ */
+const DockCount = ({ dock, text }: { dock: boolean; text: string }) => {
+  const count = dock ? /^(\d+) (.*)$/.exec(text) : null
+  return count ? (
+    <>
+      {count[1]} <span className="sr-only">{count[2]}</span>
+    </>
+  ) : (
+    <>{text}</>
+  )
+}
+
 const MODES: readonly { value: SplitMode; label: string }[] = [
   { value: 'all', label: 'All pages' },
   { value: 'selection', label: 'Selected pages' },
@@ -92,6 +108,7 @@ export const ExportOptions = ({
   selectedIds = [],
   plan,
   panelId: givenPanelId,
+  dock = false,
 }: {
   settings: Pick<
     Settings,
@@ -130,6 +147,8 @@ export const ExportOptions = ({
   plan: Plan
   /** The panel's id; `${panelId}-password` is the password field's. */
   panelId?: string
+  /** In the phone's dock: as tall as the dock's other buttons (48 px). */
+  dock?: boolean
 }) => {
   const id = useId()
   const panelId = givenPanelId ?? `${id}-export-options`
@@ -174,12 +193,24 @@ export const ExportOptions = ({
           : `${id}-mode-${split.mode}`,
     )
 
+  const what = images
+    ? imagesWord(imageCount, format)
+    : files > 1
+      ? `${String(files)} files`
+      : pages(only?.pageIds.length ?? pageCount)
+
   return (
     <>
       {/* Stays a working button while busy (it only opens the options), so
           focus isn't dropped mid-export; the progress shows here, and the
           status line announces it. */}
-      <Button variant="primary" popoverTarget={panelId} {...TOOLBAR_ITEM} className="anchor-export">
+      <Button
+        variant="primary"
+        size={dock ? 'dock-primary' : 'md'}
+        popoverTarget={panelId}
+        {...TOOLBAR_ITEM}
+        className={cx('anchor-export', dock && 'max-w-full')}
+      >
         {locked && !images ? (
           <LockIcon width={16} height={16} />
         ) : (
@@ -189,19 +220,14 @@ export const ExportOptions = ({
         {exporting.busy ? (
           <>
             <span className="hidden tabular-nums sm:inline">{progress(exporting)}</span>
-            {/* Phones: just the count, so the toolbar keeps its two rows. */}
+            {/* Phones: just the count, so the dock keeps its one row. */}
             <span className="tabular-nums sm:hidden">
               {String(exporting.done)}/{String(exporting.total)}…
             </span>
           </>
         ) : (
-          <span>
-            Export ·{' '}
-            {images
-              ? imagesWord(imageCount, format)
-              : files > 1
-                ? `${String(files)} files`
-                : pages(only?.pageIds.length ?? pageCount)}
+          <span className={cx(dock && 'min-w-0 truncate')}>
+            Export · <DockCount dock={dock} text={what} />
           </span>
         )}
         <span className="sr-only">

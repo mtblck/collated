@@ -2,7 +2,8 @@ import { Button } from './controls'
 
 /**
  * Above the pages (#65): Select mode for touch, where a tap adds or removes
- * a page, and select all / clear while several are selected.
+ * a page, and select all / clear while several are selected; below lg,
+ * Edit opens the page tools' sheet for them.
  */
 export const SelectionBar = ({
   count,
@@ -11,6 +12,7 @@ export const SelectionBar = ({
   onSelecting,
   onSelectAll,
   onClear,
+  onOpen,
 }: {
   count: number
   selected: number
@@ -18,6 +20,8 @@ export const SelectionBar = ({
   onSelecting: (on: boolean) => void
   onSelectAll: () => void
   onClear: () => void
+  /** Opens the page tools for the selection, where they're a sheet (below lg, App). */
+  onOpen?: () => void
 }) => {
   const several = selecting || selected > 1
   return (
@@ -44,6 +48,17 @@ export const SelectionBar = ({
           <Button size="sm" variant="quiet" inactive={selected === 0} onClick={onClear}>
             Select none
           </Button>
+          {onOpen && (
+            <Button
+              size="sm"
+              variant="secondary"
+              inactive={selected === 0}
+              onClick={onOpen}
+              aria-label="Edit the selected pages"
+            >
+              Edit
+            </Button>
+          )}
         </>
       )}
     </div>

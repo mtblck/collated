@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react'
 import { Button, IconButton } from './controls'
 import { HEADER_ROW, HEADER_STICKY, WORDMARK } from './brand'
 import { cx } from './cx'
-import { CameraIcon, CloseIcon, MoonIcon, ScanIcon, SunIcon } from './Icons'
+import { CameraIcon, CloseIcon, HeartIcon, MoonIcon, PlusIcon, ScanIcon, SunIcon } from './Icons'
 import { APP_URL, DOCS_URL, FOOTER, SOURCE_URL, SPONSORS_URL, SUPPORT_URL } from './links'
 import { savedWhen } from './format'
 import type { Task } from './tasks'
@@ -34,8 +34,8 @@ const TrustNote = ({ className }: { className?: string }) => (
 /**
  * Tells the page how much of the top of the window the header covers once
  * it's pinned, so focus and in-page jumps scroll clear of it (WCAG 2.4.11;
- * index.css reads --header-room). A negative `top` (the phone workspace,
- * whose name row scrolls away) is taken off.
+ * index.css reads --header-room). A negative `top`, if one is ever set, is
+ * taken off.
  */
 const useHeaderRoom = (box: RefObject<HTMLElement | null>) => {
   useEffect(() => {
@@ -65,23 +65,29 @@ const useHeaderRoom = (box: RefObject<HTMLElement | null>) => {
  * decides how to leave), the toolbar (`children`) as a floating pill in
  * the middle, and the privacy note; on the landing view, the note and
  * links. It never scrolls away: on a wide screen the panes below scroll
- * instead (see App); narrower, the window scrolls under it. On a phone the
- * workspace's name has a row of its own above the toolbar's two, and only
- * that row scrolls away, so the toolbar stays in reach.
+ * instead (see App); narrower, the window scrolls under it. On a phone it
+ * stays one row in the workspace too: the name, then setup, undo, redo and
+ * More, with adding and export in the dock along the bottom (DocumentBar).
  */
-export const Header = ({ children, onHome }: { children?: ReactNode; onHome?: () => void }) => {
+export const Header = ({
+  children,
+  onHome,
+  inert = false,
+}: {
+  children?: ReactNode
+  onHome?: () => void
+  /** Behind a sheet (the phone's inspector, App): out of reach until it closes. */
+  inert?: boolean
+}) => {
   const box = useRef<HTMLElement>(null)
   useHeaderRoom(box)
   return (
     <header
       ref={box}
+      inert={inert}
       className={cx(
         HEADER_STICKY,
         'shrink-0 max-lg:shadow-[0_1px_0_var(--c-rule)] lg:bg-transparent',
-        // The name row: HEADER_ROW's top padding and the 44 px row (see
-        // below). It comes back while the name has keyboard focus.
-        children !== undefined &&
-          'max-sm:-top-[3.375rem] max-sm:has-[[data-wordmark]:focus-visible]:top-0',
       )}
     >
       {children !== undefined ? (
@@ -332,12 +338,93 @@ const Advanced = () => (
   </section>
 )
 
+/**
+ * The landing view's ways in on a phone, in a dock along the bottom like
+ * the workspace's (DocumentBar): take a photo, scan, choose files (the
+ * main action, unless the task is scanning), and the Support heart, which
+ * stands in for tipjar's floating button there (index.css hides that).
+ */
+const LandingDock = ({
+  choose,
+  onChoose,
+  onTakePhoto,
+  onScan,
+  scanFirst,
+}: {
+  choose: string
+  onChoose: () => void
+  onTakePhoto?: () => void
+  onScan?: () => void
+  scanFirst: boolean
+}) => (
+  <div
+    role="group"
+    aria-label="Add pages"
+    className="dock fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex items-center gap-1 rounded-full bg-paper p-1.5 text-left shadow-panel"
+  >
+    {/* Each name starts with or holds its visible word (WCAG 2.5.3). */}
+    {onTakePhoto && (
+      <Button size="dock" variant="quiet" onClick={onTakePhoto} aria-label="Take photo">
+        <CameraIcon />
+        Photo
+      </Button>
+    )}
+    {onScan && !scanFirst && (
+      <Button size="dock" variant="quiet" onClick={onScan} aria-label="Scan pages">
+        <ScanIcon />
+        Scan
+      </Button>
+    )}
+    {scanFirst && (
+      // The name holds its visible word ("Choose photos"), and focus with
+      // nowhere to go comes here, as in the wider layout.
+      <Button
+        size="dock"
+        variant="quiet"
+        onClick={onChoose}
+        aria-label={choose}
+        data-focus-fallback
+      >
+        <PlusIcon />
+        Choose
+      </Button>
+    )}
+    {/* Where focus goes when the last page is removed. A task's longer
+        words ("Choose a PDF to compress") take two lines rather than more room. */}
+    <span className="flex min-w-0 flex-1 justify-end">
+      <Button
+        variant="primary"
+        size="dock-primary"
+        className="max-w-full"
+        onClick={scanFirst ? onScan : onChoose}
+        {...(!scanFirst && { 'data-focus-fallback': true })}
+      >
+        {scanFirst ? <ScanIcon width={18} height={18} /> : <PlusIcon width={18} height={18} />}
+        <span className="min-w-0 text-left leading-tight whitespace-normal">
+          {scanFirst ? 'Scan pages' : choose}
+        </span>
+      </Button>
+    </span>
+    <a
+      href={SUPPORT_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="Support Collated"
+      className="inline-flex size-12 shrink-0 items-center justify-center rounded-full text-accent hover:bg-ink/5"
+    >
+      <HeartIcon />
+      <span className="sr-only">Support Collated (opens in a new tab)</span>
+    </a>
+  </div>
+)
+
 export const EmptyState = ({
   task = null,
   onChoose,
   onTakePhoto,
   onScan,
   restore,
+  dock = false,
 }: {
   /** The task page this visit came from (#120): its words on the drop target. */
   task?: Pick<Task, 'heading' | 'action' | 'drop' | 'ready'> | null
@@ -347,8 +434,11 @@ export const EmptyState = ({
   /** Opens the scan camera; touch devices that allow the camera (#118). */
   onScan?: () => void
   restore?: RestoreOfferProps | null
+  /** On a phone the ways in sit in a dock along the bottom, under the thumb. */
+  dock?: boolean
 }) => {
   const scanFirst = task?.ready === 'scan' && onScan !== undefined
+  const choose = task ? (task.ready === 'scan' ? 'Choose photos' : task.action) : 'Choose files'
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-14 px-4 pt-10 pb-20 sm:px-6 sm:pt-16">
       {restore && <RestoreOffer {...restore} />}
@@ -378,41 +468,51 @@ export const EmptyState = ({
           </p>
           {/* Where focus goes when the last page is removed. Scan to PDF puts
             Scan pages first, where it can open. */}
-          <div className="flex flex-wrap justify-center gap-3">
-            {scanFirst && (
-              <Button variant="primary" size="lg" onClick={onScan}>
-                <ScanIcon />
-                Scan pages
+          {dock ? (
+            <LandingDock
+              choose={choose}
+              onChoose={onChoose}
+              {...(onTakePhoto && { onTakePhoto })}
+              {...(onScan && { onScan })}
+              scanFirst={scanFirst}
+            />
+          ) : (
+            <div className="flex flex-wrap justify-center gap-3">
+              {scanFirst && (
+                <Button variant="primary" size="lg" onClick={onScan}>
+                  <ScanIcon />
+                  Scan pages
+                </Button>
+              )}
+              <Button
+                variant={scanFirst ? 'secondary' : 'primary'}
+                size="lg"
+                onClick={onChoose}
+                data-focus-fallback
+              >
+                {choose}
               </Button>
-            )}
-            <Button
-              variant={scanFirst ? 'secondary' : 'primary'}
-              size="lg"
-              onClick={onChoose}
-              data-focus-fallback
-            >
-              {task ? (task.ready === 'scan' ? 'Choose photos' : task.action) : 'Choose files'}
-            </Button>
-            {onTakePhoto && (
-              <Button size="lg" onClick={onTakePhoto}>
-                <CameraIcon />
-                Take photo
-              </Button>
-            )}
-            {onScan && !scanFirst && (
-              <Button size="lg" onClick={onScan}>
-                <ScanIcon />
-                Scan pages
-              </Button>
-            )}
-          </div>
+              {onTakePhoto && (
+                <Button size="lg" onClick={onTakePhoto}>
+                  <CameraIcon />
+                  Take photo
+                </Button>
+              )}
+              {onScan && !scanFirst && (
+                <Button size="lg" onClick={onScan}>
+                  <ScanIcon />
+                  Scan pages
+                </Button>
+              )}
+            </div>
+          )}
           {task?.ready === 'scan' && !onScan && (
             <p className="max-w-sm text-sm text-ink-muted">
               Scanning needs a phone or tablet with a camera: open this page there, or choose photos
               you’ve already taken.
             </p>
           )}
-          <p className="text-sm text-ink-muted">or paste them from the clipboard</p>
+          {!dock && <p className="text-sm text-ink-muted">or paste them from the clipboard</p>}
           <p className="label text-ink-faint">PDF · JPEG · PNG · HEIC · TIFF · WebP · AVIF · GIF</p>
         </div>
       </div>
@@ -501,7 +601,8 @@ const useBottomCard = (box: RefObject<HTMLElement | null>, key: unknown) => {
     const root = document.documentElement
     if (!el) return
     const reserve = () => {
-      const room = `${Math.ceil(el.getBoundingClientRect().height) + 24}px`
+      // Above the phone's dock, if there is one (index.css).
+      const room = `calc(${String(Math.ceil(el.getBoundingClientRect().height) + 24)}px + var(--dock-room, 0px))`
       root.style.scrollPaddingBottom = room
       document.body.style.paddingBottom = room
       // The scrolling panes (index.css .scroll-pane) keep the same room.
@@ -567,7 +668,7 @@ export const Notices = ({
   return (
     <div
       ref={box}
-      className="fixed right-4 bottom-4 z-40 w-[min(26rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border-l-4 border-l-accent bg-paper text-sm text-ink shadow-panel"
+      className="fixed right-4 bottom-[calc(1rem+var(--dock-room,0px))] z-40 w-[min(26rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border-l-4 border-l-accent bg-paper text-sm text-ink shadow-panel"
     >
       <div className="flex items-start gap-3 py-2 pr-2 pl-4">
         {/* Keyed so each new message is a new alert, and announced. */}
@@ -638,7 +739,7 @@ export const SupportPrompt = ({
     <section
       ref={box}
       aria-labelledby="support-title"
-      className="fixed right-4 bottom-4 z-40 w-[min(26rem,calc(100vw-2rem))] rounded-2xl bg-paper text-sm text-ink shadow-panel"
+      className="fixed right-4 bottom-[calc(1rem+var(--dock-room,0px))] z-40 w-[min(26rem,calc(100vw-2rem))] rounded-2xl bg-paper text-sm text-ink shadow-panel"
     >
       <div className="flex items-start gap-3 py-2 pr-2 pl-4">
         <div className="flex flex-1 flex-col gap-1 pt-2">

@@ -343,6 +343,35 @@
 }
 
 /*
+ * The phone's docks along the bottom (DocumentBar, and the landing view's in
+ * Chrome.tsx): 48 px buttons in a 6 px pad, above the home indicator. While
+ * one is up the page keeps that much room at its end (and focus scrolls
+ * clear of it, WCAG 2.4.11), and the notices sit above it.
+ */
+:root:has(.dock) {
+  --dock-room: calc(4.5rem + max(0.75rem, env(safe-area-inset-bottom)));
+  scroll-padding-bottom: var(--dock-room);
+}
+:root:has(.dock) body {
+  padding-bottom: var(--dock-room);
+}
+/* The page tools' sheet (App, below lg) slides up as it opens; with reduced
+   motion it just appears (the rule above shortens every animation). */
+@keyframes sheet-up {
+  from {
+    transform: translateY(2rem);
+    opacity: 0;
+  }
+}
+.sheet-up {
+  animation: sheet-up 180ms ease-out;
+}
+/* The landing dock carries the Support heart, so tipjar's own steps aside. */
+:root:has(.dock) .tipjar {
+  display: none;
+}
+
+/*
  * App shell (App.tsx): the panes that scroll keep clear of the notice box,
  * which sets --notice-room while it's up (WCAG 2.4.11).
  */

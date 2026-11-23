@@ -24,9 +24,12 @@ const UNITS: readonly { value: Unit; label: string }[] = [
 export const PageSetup = ({
   settings,
   onSettings,
+  compact = false,
 }: {
   settings: Settings
   onSettings: (patch: Partial<Settings>) => void
+  /** In the phone's header: the icon alone, a 44 px target; the summary is its name. */
+  compact?: boolean
 }) => {
   const id = useId()
   const panelId = `${id}-page-setup`
@@ -45,11 +48,26 @@ export const PageSetup = ({
         type="button"
         popoverTarget={panelId}
         {...TOOLBAR_ITEM}
-        className="anchor-setup flex h-9 min-w-0 items-center gap-2 rounded-full border border-control px-3.5 text-left text-sm text-ink hover:bg-ink/[0.06] sm:border-transparent"
+        {...(compact && { title: `Page setup: ${summary}` })}
+        className={
+          compact
+            ? 'anchor-setup inline-flex size-11 shrink-0 items-center justify-center rounded-full text-ink-muted hover:bg-ink/5 hover:text-ink'
+            : 'anchor-setup flex h-9 min-w-0 items-center gap-2 rounded-full border border-control px-3.5 text-left text-sm text-ink hover:bg-ink/[0.06] sm:border-transparent'
+        }
       >
-        <PageIcon width={16} height={16} className="shrink-0 text-ink-muted" />
-        <span className="sr-only">Page setup:</span>
-        <span className="max-w-[50vw] truncate sm:max-w-none">{summary}</span>
+        <PageIcon
+          width={compact ? 20 : 16}
+          height={compact ? 20 : 16}
+          className={cx('shrink-0', !compact && 'text-ink-muted')}
+        />
+        {compact ? (
+          <span className="sr-only">Page setup: {summary}</span>
+        ) : (
+          <>
+            <span className="sr-only">Page setup:</span>
+            <span className="max-w-[50vw] truncate sm:max-w-none">{summary}</span>
+          </>
+        )}
       </button>
       <div
         id={panelId}

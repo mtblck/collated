@@ -71,6 +71,7 @@ export const MoreMenu = ({
   onStartOver,
   keepWork,
   onKeepWork,
+  large = false,
 }: {
   pageCount: number
   onRotateAll: (by: -1 | 1) => void
@@ -92,6 +93,8 @@ export const MoreMenu = ({
   onStartOver: () => void
   keepWork: boolean
   onKeepWork: (keep: boolean) => void
+  /** A full 44 px touch target (the phone's header). */
+  large?: boolean
 }) => {
   const id = useId()
   const panelId = `${id}-more`
@@ -113,7 +116,10 @@ export const MoreMenu = ({
         {...TOOLBAR_ITEM}
         aria-label="More"
         title="More"
-        className="anchor-more inline-flex size-9 items-center justify-center rounded-full text-ink-muted hover:bg-ink/5 hover:text-ink"
+        className={cx(
+          'anchor-more inline-flex items-center justify-center rounded-full text-ink-muted hover:bg-ink/5 hover:text-ink',
+          large ? 'size-11' : 'size-9',
+        )}
       >
         <MoreIcon />
       </button>

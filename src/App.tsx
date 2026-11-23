@@ -30,6 +30,10 @@ import type { Quad } from './core/perspective'
 import { forgetPageWords, pageWords } from './lib/pageText'
 import { forgetPageThumbs } from './hooks/usePageThumb'
 import { useTouchDevice } from './hooks/useTouchDevice'
+import { NARROW, PHONE, useMediaQuery } from './hooks/useMediaQuery'
+import { IconButton } from './components/controls'
+import { cx } from './components/cx'
+import { CloseIcon } from './components/Icons'
 import { forgetLayered, layeredImage } from './export/layered'
 import type { OcrWord } from './core/textLayer'
 import type { OcrLanguage } from './core/ocrLanguages'
@@ -39,7 +43,7 @@ import { layoutSheet } from './core/geometry'
 import { formatBytes } from './core/units'
 import { describeChange } from './core/describeChange'
 import { duplexGroups } from './core/order'
-import { DocumentBar, type ExportState } from './components/DocumentBar'
+import { DocumentBar, type BarPart, type ExportState } from './components/DocumentBar'
 import type { Arrange } from './components/MoreMenu'
 import {
   DropOverlay,
@@ -378,6 +382,15 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   const fileInput = useRef<HTMLInputElement>(null)
   const cameraInput = useRef<HTMLInputElement>(null)
   const touch = useTouchDevice()
+  /** A phone: the workspace's add and export controls sit in a dock along the bottom. */
+  const phone = useMediaQuery(PHONE)
+  /**
+   * Below lg the inspector has no column of its own: it opens as a sheet over
+   * the pages when one is tapped, for that page (or the selection it
+   * anchors), and closes with its page.
+   */
+  const narrow = useMediaQuery(NARROW)
+  const [sheetFor, setSheetFor] = useState<string | null>(null)
   // The inspector scrolls on its own; a newly selected page starts at its top.
   const rail = useRef<HTMLElement>(null)
   const { pages, assets, settings } = doc
@@ -427,6 +440,49 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   }, [])
 
   const selectedIndex = pages.findIndex((p) => p.id === selectedId)
+  // The sheet follows the selection made in it (Duplicate selects the copy),
+  // and closes for good with its page (removed, even if undone), with the
+  // selection, or once the inspector has its own column again.
+  const sheetAnchor = selection.anchor ?? selection.ids[0] ?? null
+  if (sheetFor !== null) {
+    if (!narrow || sheetAnchor === null || !pages.some((p) => p.id === sheetFor)) setSheetFor(null)
+    else if (!selection.ids.includes(sheetFor)) setSheetFor(sheetAnchor)
+  }
+  const sheet = narrow && sheetFor !== null && pages.some((p) => p.id === sheetFor)
+  const sheetClose = useRef<HTMLButtonElement>(null)
+  /** A control to focus when the sheet opens, in place of its Close button. */
+  const sheetFocus = useRef<string | null>(null)
+  /** Closes the inspector's sheet, giving focus back to the page it was for. */
+  const closeSheet = useCallback(() => {
+    setSheetFor(null)
+    requestFocus(selection.anchor ?? sheetFor, true)
+  }, [requestFocus, selection.anchor, sheetFor])
+  // A tablet turned upright while someone works in the inspector's column:
+  // it becomes the sheet, rather than vanishing from under their focus.
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const media = window.matchMedia(NARROW)
+    const onChange = () => {
+      if (media.matches && sheetAnchor && rail.current?.contains(document.activeElement)) {
+        setSheetFor(sheetAnchor)
+      }
+    }
+    media.addEventListener('change', onChange)
+    return () => {
+      media.removeEventListener('change', onChange)
+    }
+  }, [sheetAnchor])
+  useLayoutEffect(() => {
+    if (!sheet) return
+    const target = sheetFocus.current
+      ? rail.current?.querySelector<HTMLElement>(sheetFocus.current)
+      : null
+    sheetFocus.current = null
+    if (target) {
+      target.scrollIntoView({ block: 'center' })
+      target.focus({ preventScroll: true })
+    } else sheetClose.current?.focus()
+  }, [sheet])
   const selected = pages[selectedIndex]
 
   useEffect(() => {
@@ -451,6 +507,11 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           `[data-page-id="${CSS.escape(pending.pageId)}"] [data-page-select]`,
         )
       : null
+    // Behind the page tools' sheet the pages are inert: stay in the sheet.
+    if (card?.closest('[inert]')) {
+      sheetClose.current?.focus()
+      return
+    }
     ;(card ?? document.querySelector<HTMLElement>('[data-focus-fallback]'))?.focus()
   }, [focusRequest])
 
@@ -598,7 +659,18 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           const first = pageIds[0]
           return current.ids.length > 0 || !first ? current : { ids: [first], anchor: first }
         })
-        if (ready === 'sign') signNext.current = true
+        if (ready === 'sign') {
+          signNext.current = true
+          // Read now: the import may have taken a while (a turned tablet).
+          if (
+            pageIds[0] &&
+            typeof window.matchMedia === 'function' &&
+            window.matchMedia(NARROW).matches
+          ) {
+            sheetFocus.current = '[data-sign-start]'
+            setSheetFor(pageIds[0])
+          }
+        }
       }
       for (const message of failed) notify(message)
       setStatus(
@@ -713,10 +785,12 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     (id: string, mode: PickMode) => {
       const next = pick(pages, selection, id, mode)
       setSelection(next)
-      // A plain click shows the page in the inspector, which says enough.
+      // A plain click shows the page in the inspector, which says enough;
+      // below lg that opens the inspector's sheet.
       if (mode !== 'only') announceSelection(next)
+      else if (narrow) setSheetFor(id)
     },
-    [announceSelection, pages, selection],
+    [announceSelection, narrow, pages, selection],
   )
   const clearGroup = useCallback(() => {
     // Back to the page last picked, so the inspector (and focus in it) stays.
@@ -736,6 +810,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       if (modalOpen()) return
       // By key position, not character: Option+T on a Mac types "†".
       if (event.altKey && !event.metaKey && !event.ctrlKey && event.code === 'KeyT') {
+        // Behind the page tools' sheet the toolbar is out of reach.
+        if (sheet) return
         const stop = document.querySelector<HTMLElement>('[role="toolbar"] [data-toolbar-stop]')
         if (stop) {
           event.preventDefault()
@@ -752,7 +828,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
         ) {
           return
         }
-        if (group || selecting) clearGroup()
+        if (sheet) closeSheet()
+        else if (group || selecting) clearGroup()
         else dismissLatest()
         return
       }
@@ -777,6 +854,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   }, [
     announceSelection,
     clearGroup,
+    closeSheet,
     dismissLatest,
     group,
     onUndo,
@@ -784,6 +862,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     pages,
     selecting,
     selection,
+    sheet,
   ])
 
   const chooseFiles = useCallback(() => {
@@ -1800,7 +1879,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   )
 
   // Sign a PDF (#120): the first page is selected as it comes in; its Sign
-  // button is brought into view (below the pages on a phone) and focused.
+  // button is brought into view and focused (below lg, in the page tools'
+  // sheet, which opens for it as the pages come in).
   useEffect(() => {
     // Once, with the pages just added: when the panel shows no Sign button
     // (several pages selected), nothing moves.
@@ -1814,6 +1894,56 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
 
   const workspace = pages.length > 0 || importing !== null
 
+  /**
+   * The workspace toolbar: one bar in the header wider than a phone; on a
+   * phone, its top part there and the dock along the bottom (DocumentBar).
+   */
+  const documentBar = (part: BarPart) => (
+    <DocumentBar
+      part={part}
+      settings={settings}
+      pageCount={pages.length}
+      canUndo={canUndo}
+      canRedo={canRedo}
+      exporting={exporting}
+      onSettings={onSettings}
+      onUndo={onUndo}
+      onRedo={onRedo}
+      onRotateAll={(by) => {
+        act({ type: 'rotateAll', by })
+      }}
+      onAutoRotate={() => {
+        void autoRotate(orderScope ?? pages.map((p) => p.id))
+      }}
+      rotating={rotating}
+      duplex={duplex}
+      orderScope={orderScope?.length ?? null}
+      onArrange={onArrange}
+      blankAfter={blankAfter < 0 ? null : blankAfter + 1}
+      onInsertBlank={onInsertBlank}
+      onStartOver={onStartOver}
+      keepWork={keepWork}
+      onKeepWork={onKeepWork}
+      busy={importing !== null || straightening || autoCropping || rotating}
+      onAdd={chooseFiles}
+      {...(touch && { onTakePhoto: takePhoto })}
+      {...(touch && deps.canScan && { onScan: scan })}
+      onExport={() => void onExport()}
+      estimate={estimate}
+      lastExport={lastExport}
+      password={password}
+      onPassword={setPassword}
+      passwordError={passwordError}
+      split={split}
+      onSplit={(patch) => {
+        setSplit((current) => ({ ...current, ...patch }))
+      }}
+      selectedCount={selection.ids.length}
+      selectedIds={selection.ids}
+      plan={plan}
+    />
+  )
+
   return (
     // On a wide screen the window never scrolls: the header stays put and the
     // page grid and the inspector scroll on their own. On narrower screens the
@@ -1821,55 +1951,13 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
     <div className="relative flex min-h-dvh flex-col lg:h-dvh lg:overflow-hidden">
       <a
         href="#main"
+        inert={sheet}
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-paper focus:px-3 focus:py-2"
       >
         Skip to content
       </a>
-      <Header {...(workspace && { onHome: () => void onHome() })}>
-        {workspace ? (
-          <DocumentBar
-            settings={settings}
-            pageCount={pages.length}
-            canUndo={canUndo}
-            canRedo={canRedo}
-            exporting={exporting}
-            onSettings={onSettings}
-            onUndo={onUndo}
-            onRedo={onRedo}
-            onRotateAll={(by) => {
-              act({ type: 'rotateAll', by })
-            }}
-            onAutoRotate={() => {
-              void autoRotate(orderScope ?? pages.map((p) => p.id))
-            }}
-            rotating={rotating}
-            duplex={duplex}
-            orderScope={orderScope?.length ?? null}
-            onArrange={onArrange}
-            blankAfter={blankAfter < 0 ? null : blankAfter + 1}
-            onInsertBlank={onInsertBlank}
-            onStartOver={onStartOver}
-            keepWork={keepWork}
-            onKeepWork={onKeepWork}
-            busy={importing !== null || straightening || autoCropping || rotating}
-            onAdd={chooseFiles}
-            {...(touch && { onTakePhoto: takePhoto })}
-            {...(touch && deps.canScan && { onScan: scan })}
-            onExport={() => void onExport()}
-            estimate={estimate}
-            lastExport={lastExport}
-            password={password}
-            onPassword={setPassword}
-            passwordError={passwordError}
-            split={split}
-            onSplit={(patch) => {
-              setSplit((current) => ({ ...current, ...patch }))
-            }}
-            selectedCount={selection.ids.length}
-            selectedIds={selection.ids}
-            plan={plan}
-          />
-        ) : undefined}
+      <Header {...(workspace && { onHome: () => void onHome() })} inert={sheet}>
+        {workspace ? documentBar(phone ? 'top' : 'bar') : undefined}
       </Header>
       <LeaveConfirm dialog={leaveDialog} why={leaveWhy} onLeave={() => void leave()} />
       <main id="main" className="flex min-h-0 flex-1 flex-col">
@@ -1877,6 +1965,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           <div className="scroll-pane lg:overflow-y-auto">
             <EmptyState
               task={task}
+              dock={phone}
               onChoose={chooseFiles}
               {...(touch && { onTakePhoto: takePhoto })}
               {...(touch && deps.canScan && { onScan: scan })}
@@ -1899,6 +1988,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
             <h1 className="sr-only">Collated: arrange pages and export a PDF</h1>
             <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col lg:flex-row">
               <section
+                inert={sheet}
                 aria-label="Pages"
                 className="scroll-pane min-w-0 flex-1 px-4 py-6 sm:px-6 lg:overflow-y-auto lg:overscroll-contain lg:px-8"
               >
@@ -1930,6 +2020,11 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
                       setSelection(EMPTY_SELECTION)
                       announceSelection(EMPTY_SELECTION)
                     }}
+                    {...(narrow && {
+                      onOpen: () => {
+                        setSheetFor(selection.anchor ?? selection.ids[0] ?? null)
+                      },
+                    })}
                   />
                 )}
                 {blankIds.length > 0 && (
@@ -1940,6 +2035,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
                       const next = { ids: blankIds, anchor: blankIds[0] ?? null }
                       setSelection(next)
                       if (blankIds.length > 1) announceSelection(next)
+                      // Below lg their tools are a sheet: open it on them.
+                      if (narrow) setSheetFor(blankIds[0] ?? null)
                     }}
                     onRemove={onRemoveBlank}
                   />
@@ -1961,11 +2058,46 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
                   }}
                 />
               </section>
+              {/* Below lg: the inspector is a sheet over the pages, behind which
+                  the rest of the workspace is dimmed and inert until it closes
+                  (its button, Escape, or a tap on the dimmed pages). */}
+              {sheet && (
+                <div
+                  className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+                  aria-hidden="true"
+                  onClick={closeSheet}
+                />
+              )}
               <aside
                 ref={rail}
                 aria-label="Selected page"
-                className="scroll-pane border-t border-rule px-4 py-6 sm:px-6 lg:mr-4 lg:mb-4 lg:w-[23rem] lg:shrink-0 lg:overflow-y-auto lg:overscroll-contain lg:rounded-[1.125rem] lg:border-t-0 lg:bg-paper lg:px-6 lg:shadow-panel"
+                {...(sheet && { role: 'dialog', 'aria-modal': true })}
+                className={cx(
+                  'scroll-pane px-4 py-6 sm:px-6 lg:mr-4 lg:mb-4 lg:w-[23rem] lg:shrink-0 lg:overflow-y-auto lg:overscroll-contain lg:rounded-[1.125rem] lg:bg-paper lg:px-6 lg:shadow-panel',
+                  sheet
+                    ? 'sheet-up max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-40 max-lg:mx-auto max-lg:max-h-[85dvh] max-lg:max-w-2xl max-lg:overflow-y-auto max-lg:overscroll-contain max-lg:rounded-t-[1.375rem] max-lg:bg-paper max-lg:pt-0 max-lg:shadow-panel'
+                    : 'max-lg:hidden',
+                )}
               >
+                {sheet && (
+                  <div className="sticky top-0 z-10 -mx-4 flex h-12 items-end justify-end bg-paper px-2 sm:-mx-6 sm:px-4 lg:hidden">
+                    <span
+                      className="absolute top-2 left-1/2 h-1.5 w-9 -translate-x-1/2 rounded-full bg-control/60"
+                      aria-hidden="true"
+                    />
+                    <IconButton
+                      label="Close page tools"
+                      large
+                      onClick={closeSheet}
+                      ref={sheetClose}
+                      // Ahead of the dock's in the page: while the sheet is
+                      // open, focus that has nowhere to go comes here.
+                      data-focus-fallback
+                    >
+                      <CloseIcon />
+                    </IconButton>
+                  </div>
+                )}
                 {groupActions ? (
                   <GroupInspector
                     pages={pages.filter((p) => selection.ids.includes(p.id))}
@@ -2017,6 +2149,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           </>
         )}
       </main>
+      {workspace && phone && <div inert={sheet}>{documentBar('dock')}</div>}
 
       <input
         ref={fileInput}
