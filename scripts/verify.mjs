@@ -5217,6 +5217,92 @@ for (const [label, viewport] of [
   await phone.close()
 }
 
+// 50. The pinned header (sticky header PR): on a 390px phone and an 820px
+//     tablet, by touch, with the window scrolled down a workspace of eight
+//     pages: the header stays at the top with the toolbar on screen; Tab onto
+//     a page lands below it; arrow keys along the toolbar don't scroll the
+//     window; on the phone, the name comes back on screen when it has focus.
+//     The docs header stays at the top too.
+for (const [label, viewport] of [
+  ['phone', { width: 390, height: 844 }],
+  ['tablet', { width: 820, height: 1000 }],
+]) {
+  const { context, page: p } = await open({ viewport, hasTouch: true, isMobile: label === 'phone' })
+  await p.goto(URL_ROOT, { waitUntil: 'networkidle' })
+  await p.setInputFiles(
+    '[data-testid="file-input"]',
+    Array.from({ length: 8 }, (_, i) => join(fixtures, i % 2 ? 'doc-photo.jpg' : 'doc-colour.jpg')),
+  )
+  await p.waitForSelector('ol[aria-label="8 pages"]', { timeout: 20_000 })
+  await p.evaluate(() => {
+    window.scrollTo(0, 900)
+  })
+  const state = () =>
+    p.evaluate(() => {
+      const bar = document.querySelector('header')?.getBoundingClientRect()
+      const tool = document.querySelector('header [data-toolbar-item]')?.getBoundingClientRect()
+      const name = document.querySelector('header [data-wordmark]')?.getBoundingClientRect()
+      const active = document.activeElement?.getBoundingClientRect()
+      return {
+        y: Math.round(window.scrollY),
+        barBottom: Math.round(bar?.bottom ?? -1),
+        toolTop: Math.round(tool?.top ?? -1),
+        nameTop: Math.round(name?.top ?? -999),
+        activeTop: Math.round(active?.top ?? -1),
+      }
+    })
+  const pinned = await state()
+  // Tab backwards onto the last page's handle from the inspector: it scrolls
+  // into view below the header, not under it.
+  await p.locator('ol[aria-label="8 pages"] li').first().locator('button').first().focus()
+  await p.evaluate(() => {
+    window.scrollTo(0, document.documentElement.scrollHeight)
+  })
+  await p.keyboard.press('Shift+Tab')
+  await p.keyboard.press('Tab')
+  const tabbed = await state()
+  await p.evaluate(() => {
+    window.scrollTo(0, 900)
+  })
+  await p.locator('header [data-toolbar-item]').first().focus()
+  const before = await state()
+  await p.keyboard.press('ArrowRight')
+  await p.keyboard.press('ArrowRight')
+  const arrowed = await state()
+  let named = null
+  if (label === 'phone') {
+    await p.locator('header [data-toolbar-item]').first().focus()
+    await p.keyboard.press('Shift+Tab')
+    named = await state()
+  }
+  check(
+    pinned.y > 0 &&
+      pinned.toolTop >= 0 &&
+      pinned.toolTop < pinned.barBottom &&
+      tabbed.activeTop >= tabbed.barBottom &&
+      arrowed.y === before.y &&
+      (named === null || named.nameTop >= 0),
+    `the header stays at the top while the window scrolls, and focus stays clear of it (${label})`,
+    JSON.stringify({ pinned, tabbed, before, arrowed, named }),
+  )
+  if (label === 'phone') {
+    await p.goto(`${URL_ROOT}docs/`, { waitUntil: 'networkidle' })
+    await p.evaluate(() => {
+      window.scrollTo(0, 600)
+    })
+    const docs = await p.evaluate(() => [
+      Math.round(window.scrollY),
+      Math.round(document.querySelector('header')?.getBoundingClientRect().top ?? -1),
+    ])
+    check(
+      docs[0] > 0 && docs[1] === 0,
+      'the docs header stays at the top while the page scrolls',
+      JSON.stringify(docs),
+    )
+  }
+  await context.close()
+}
+
 checkSameOrigin()
 await browser.close()
 server.close()
