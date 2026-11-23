@@ -381,17 +381,22 @@ const LandingDock = ({
         Files
       </Button>
     )}
-    <span className="flex-1" aria-hidden="true" />
-    {/* Where focus goes when the last page is removed. */}
-    <Button
-      variant="primary"
-      size="dock-primary"
-      onClick={scanFirst ? onScan : onChoose}
-      data-focus-fallback
-    >
-      {scanFirst ? <ScanIcon width={18} height={18} /> : <PlusIcon width={18} height={18} />}
-      {scanFirst ? 'Scan pages' : choose}
-    </Button>
+    {/* Where focus goes when the last page is removed. A task's longer
+        words ("Choose a PDF to compress") take two lines rather than more room. */}
+    <span className="flex min-w-0 flex-1 justify-end">
+      <Button
+        variant="primary"
+        size="dock-primary"
+        className="max-w-full"
+        onClick={scanFirst ? onScan : onChoose}
+        data-focus-fallback
+      >
+        {scanFirst ? <ScanIcon width={18} height={18} /> : <PlusIcon width={18} height={18} />}
+        <span className="min-w-0 text-left leading-tight whitespace-normal">
+          {scanFirst ? 'Scan pages' : choose}
+        </span>
+      </Button>
+    </span>
     <a
       href={SUPPORT_URL}
       target="_blank"

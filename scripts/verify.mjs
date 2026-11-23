@@ -120,6 +120,9 @@ const pageSetup = async (p, act) => {
   await p.keyboard.press('Escape')
   await panel.waitFor({ state: 'hidden' })
 }
+/** Waits for animations to finish (the page tools' sheet slides up). */
+const settled = (p) =>
+  p.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'))
 /**
  * On a phone or tablet the page tools are a sheet over the rest (App): close
  * it, if it's open, to reach the toolbar.
@@ -1513,6 +1516,7 @@ await context.close()
   // The last control in the page's tools (a sheet on a phone), tabbed to,
   // isn't hidden by the notice.
   await p.getByRole('button', { name: 'Page 1: quad-landscape.jpg' }).tap()
+  await settled(p)
   const remove = p
     .locator('aside[aria-label="Selected page"]')
     .getByRole('button', { name: 'Remove' })
@@ -5398,6 +5402,7 @@ for (const [label, viewport] of [
   await p.getByRole('button', { name: 'Page 2: doc-photo.jpg' }).tap()
   const sheet = p.getByRole('dialog', { name: 'Selected page' })
   await sheet.waitFor()
+  await settled(p)
   const sheetBox = await sheet.boundingBox()
   const crop = await sheet.getByRole('button', { name: 'Crop to the page…' }).boundingBox()
   check(

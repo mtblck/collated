@@ -240,8 +240,8 @@ export const DocumentBar = ({
             Scan
           </Button>
         )}
-        <span className="flex-1" aria-hidden="true" />
-        {exportOptions}
+        {/* The rest of the row; Export's words truncate before it overflows. */}
+        <span className="flex min-w-0 flex-1 justify-end">{exportOptions}</span>
       </Toolbar>
     )
 

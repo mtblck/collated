@@ -339,6 +339,29 @@ describe('App', () => {
     }
   })
 
+  it('on a phone, the page tools’ sheet closes for good with its page', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('max-width'),
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }))
+    try {
+      const { user, upload } = setup()
+      await upload('a.jpg', 'b.jpg')
+      await screen.findByRole('list', { name: '2 pages' })
+      await user.click(screen.getByRole('button', { name: 'Page 2: b.jpg' }))
+      const sheet = screen.getByRole('dialog', { name: 'Selected page' })
+      await user.click(within(sheet).getByRole('button', { name: 'Remove' }))
+      expect(screen.queryByRole('dialog', { name: 'Selected page' })).not.toBeInTheDocument()
+      // Undo brings the page back, not the sheet.
+      await user.click(screen.getByRole('button', { name: /^Undo/ }))
+      expect(pageLabels()).toEqual(['Page 1: a.jpg', 'Page 2: b.jpg'])
+      expect(screen.queryByRole('dialog', { name: 'Selected page' })).not.toBeInTheDocument()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('turns a PDF into one page per PDF page, shown as vector in the inspector', async () => {
     const { user, upload } = setup()
     await upload('lease.pdf', 'a.jpg')

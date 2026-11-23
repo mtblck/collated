@@ -440,6 +440,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
   }, [])
 
   const selectedIndex = pages.findIndex((p) => p.id === selectedId)
+  // The sheet closes for good with its page (removed, even if undone) or
+  // once the inspector has its own column again (a tablet turned sideways).
+  if (sheetFor !== null && (!narrow || !pages.some((p) => p.id === sheetFor))) setSheetFor(null)
   const sheet = narrow && sheetFor !== null && pages.some((p) => p.id === sheetFor)
   const sheetClose = useRef<HTMLButtonElement>(null)
   /** A control to focus when the sheet opens, in place of its Close button. */
@@ -484,6 +487,11 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
           `[data-page-id="${CSS.escape(pending.pageId)}"] [data-page-select]`,
         )
       : null
+    // Behind the page tools' sheet the pages are inert: stay in the sheet.
+    if (card?.closest('[inert]')) {
+      sheetClose.current?.focus()
+      return
+    }
     ;(card ?? document.querySelector<HTMLElement>('[data-focus-fallback]'))?.focus()
   }, [focusRequest])
 
@@ -755,9 +763,9 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
       // A plain click shows the page in the inspector, which says enough;
       // below lg that opens the inspector's sheet.
       if (mode !== 'only') announceSelection(next)
-      else setSheetFor(id)
+      else if (narrow) setSheetFor(id)
     },
-    [announceSelection, pages, selection],
+    [announceSelection, narrow, pages, selection],
   )
   const clearGroup = useCallback(() => {
     // Back to the page last picked, so the inspector (and focus in it) stays.
@@ -1999,6 +2007,8 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
                       const next = { ids: blankIds, anchor: blankIds[0] ?? null }
                       setSelection(next)
                       if (blankIds.length > 1) announceSelection(next)
+                      // Below lg their tools are a sheet: open it on them.
+                      if (narrow) setSheetFor(blankIds[0] ?? null)
                     }}
                     onRemove={onRemoveBlank}
                   />
@@ -2037,7 +2047,7 @@ export const App = ({ deps: injected }: { deps?: Partial<AppDeps> } = {}) => {
                 className={cx(
                   'scroll-pane px-4 py-6 sm:px-6 lg:mr-4 lg:mb-4 lg:w-[23rem] lg:shrink-0 lg:overflow-y-auto lg:overscroll-contain lg:rounded-[1.125rem] lg:bg-paper lg:px-6 lg:shadow-panel',
                   sheet
-                    ? 'max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-40 max-lg:mx-auto max-lg:max-h-[85dvh] max-lg:max-w-2xl max-lg:overflow-y-auto max-lg:overscroll-contain max-lg:rounded-t-[1.375rem] max-lg:bg-paper max-lg:pt-0 max-lg:shadow-panel'
+                    ? 'sheet-up max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-40 max-lg:mx-auto max-lg:max-h-[85dvh] max-lg:max-w-2xl max-lg:overflow-y-auto max-lg:overscroll-contain max-lg:rounded-t-[1.375rem] max-lg:bg-paper max-lg:pt-0 max-lg:shadow-panel'
                     : 'max-lg:hidden',
                 )}
               >

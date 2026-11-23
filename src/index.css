@@ -355,6 +355,17 @@
 :root:has(.dock) body {
   padding-bottom: var(--dock-room);
 }
+/* The page tools' sheet (App, below lg) slides up as it opens; with reduced
+   motion it just appears (the rule above shortens every animation). */
+@keyframes sheet-up {
+  from {
+    transform: translateY(2rem);
+    opacity: 0;
+  }
+}
+.sheet-up {
+  animation: sheet-up 180ms ease-out;
+}
 /* The landing dock carries the Support heart, so tipjar's own steps aside. */
 :root:has(.dock) .tipjar {
   display: none;
