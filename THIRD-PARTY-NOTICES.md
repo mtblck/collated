@@ -1,6 +1,6 @@
 # Third-party notices
 
-Collated is MIT-licensed. It ships these libraries in its built files. The
+Collated's code is MIT-licensed. It ships these libraries in its built files. The
 licence texts that must travel with them are published with the site under
 [`licenses/`](https://collatedpdf.com/licenses/THIRD-PARTY-NOTICES.md)
 (emitted by `licenses.ts` from the installed packages):

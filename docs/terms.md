@@ -5,9 +5,9 @@ order: 91
 
 # Terms of use
 
-_Last updated 24 October 2026._
+_Last updated 28 November 2026._
 
-Collated is free to use and open source under the [MIT licence](https://github.com/mtblck/collated/blob/main/LICENSE). By using it you agree to the following.
+Collated is free to use and open source under the [MIT licence](https://github.com/mtblck/collated/blob/main/LICENSE). The Collated name and logo aren't covered by that licence: see [how they may be used](https://github.com/mtblck/collated/tree/main/brand). By using it you agree to the following.
 
 - **As is.** Collated is provided as is, without warranty of any kind. Check the PDFs you make before relying on them, especially for anything official.
 - **Your documents are yours.** You are responsible for the documents you process and for having the right to use them. Collated never receives them (see the [privacy notice](privacy.md)).
