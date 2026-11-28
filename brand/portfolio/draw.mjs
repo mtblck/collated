@@ -68,7 +68,7 @@ function scene(W, H, { loose, stack, s, title }) {
   const [sx, sy] = stack
   for (let k = 4; k >= 1; k--)
     parts.push(use(k, cx + sx * s + k * 7 * s, cy + sy * s + k * 7 * s, 0, s))
-  // Top page: a blank sheet with the amber rule, as in the mark.
+  // Top page: a photo with the amber rule across it, as on the mark's front page.
   const tx = cx + sx * s - (PW * s) / 2,
     ty = cy + sy * s - (PH * s) / 2
   parts.push(

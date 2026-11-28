@@ -6,7 +6,7 @@
 // one (a real cut, no fill faking a hole), so it holds in one colour.
 // The name is lower case Geist SemiBold, tracked −3 %, as in the app's header.
 //
-//   BRAND_KIT=~/.claude/plugins/cache/mtblck/brand-kit/1.8.0/skills/logo
+//   export BRAND_KIT=~/.claude/plugins/cache/mtblck/brand-kit/1.8.0/skills/logo
 //   node brand/draw.mjs && node brand/portfolio/draw.mjs
 //   node $BRAND_KIT/scripts/export.mjs brand/brand.json
 import { dirname, join } from 'node:path'

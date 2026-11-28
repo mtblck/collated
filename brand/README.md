@@ -19,10 +19,11 @@ light table. The name is lower case Geist SemiBold, as in the header.
 ## Rebuilding the kit
 
 With the plugin installed (`/plugin marketplace add mtblck/claude-marketplace`,
-then `/plugin install brand-kit@mtblck`):
+then `/plugin install brand-kit@mtblck`), set `BRAND_KIT` to the installed
+version's `skills/logo` folder (the scripts read it, and fall back to 1.8.0):
 
 ```sh
-BRAND_KIT=~/.claude/plugins/cache/mtblck/brand-kit/1.8.0/skills/logo
+export BRAND_KIT=$(ls -d ~/.claude/plugins/cache/mtblck/brand-kit/*/skills/logo | sort -V | tail -1)
 node brand/draw.mjs && node brand/portfolio/draw.mjs
 node $BRAND_KIT/scripts/export.mjs brand/brand.json
 ```
