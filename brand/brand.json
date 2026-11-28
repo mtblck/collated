@@ -1,0 +1,125 @@
+{
+  "name": "Collated",
+  "shortName": "Collated",
+  "tagline": "Photos and scans into one PDF, on your device.",
+  "about": "Collated turns phone photos, scans and PDFs into one tidy PDF in the browser. Nothing is uploaded: the pages are put in order, straightened and exported on your own device.\n\nThe mark is two pages, one laid over the other, with an amber rule on the front one: the moment loose pages become a set.",
+  "construction": "On a 256 grid: two 128 × 164 pages with one 20-unit band and a 10-unit radius, the back one offset 48 right and 40 up and cut 14 clear of the front, and a 20-unit amber rule across the front page.",
+  "website": "collatedpdf.com",
+  "direction": {
+    "words": [
+      "calm",
+      "exact",
+      "private"
+    ],
+    "pairs": {
+      "tone": "serious",
+      "era": "modern",
+      "volume": "quiet",
+      "finish": "crisp"
+    },
+    "references": {
+      "like": [
+        "a light table",
+        "Swiss utility"
+      ],
+      "avoid": [
+        "cloud badges",
+        "gradients"
+      ]
+    },
+    "lives": "app",
+    "weirdness": 1
+  },
+  "colors": [
+    {
+      "name": "Ink",
+      "hex": "#15171b",
+      "role": "primary",
+      "usage": "The wordmark, the mark and body text on light grounds."
+    },
+    {
+      "name": "Amber",
+      "hex": "#905100",
+      "role": "accent",
+      "usage": "The rule in the mark and one highlight per layout on light grounds; links and the selected state in the app."
+    },
+    {
+      "name": "Paper",
+      "hex": "#fcfdfe",
+      "role": "paper",
+      "usage": "Pages, panels and light backgrounds."
+    },
+    {
+      "name": "Light table",
+      "hex": "#121417",
+      "role": "dark",
+      "usage": "Dark grounds, the app icon tile and the dark theme."
+    },
+    {
+      "name": "Lamp",
+      "hex": "#ffb64f",
+      "role": "accent-dark",
+      "usage": "Amber on dark grounds, where Amber is too dim."
+    },
+    {
+      "name": "Ground",
+      "hex": "#e8e9ec",
+      "role": "support",
+      "usage": "The light theme’s work area behind the pages."
+    }
+  ],
+  "type": {
+    "display": {
+      "family": "Geist",
+      "weight": 600
+    },
+    "text": {
+      "family": "Geist",
+      "weight": 400
+    }
+  },
+  "logos": {
+    "mark": {
+      "file": "mark.svg",
+      "dark": "mark-dark.svg",
+      "minWidth": 16
+    },
+    "horizontal": {
+      "file": "logo-horizontal.svg",
+      "dark": "logo-horizontal-dark.svg",
+      "minWidth": 96
+    },
+    "stacked": {
+      "file": "logo-stacked.svg",
+      "dark": "logo-stacked-dark.svg",
+      "minWidth": 64
+    }
+  },
+  "icon": {
+    "file": "mark-dark.svg",
+    "background": "#121417",
+    "favicon": "favicon.svg",
+    "themeColor": "#fcfdfe"
+  },
+  "clearSpace": 0.25,
+  "templates": {
+    "background": "#121417"
+  },
+  "palette": {
+    "brand": "#15171b",
+    "accent": "#905100",
+    "neutral": "#15171b"
+  },
+  "legal": {
+    "owner": "Matt Black",
+    "contact": "https://github.com/mtblck/collated/issues",
+    "codeLicense": "MIT"
+  },
+  "portfolio": {
+    "cover": "portfolio/cover.svg",
+    "mobile": "portfolio/cover-mobile.svg",
+    "alt": "On a dark light table, a loose scatter of tilted photos and scans slides toward the middle, where the same pages lie squared into one neat stack, the top page marked with an amber rule."
+  },
+  "exports": "all",
+  "out": "dist"
+}

@@ -4,3 +4,5 @@ shots
 package-lock.json
 # Copied as-is from repo-setup (mtblck/claude-marketplace); update by copying again.
 .github/scripts
+# Written by brand/draw.mjs.
+brand/brand.json
